@@ -24,11 +24,18 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		// Search: hybrid keyword + vector search across all issues
 		this.server.tool(
 			"search",
-			"Search across all your issues and projects using keyword and semantic search",
+			`Search issues across all repositories.
+
+Returns: Array<{ id, title, repo, state }>
+
+Examples:
+  search({ query: "authentication bug" })
+  search({ query: "P0 urgent", limit: 5 })`,
 			{
-				query: z.string().describe("Search query"),
-				limit: z.number().optional().default(20).describe("Maximum results"),
+				query: z.string().describe("Search text (matches title, body, labels)"),
+				limit: z.number().optional().default(20).describe("Max results (default: 20)"),
 			},
+			{ readOnlyHint: true },
 			async ({ query, limit }) => {
 				try {
 					const env = this.env as Env;
@@ -128,11 +135,18 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		// Fetch: get details of a specific issue
 		this.server.tool(
 			"fetch",
-			"Fetch details of a specific issue by number or ID",
+			`Get full details of a specific issue.
+
+Returns: { id, title, body, state, labels[], assignees[], milestone?, createdAt, updatedAt }
+
+Examples:
+  fetch({ repo: "owner/repo", issue: "42" })      // by GitHub number
+  fetch({ repo: "owner/repo", issue: "abc123" })  // by local ID`,
 			{
-				repo: z.string().describe("Repository in owner/name format"),
-				issue: z.string().describe("Issue number or ID"),
+				repo: z.string().describe("Repository (owner/name)"),
+				issue: z.string().describe("Issue number or local ID"),
 			},
+			{ readOnlyHint: true },
 			async ({ repo, issue }) => {
 				try {
 					const env = this.env as Env;
@@ -183,8 +197,23 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		// Roadmap: get current roadmap state
 		this.server.tool(
 			"roadmap",
-			"Get current roadmap: milestones, issues, and progress across all repositories",
+			`Get roadmap with milestones, issues, and progress. No parameters needed.
+
+Returns: Markdown with progress (X/Y complete), milestones with %, and issue checklists.
+
+Example output:
+  # Roadmap
+  5/12 complete · 2 milestones
+
+  ## v1.0 (75%)
+  Due: 2024-03-01
+  - [x] Implement auth
+  - [ ] Add dashboard
+
+  ## Backlog
+  - [ ] Future feature`,
 			{},
+			{ readOnlyHint: true },
 			async () => {
 				try {
 					const env = this.env as Env;
@@ -257,11 +286,47 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		// Do: execute dynamic code with full API access
 		this.server.tool(
 			"do",
-			"Execute code with full API access to issues, milestones, GitHub, and more. The code runs in a sandboxed environment with access to: issues.list(), issues.get(id), issues.update(id, data), issues.close(id), milestones.list(), milestones.get(id), github.createComment(num, body), github.updateIssue(num, data), github.addLabels(num, labels), todo.render(), log(level, msg)",
+			`Execute JavaScript in a sandboxed environment with full API access.
+
+Available APIs:
+
+issues.get(id)                    → Issue | null
+issues.list({ status?, limit? })  → Issue[]
+issues.update(id, { status?, title?, body? })
+issues.close(id, reason?)
+
+milestones.get(id)                → Milestone | null
+milestones.list({ state?, limit? }) → Milestone[]
+milestones.update(id, { state?, title?, description?, dueOn? })
+milestones.close(id)
+
+github.createComment(num, body)   → creates comment on issue #num
+github.updateIssue(num, { title?, body?, state?, labels?, assignees? })
+github.addLabels(num, labels[])   → adds labels to issue #num
+github.createLabel(name, color, description?)
+
+todo.render()                     → markdown string of open issues
+log(level, msg)                   → level: 'info' | 'warn' | 'error'
+
+Examples:
+  // List open issues
+  const open = await issues.list({ status: 'open' })
+  return open.map(i => i.title)
+
+  // Close issue and comment
+  await issues.close('abc123')
+  await github.createComment(42, 'Closing as resolved')
+
+  // Bulk label
+  const bugs = await issues.list({ status: 'open' })
+  for (const bug of bugs.filter(i => i.title.includes('bug'))) {
+    await github.addLabels(bug.githubNumber, ['bug'])
+  }`,
 			{
-				repo: z.string().describe("Repository in owner/name format"),
-				code: z.string().describe("JavaScript code to execute. Has access to: issues, milestones, github, todo, log APIs"),
+				repo: z.string().describe("Repository (owner/name)"),
+				code: z.string().describe("JavaScript code (async, use return for output)"),
 			},
+			{ destructiveHint: true },
 			async ({ repo, code }) => {
 				try {
 					const env = this.env as Env;
