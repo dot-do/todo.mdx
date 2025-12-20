@@ -7,7 +7,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { voice } from './voice'
-import { mcp } from './mcp'
+import { mcp, TodoMCP } from './mcp'
 import { linear } from './api/linear'
 import { authMiddleware, type AuthContext } from './auth'
 import type { Env } from './types'
@@ -15,6 +15,8 @@ import type { Env } from './types'
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
 export { DevelopWorkflow } from './workflows/develop'
+export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
+export { TodoMCP }
 
 // Re-export Env type for external use
 export type { Env }
@@ -43,10 +45,30 @@ app.get('/', (c) => {
 app.route('/api/voice', voice)
 
 // ============================================
-// MCP Server with OAuth 2.1
+// MCP Server with OAuth 2.1 (handled by OAuthProvider)
 // ============================================
 
-app.route('/mcp', mcp)
+// Forward .well-known requests to OAuthProvider (it handles these automatically)
+app.all('/.well-known/*', async (c) => {
+  return mcp.fetch(c.req.raw, c.env, c.executionCtx)
+})
+
+// Root-level OAuth endpoints (OAuthProvider handles these)
+app.all('/authorize', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
+app.all('/token', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
+app.all('/register', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
+app.all('/register/*', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
+app.all('/callback', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
+app.all('/sse', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
+
+// Forward /mcp requests to OAuthProvider (pass as-is, OAuthProvider routes by apiRoute)
+app.all('/mcp/*', async (c) => {
+  return mcp.fetch(c.req.raw, c.env, c.executionCtx)
+})
+
+app.all('/mcp', async (c) => {
+  return mcp.fetch(c.req.raw, c.env, c.executionCtx)
+})
 
 // ============================================
 // Linear Integration API routes
@@ -260,6 +282,19 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
 async function handleIssues(c: any, payload: any): Promise<Response> {
   const repo = payload.repository
   const issue = payload.issue
+  const action = payload.action
+
+  // Handle delete - remove from Vectorize
+  if (action === 'deleted') {
+    try {
+      await c.env.VECTORIZE.deleteByIds([
+        `issue:${repo.full_name}:${issue.number}`
+      ])
+    } catch (e) {
+      console.error('Failed to delete vector:', e)
+    }
+    return c.json({ status: 'deleted', action })
+  }
 
   const doId = c.env.REPO.idFromName(repo.full_name)
   const stub = c.env.REPO.get(doId)
@@ -283,13 +318,49 @@ async function handleIssues(c: any, payload: any): Promise<Response> {
   }))
 
   const result = await response.json()
-  return c.json({ status: 'synced', action: payload.action, result })
+
+  // Trigger embedding workflow for create/update events
+  if (['opened', 'edited', 'closed', 'reopened'].includes(action)) {
+    try {
+      await c.env.EMBED_WORKFLOW.create({
+        id: `embed-issue-${repo.full_name}-${issue.number}-${Date.now()}`,
+        params: {
+          type: 'issue' as const,
+          id: `issue:${repo.full_name}:${issue.number}`,
+          repo: repo.full_name,
+          title: issue.title,
+          body: issue.body || '',
+          status: issue.state,
+          url: issue.html_url,
+          labels: issue.labels?.map((l: any) => l.name),
+        },
+      })
+      console.log(`Dispatched embedding workflow for issue ${issue.number}`)
+    } catch (e) {
+      console.error('Failed to dispatch embedding workflow:', e)
+    }
+  }
+
+  return c.json({ status: 'synced', action, result })
 }
 
 // Milestone webhook
 async function handleMilestone(c: any, payload: any): Promise<Response> {
   const repo = payload.repository
   const milestone = payload.milestone
+  const action = payload.action
+
+  // Handle delete - remove from Vectorize
+  if (action === 'deleted') {
+    try {
+      await c.env.VECTORIZE.deleteByIds([
+        `milestone:${repo.full_name}:${milestone.number}`
+      ])
+    } catch (e) {
+      console.error('Failed to delete milestone vector:', e)
+    }
+    return c.json({ status: 'deleted', action })
+  }
 
   const doId = c.env.REPO.idFromName(repo.full_name)
   const stub = c.env.REPO.get(doId)
@@ -312,7 +383,29 @@ async function handleMilestone(c: any, payload: any): Promise<Response> {
   }))
 
   const result = await response.json()
-  return c.json({ status: 'synced', action: payload.action, result })
+
+  // Trigger embedding workflow for create/update events
+  if (['created', 'edited', 'closed', 'opened'].includes(action)) {
+    try {
+      await c.env.EMBED_WORKFLOW.create({
+        id: `embed-milestone-${repo.full_name}-${milestone.number}-${Date.now()}`,
+        params: {
+          type: 'milestone' as const,
+          id: `milestone:${repo.full_name}:${milestone.number}`,
+          repo: repo.full_name,
+          title: milestone.title,
+          body: milestone.description || '',
+          status: milestone.state,
+          url: milestone.html_url,
+        },
+      })
+      console.log(`Dispatched embedding workflow for milestone ${milestone.number}`)
+    } catch (e) {
+      console.error('Failed to dispatch embedding workflow:', e)
+    }
+  }
+
+  return c.json({ status: 'synced', action, result })
 }
 
 // Push webhook (for .todo/*.md and TODO.md file changes)

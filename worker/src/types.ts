@@ -18,7 +18,8 @@ export interface Env {
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
-  AI: any
+  AI: Ai
+  VECTORIZE: VectorizeIndex
   LOADER: any
   OAUTH_KV: KVNamespace
   // PAYLOAD is a service binding to the Payload CMS worker
@@ -27,6 +28,8 @@ export interface Env {
 
   // Cloudflare Workflows
   DEVELOP_WORKFLOW: WorkflowNamespace
+  EMBED_WORKFLOW: WorkflowNamespace
+  BULK_EMBED_WORKFLOW: WorkflowNamespace
 
   // GitHub App (webhooks only)
   GITHUB_APP_ID: string

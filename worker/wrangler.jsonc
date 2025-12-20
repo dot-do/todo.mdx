@@ -6,10 +6,32 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Workers AI for voice
+  // Custom domain routes - MCP OAuth at root, API under paths
+  "routes": [
+    { "pattern": "todo.mdx.do/.well-known/*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/authorize*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/token*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/register*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/callback*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/sse*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/mcp*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/api/*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/github/*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/linear/*", "zone_name": "mdx.do" }
+  ],
+
+  // Workers AI for voice and embeddings
   "ai": {
     "binding": "AI"
   },
+
+  // Vectorize for semantic search
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "todo-embeddings"
+    }
+  ],
 
   // D1 Database for app installs and DO registry
   "d1_databases": [
@@ -25,7 +47,8 @@
   "durable_objects": {
     "bindings": [
       { "name": "REPO", "class_name": "RepoDO" },
-      { "name": "PROJECT", "class_name": "ProjectDO" }
+      { "name": "PROJECT", "class_name": "ProjectDO" },
+      { "name": "MCP_OBJECT", "class_name": "TodoMCP" }
     ]
   },
 
@@ -33,6 +56,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["RepoDO", "ProjectDO"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["TodoMCP"]
     }
   ],
 
@@ -42,6 +69,16 @@
       "binding": "DEVELOP_WORKFLOW",
       "name": "develop-workflow",
       "class_name": "DevelopWorkflow"
+    },
+    {
+      "binding": "EMBED_WORKFLOW",
+      "name": "embed-workflow",
+      "class_name": "EmbedWorkflow"
+    },
+    {
+      "binding": "BULK_EMBED_WORKFLOW",
+      "name": "bulk-embed-workflow",
+      "class_name": "BulkEmbedWorkflow"
     }
   ],
 
@@ -64,9 +101,7 @@
 
   // Environment variables (set via wrangler secret)
   // GitHub App: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
-  // WorkOS AuthKit: WORKOS_API_KEY, WORKOS_CLIENT_ID, WORKOS_CLIENT_SECRET
-  // OAuth: OAUTH_DO_CLIENT_ID, OAUTH_DO_ISSUER
+  // WorkOS AuthKit: WORKOS_CLIENT_ID, WORKOS_CLIENT_SECRET, COOKIE_ENCRYPTION_KEY
   // Linear: LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET, LINEAR_WEBHOOK_SECRET
   // AI: ANTHROPIC_API_KEY
-  // Future - Slack: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET
 }
