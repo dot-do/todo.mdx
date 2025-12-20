@@ -12,6 +12,7 @@ import { z } from "zod";
 import { AuthkitHandler } from "./authkit-handler";
 import type { Props } from "./props";
 import type { Env } from "../types";
+import { executeSandboxedWorkflow } from "../sandbox";
 
 export class TodoMCP extends McpAgent<Env, unknown, Props> {
 	server = new McpServer({
@@ -20,30 +21,123 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 	});
 
 	async init() {
-		// Basic test tool
+		// Search: hybrid keyword + vector search across all issues
 		this.server.tool(
-			"add",
-			"Add two numbers",
-			{ a: z.number(), b: z.number() },
-			async ({ a, b }) => ({
-				content: [{ type: "text", text: String(a + b) }],
-			}),
+			"search",
+			"Search across all your issues and projects using keyword and semantic search",
+			{
+				query: z.string().describe("Search query"),
+				limit: z.number().optional().default(20).describe("Maximum results"),
+			},
+			async ({ query, limit }) => {
+				try {
+					const env = this.env as Env;
+					const userId = this.props?.user?.id;
+					const queryLower = query.toLowerCase();
+
+					const [keywordResults, vectorResults] = await Promise.all([
+						// Keyword search
+						(async () => {
+							const results: Array<{ id: string; title: string; repo: string; state: string }> = [];
+							const reposResult = await env.PAYLOAD.find({
+								collection: "repos",
+								where: { "installation.users.workosUserId": { equals: userId } },
+								limit: 100,
+							});
+
+							for (const repo of (reposResult.docs || []) as any[]) {
+								const doId = env.REPO.idFromName(repo.fullName);
+								const stub = env.REPO.get(doId);
+								const issuesResponse = await stub.fetch(new Request("http://do/issues"));
+								const issues = await issuesResponse.json() as any[];
+
+								for (const issue of issues) {
+									if (
+										issue.title?.toLowerCase().includes(queryLower) ||
+										issue.body?.toLowerCase().includes(queryLower) ||
+										issue.labels?.some((l: string) => l.toLowerCase().includes(queryLower))
+									) {
+										results.push({
+											id: issue.githubNumber?.toString() || issue.id,
+											title: issue.title,
+											repo: repo.fullName,
+											state: issue.state,
+										});
+									}
+								}
+							}
+							return results;
+						})(),
+
+						// Vector search
+						(async () => {
+							const results: Array<{ id: string; title: string; repo: string; state: string; score: number }> = [];
+							try {
+								const embeddingResult = await env.AI.run("@cf/baai/bge-m3", { text: [query] }) as { data: number[][] };
+								const vectorResult = await env.VECTORIZE.query(embeddingResult.data[0], {
+									topK: Math.min(limit, 50),
+									returnMetadata: "all",
+								});
+
+								for (const match of vectorResult.matches) {
+									results.push({
+										id: match.id,
+										title: match.metadata?.title as string || "Untitled",
+										repo: match.metadata?.repo as string || "",
+										state: match.metadata?.status as string || "unknown",
+										score: match.score,
+									});
+								}
+							} catch (e) {
+								console.log("Vector search error:", e);
+							}
+							return results;
+						})(),
+					]);
+
+					// Combine: keyword first, then vector (deduplicated)
+					const seenIds = new Set<string>();
+					const results: Array<{ id: string; title: string; repo: string; state: string }> = [];
+
+					for (const r of keywordResults) {
+						if (!seenIds.has(r.id) && results.length < limit) {
+							seenIds.add(r.id);
+							results.push(r);
+						}
+					}
+
+					for (const r of vectorResults.sort((a, b) => b.score - a.score)) {
+						if (!seenIds.has(r.id) && results.length < limit) {
+							seenIds.add(r.id);
+							results.push({ id: r.id, title: r.title, repo: r.repo, state: r.state });
+						}
+					}
+
+					return {
+						content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+					};
+				} catch (error: any) {
+					return {
+						content: [{ type: "text", text: `Error: ${error.message}` }],
+						isError: true,
+					};
+				}
+			},
 		);
 
-		// List todos from a repository
+		// Fetch: get details of a specific issue
 		this.server.tool(
-			"list_todos",
-			"List todos from a repository",
+			"fetch",
+			"Fetch details of a specific issue by number or ID",
 			{
 				repo: z.string().describe("Repository in owner/name format"),
-				status: z.enum(["open", "closed", "all"]).optional().describe("Filter by status"),
+				issue: z.string().describe("Issue number or ID"),
 			},
-			async ({ repo, status }) => {
+			async ({ repo, issue }) => {
 				try {
 					const env = this.env as Env;
 					const userId = this.props?.user?.id;
 
-					// Verify access via Payload RPC
 					const result = await env.PAYLOAD.find({
 						collection: "repos",
 						where: {
@@ -65,74 +159,17 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 					const doId = env.REPO.idFromName(repo);
 					const stub = env.REPO.get(doId);
 
-					const response = await stub.fetch(new Request("http://do/issues"));
-					const issues = await response.json();
-
-					return {
-						content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
-		);
-
-		// Create a new todo
-		this.server.tool(
-			"create_todo",
-			"Create a new todo in a repository",
-			{
-				repo: z.string().describe("Repository in owner/name format"),
-				title: z.string().describe("Todo title"),
-				body: z.string().optional().describe("Todo body/description"),
-				labels: z.array(z.string()).optional().describe("Labels to apply"),
-			},
-			async ({ repo, title, body, labels }) => {
-				try {
-					const env = this.env as Env;
-					const userId = this.props?.user?.id;
-
-					// Verify access
-					const result = await env.PAYLOAD.find({
-						collection: "repos",
-						where: {
-							and: [
-								{ fullName: { equals: repo } },
-								{ "installation.users.workosUserId": { equals: userId } },
-							],
-						},
-						limit: 1,
-					});
-
-					if (!result.docs?.length) {
+					const response = await stub.fetch(new Request(`http://do/issues/${issue}`));
+					if (!response.ok) {
 						return {
-							content: [{ type: "text", text: "Access denied" }],
+							content: [{ type: "text", text: `Issue not found: ${issue}` }],
 							isError: true,
 						};
 					}
 
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					await stub.fetch(new Request("http://do/issues/sync", {
-						method: "POST",
-						body: JSON.stringify({
-							source: "mcp",
-							issues: [{
-								title,
-								body: body || "",
-								state: "open",
-								labels: labels || [],
-							}],
-						}),
-						headers: { "Content-Type": "application/json" },
-					}));
-
+					const issueData = await response.json();
 					return {
-						content: [{ type: "text", text: `Created todo: ${title}` }],
+						content: [{ type: "text", text: JSON.stringify(issueData, null, 2) }],
 					};
 				} catch (error: any) {
 					return {
@@ -143,180 +180,10 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 			},
 		);
 
-		// List milestones
-		this.server.tool(
-			"list_milestones",
-			"List milestones from a repository",
-			{
-				repo: z.string().describe("Repository in owner/name format"),
-			},
-			async ({ repo }) => {
-				try {
-					const env = this.env as Env;
-					const userId = this.props?.user?.id;
-
-					const result = await env.PAYLOAD.find({
-						collection: "repos",
-						where: {
-							and: [
-								{ fullName: { equals: repo } },
-								{ "installation.users.workosUserId": { equals: userId } },
-							],
-						},
-						limit: 1,
-					});
-
-					if (!result.docs?.length) {
-						return {
-							content: [{ type: "text", text: "Access denied" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					const response = await stub.fetch(new Request("http://do/milestones"));
-					const milestones = await response.json();
-
-					return {
-						content: [{ type: "text", text: JSON.stringify(milestones, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
-		);
-
-		// Hybrid search: runs keyword + vector search in parallel
-		// Keyword matches come first, then vector results sorted by score
-		this.server.tool(
-			"search",
-			"Search across all your issues and projects",
-			{
-				query: z.string().describe("Search query (matches title, body, labels)"),
-				limit: z.number().optional().default(50).describe("Maximum results to return"),
-				type: z.enum(["issue", "milestone", "all"]).optional().default("all").describe("Filter by type"),
-			},
-			async ({ query, limit, type }) => {
-				try {
-					const env = this.env as Env;
-					const userId = this.props?.user?.id;
-					const queryLower = query.toLowerCase();
-
-					// Run keyword and vector search in parallel
-					const [keywordResults, vectorResults] = await Promise.all([
-						// Keyword search
-						(async () => {
-							const results: Array<{ id: string; title: string; url: string }> = [];
-							try {
-								const reposResult = await env.PAYLOAD.find({
-									collection: "repos",
-									where: {
-										"installation.users.workosUserId": { equals: userId },
-									},
-									limit: 100,
-								});
-
-								for (const repo of (reposResult.docs || []) as any[]) {
-									const doId = env.REPO.idFromName(repo.fullName);
-									const stub = env.REPO.get(doId);
-
-									const issuesResponse = await stub.fetch(new Request("http://do/issues"));
-									const issues = await issuesResponse.json() as any[];
-
-									for (const issue of issues) {
-										const matchesQuery =
-											issue.title?.toLowerCase().includes(queryLower) ||
-											issue.body?.toLowerCase().includes(queryLower) ||
-											issue.labels?.some((l: string) => l.toLowerCase().includes(queryLower));
-
-										if (matchesQuery) {
-											results.push({
-												id: `issue:${repo.fullName}:${issue.githubNumber || issue.id}`,
-												title: `[${issue.state}] ${issue.title}`,
-												url: `https://github.com/${repo.fullName}/issues/${issue.githubNumber || issue.id}`,
-											});
-										}
-									}
-								}
-							} catch (e) {
-								console.log("Keyword search error:", e);
-							}
-							return results;
-						})(),
-
-						// Vector search
-						(async () => {
-							const results: Array<{ id: string; title: string; url: string; score: number }> = [];
-							try {
-								const embeddingResult = await env.AI.run("@cf/baai/bge-m3", {
-									text: [query],
-								}) as { data: number[][] };
-
-								const queryEmbedding = embeddingResult.data[0];
-
-								const vectorResult = await env.VECTORIZE.query(queryEmbedding, {
-									topK: Math.min(limit, 50),
-									filter: type !== "all" ? { type } : undefined,
-									returnMetadata: "all",
-								});
-
-								for (const match of vectorResult.matches) {
-									results.push({
-										id: match.id,
-										title: `[${match.metadata?.status || "unknown"}] ${match.metadata?.title || "Untitled"}`,
-										url: match.metadata?.url as string || "",
-										score: match.score,
-									});
-								}
-							} catch (e) {
-								console.log("Vector search error:", e);
-							}
-							return results;
-						})(),
-					]);
-
-					// Combine: keyword results first, then vector results (deduplicated)
-					const seenIds = new Set<string>();
-					const results: Array<{ id: string; title: string; url: string; score?: number }> = [];
-
-					// Add keyword results first (exact matches)
-					for (const r of keywordResults) {
-						if (!seenIds.has(r.id) && results.length < limit) {
-							seenIds.add(r.id);
-							results.push(r);
-						}
-					}
-
-					// Add vector results sorted by score (semantic matches)
-					const sortedVectorResults = vectorResults.sort((a, b) => b.score - a.score);
-					for (const r of sortedVectorResults) {
-						if (!seenIds.has(r.id) && results.length < limit) {
-							seenIds.add(r.id);
-							results.push(r);
-						}
-					}
-
-					return {
-						content: [{ type: "text", text: JSON.stringify(results) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Search error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
-		);
-
-		// Roadmap - get current roadmap state
+		// Roadmap: get current roadmap state
 		this.server.tool(
 			"roadmap",
-			"Get current roadmap state: all milestones, issues, and progress",
+			"Get current roadmap: milestones, issues, and progress across all repositories",
 			{},
 			async () => {
 				try {
@@ -325,9 +192,7 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 
 					const reposResult = await env.PAYLOAD.find({
 						collection: "repos",
-						where: {
-							"installation.users.workosUserId": { equals: userId },
-						},
+						where: { "installation.users.workosUserId": { equals: userId } },
 						limit: 100,
 					});
 
@@ -350,7 +215,6 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 						allMilestones.push(...milestones.map(m => ({ ...m, repo: repo.fullName })));
 					}
 
-					// Render roadmap
 					const closed = allIssues.filter(i => i.state === "closed").length;
 					const lines = [
 						"# Roadmap",
@@ -380,6 +244,89 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 
 					return {
 						content: [{ type: "text", text: lines.join("\n") }],
+					};
+				} catch (error: any) {
+					return {
+						content: [{ type: "text", text: `Error: ${error.message}` }],
+						isError: true,
+					};
+				}
+			},
+		);
+
+		// Do: execute dynamic code with full API access
+		this.server.tool(
+			"do",
+			"Execute code with full API access to issues, milestones, GitHub, and more. The code runs in a sandboxed environment with access to: issues.list(), issues.get(id), issues.update(id, data), issues.close(id), milestones.list(), milestones.get(id), github.createComment(num, body), github.updateIssue(num, data), github.addLabels(num, labels), todo.render(), log(level, msg)",
+			{
+				repo: z.string().describe("Repository in owner/name format"),
+				code: z.string().describe("JavaScript code to execute. Has access to: issues, milestones, github, todo, log APIs"),
+			},
+			async ({ repo, code }) => {
+				try {
+					const env = this.env as Env;
+					const userId = this.props?.user?.id;
+
+					// Verify access
+					const result = await env.PAYLOAD.find({
+						collection: "repos",
+						where: {
+							and: [
+								{ fullName: { equals: repo } },
+								{ "installation.users.workosUserId": { equals: userId } },
+							],
+						},
+						limit: 1,
+					});
+
+					if (!result.docs?.length) {
+						return {
+							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
+							isError: true,
+						};
+					}
+
+					const repoDoc = result.docs[0] as any;
+					const installationId = repoDoc.installation?.installationId;
+
+					if (!installationId) {
+						return {
+							content: [{ type: "text", text: "No GitHub installation found for this repository" }],
+							isError: true,
+						};
+					}
+
+					// Wrap the user's code in a module that exports a run function
+					const wrappedCode = `
+import { issues, milestones, github, todo, log } from 'sandbox-client.js';
+
+export async function run() {
+  ${code}
+}
+`;
+
+					// Create execution context for sandbox
+					const ctx = {
+						waitUntil: (promise: Promise<any>) => { /* DO handles this internally */ },
+						passThroughOnException: () => { /* no-op for DO */ },
+					} as ExecutionContext;
+
+					// Execute in sandbox
+					const sandboxResult = await executeSandboxedWorkflow(
+						env,
+						ctx,
+						{
+							id: `mcp-do-${Date.now()}`,
+							repoFullName: repo,
+							installationId,
+							code: wrappedCode,
+							entrypoint: "run",
+							args: [],
+						}
+					);
+
+					return {
+						content: [{ type: "text", text: JSON.stringify(sandboxResult, null, 2) }],
 					};
 				} catch (error: any) {
 					return {
