@@ -22,7 +22,7 @@ export interface Issue {
   beadsId?: string
   title: string
   body?: string
-  state: 'open' | 'closed'
+  state: 'open' | 'in_progress' | 'closed'
   labels?: string[]
   assignees?: string[]
   priority?: number

@@ -39,18 +39,25 @@ async function loadBeadsIssues(): Promise<Issue[]> {
     if (!beadsDir) return []
 
     const rawIssues = await sdk.readIssuesFromJsonl(beadsDir)
-    return rawIssues.map((i: any) => ({
-      id: i.id,
-      beadsId: i.id,
-      title: i.title,
-      body: i.description,
-      state: i.status === 'closed' ? 'closed' : 'open',
-      labels: i.labels || [],
-      priority: i.priority,
-      type: i.type,
-      createdAt: i.created?.toISOString() || new Date().toISOString(),
-      updatedAt: i.updated?.toISOString() || new Date().toISOString(),
-    }))
+    return rawIssues.map((i: any) => {
+      // Map beads status to Issue state
+      let state: 'open' | 'in_progress' | 'closed' = 'open'
+      if (i.status === 'closed') state = 'closed'
+      else if (i.status === 'in_progress') state = 'in_progress'
+
+      return {
+        id: i.id,
+        beadsId: i.id,
+        title: i.title,
+        body: i.description,
+        state,
+        labels: i.labels || [],
+        priority: i.priority,
+        type: i.type === 'epic' ? 'feature' : i.type,
+        createdAt: i.created?.toISOString() || new Date().toISOString(),
+        updatedAt: i.updated?.toISOString() || new Date().toISOString(),
+      }
+    })
   } catch {
     return []
   }
@@ -187,6 +194,11 @@ function hydrateTemplate(
     return renderIssueList(issues, 'All Issues')
   })
 
+  result = result.replace(/<Issues\.InProgress\s*\/>/g, () => {
+    const inProgress = issues.filter(i => i.state === 'in_progress')
+    return renderIssueList(inProgress, 'In Progress')
+  })
+
   result = result.replace(/<Issues\.Ready(?:\s+limit=\{(\d+)\})?\s*\/>/g, (_, limit) => {
     const ready = issues.filter(i => i.state === 'open').slice(0, limit ? parseInt(limit) : 10)
     return renderIssueList(ready, 'Ready to Work')
@@ -200,15 +212,17 @@ function hydrateTemplate(
 }
 
 /** Render issue list as markdown */
-function renderIssueList(issues: Issue[], title: string): string {
+function renderIssueList(issues: Issue[], _title: string): string {
   if (issues.length === 0) {
-    return `### ${title}\n\n_No issues_\n`
+    return '_No issues_\n'
   }
 
-  const lines = [`### ${title}\n`]
+  const lines: string[] = []
 
   for (const issue of issues) {
-    const checkbox = issue.state === 'closed' ? '[x]' : '[ ]'
+    let checkbox = '[ ]'
+    if (issue.state === 'closed') checkbox = '[x]'
+    else if (issue.state === 'in_progress') checkbox = '[-]'
     const priority = issue.priority !== undefined ? ` (P${issue.priority})` : ''
     const labels = issue.labels?.length ? ` [${issue.labels.join(', ')}]` : ''
     lines.push(`- ${checkbox} **${issue.id}**: ${issue.title}${priority}${labels}`)
@@ -221,21 +235,31 @@ function renderIssueList(issues: Issue[], title: string): string {
 /** Render stats as markdown */
 function renderStats(issues: Issue[]): string {
   const open = issues.filter(i => i.state === 'open').length
+  const inProgress = issues.filter(i => i.state === 'in_progress').length
   const closed = issues.filter(i => i.state === 'closed').length
   const total = issues.length
   const percent = total > 0 ? Math.round((closed / total) * 100) : 0
 
-  return `**${open} open** · ${closed} closed · ${total} total (${percent}% complete)\n`
+  const parts = [`**${open} open**`]
+  if (inProgress > 0) parts.push(`${inProgress} in progress`)
+  parts.push(`${closed} closed`, `${total} total (${percent}% complete)`)
+
+  return parts.join(' · ') + '\n'
 }
 
 /** Default TODO.mdx template */
 const DEFAULT_TEMPLATE = `---
 title: TODO
+beads: true
 ---
 
 # {title}
 
 <Stats />
+
+## In Progress
+
+<Issues.InProgress />
 
 ## Open Issues
 
