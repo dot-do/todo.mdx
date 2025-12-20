@@ -3,9 +3,6 @@
 import * as React from 'react'
 import { Dashboard } from '../components/dashboard'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../components/card'
-import { BurndownChart } from '../components/analytics/BurndownChart'
-import { VelocityChart } from '../components/analytics/VelocityChart'
-import { CumulativeFlowDiagram } from '../components/analytics/CumulativeFlowDiagram'
 import { ProjectsView, type Issue } from '../components/projects'
 
 interface DashboardPageProps {
@@ -204,11 +201,13 @@ function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Analytics</h2>
-      <div className="grid gap-6">
-        <BurndownChart />
-        <VelocityChart />
-        <CumulativeFlowDiagram />
-      </div>
+      <Card>
+        <CardContent className="pt-6">
+          <p className="text-gray-500 dark:text-gray-400">
+            Analytics charts coming soon.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   )
 }

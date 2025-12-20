@@ -6,9 +6,13 @@
  */
 
 import { Hono } from 'hono'
+import { authMiddleware } from '../auth'
 import type { Env } from '../types'
 
 const app = new Hono<{ Bindings: Env }>()
+
+// All terminal routes require authentication
+app.use('/*', authMiddleware)
 
 /**
  * Session stored in KV

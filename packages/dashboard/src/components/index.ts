@@ -15,11 +15,6 @@ export { StatsCards } from './stats-cards'
 export { IssueList } from './issue-list'
 export { ProjectsView } from './projects'
 
-// Analytics components
-export { BurndownChart } from './analytics/BurndownChart'
-export { VelocityChart } from './analytics/VelocityChart'
-export { CumulativeFlowDiagram } from './analytics/CumulativeFlowDiagram'
-
 export type { DashboardProps } from './dashboard'
 export type { DashboardLayoutProps } from './layout'
 export type { DashboardNavProps } from './nav'

@@ -37,6 +37,11 @@ export interface Env {
   GITHUB_PRIVATE_KEY: string
   GITHUB_WEBHOOK_SECRET: string
 
+  // Linear Integration
+  LINEAR_CLIENT_ID?: string
+  LINEAR_CLIENT_SECRET?: string
+  LINEAR_WEBHOOK_SECRET?: string
+
   // WorkOS AuthKit
   WORKOS_API_KEY: string
   WORKOS_CLIENT_ID: string

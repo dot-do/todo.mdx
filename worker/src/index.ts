@@ -8,8 +8,10 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { voice } from './voice'
 import { mcp, TodoMCP } from './mcp'
+import { api } from './api'
 import sandbox from './api/sandbox'
 import terminal from './api/terminal'
+import linear from './api/linear'
 import { authMiddleware, type AuthContext } from './auth'
 import type { Env } from './types'
 
@@ -45,6 +47,19 @@ app.get('/', (c) => {
 // ============================================
 
 app.route('/api/voice', voice)
+
+// ============================================
+// Linear Integration routes
+// Note: Webhook endpoint does NOT use auth (verified via signature)
+// ============================================
+
+app.route('/api/linear', linear)
+
+// ============================================
+// Protected API routes (repos, issues, milestones, search)
+// ============================================
+
+app.route('/api', api)
 
 // ============================================
 // MCP Server with OAuth 2.1 (handled by OAuthProvider)
@@ -159,6 +174,54 @@ app.get('/github/callback', async (c) => {
 })
 
 // ============================================
+// GitHub webhook signature verification
+// ============================================
+
+async function verifyGitHubSignature(
+  body: string,
+  signature: string | undefined,
+  secret: string
+): Promise<boolean> {
+  if (!signature) {
+    return false
+  }
+
+  // GitHub signature format: "sha256=<hex>"
+  if (!signature.startsWith('sha256=')) {
+    return false
+  }
+
+  const signatureHex = signature.slice(7) // Remove "sha256=" prefix
+
+  try {
+    const encoder = new TextEncoder()
+    const key = await crypto.subtle.importKey(
+      'raw',
+      encoder.encode(secret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['verify']
+    )
+
+    // Convert hex signature to bytes
+    const signatureBytes = new Uint8Array(
+      signatureHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+    )
+
+    // Use timing-safe comparison via crypto.subtle.verify
+    return await crypto.subtle.verify(
+      'HMAC',
+      key,
+      signatureBytes.buffer,
+      encoder.encode(body)
+    )
+  } catch (error) {
+    console.error('Signature verification error:', error)
+    return false
+  }
+}
+
+// ============================================
 // GitHub webhook handler
 // ============================================
 
@@ -167,11 +230,16 @@ app.post('/github/webhook', async (c) => {
   const event = c.req.header('x-github-event')
   const deliveryId = c.req.header('x-github-delivery')
 
-  // TODO: Verify webhook signature
-  // const body = await c.req.text()
-  // const isValid = await verifySignature(body, signature, c.env.GITHUB_WEBHOOK_SECRET)
+  // Verify webhook signature
+  const body = await c.req.text()
+  const isValid = await verifyGitHubSignature(body, signature, c.env.GITHUB_WEBHOOK_SECRET)
 
-  const payload = await c.req.json()
+  if (!isValid) {
+    console.warn(`Invalid webhook signature for delivery ${deliveryId}`)
+    return c.json({ error: 'Invalid signature' }, 401)
+  }
+
+  const payload = JSON.parse(body)
 
   console.log(`Received webhook: ${event} (${deliveryId})`)
 
@@ -534,8 +602,8 @@ app.get('/api/user/repos', authMiddleware, async (c) => {
   return c.json(result.docs || [])
 })
 
-// API: List all installations (admin)
-app.get('/api/installations', async (c) => {
+// API: List all installations (admin - requires auth)
+app.get('/api/installations', authMiddleware, async (c) => {
   const result = await c.env.PAYLOAD.find({
     collection: 'installations',
     limit: 100,
@@ -543,8 +611,8 @@ app.get('/api/installations', async (c) => {
   return c.json(result.docs || [])
 })
 
-// API: List repos for an installation
-app.get('/api/installations/:id/repos', async (c) => {
+// API: List repos for an installation (requires auth)
+app.get('/api/installations/:id/repos', authMiddleware, async (c) => {
   const installationId = c.req.param('id')
   const result = await c.env.PAYLOAD.find({
     collection: 'repos',
@@ -555,8 +623,8 @@ app.get('/api/installations/:id/repos', async (c) => {
   return c.json(result.docs || [])
 })
 
-// API: Get repo sync status
-app.get('/api/repos/:owner/:name/status', async (c) => {
+// API: Get repo sync status (requires auth)
+app.get('/api/repos/:owner/:name/status', authMiddleware, async (c) => {
   const owner = c.req.param('owner')
   const name = c.req.param('name')
   const fullName = `${owner}/${name}`

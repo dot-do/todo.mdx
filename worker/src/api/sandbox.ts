@@ -11,10 +11,14 @@
  */
 
 import { Hono } from 'hono'
+import { authMiddleware } from '../auth'
 import type { Env } from '../types'
 import type { ExecuteOptions } from '../sandbox/claude'
 
 const app = new Hono<{ Bindings: Env }>()
+
+// All sandbox routes require authentication
+app.use('/*', authMiddleware)
 
 // ============================================================================
 // Headless Execution

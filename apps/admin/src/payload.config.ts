@@ -14,6 +14,7 @@ import { Repos } from './collections/Repos'
 import { Issues } from './collections/Issues'
 import { Milestones } from './collections/Milestones'
 import { SyncEvents } from './collections/SyncEvents'
+import { LinearIntegrations } from './collections/LinearIntegrations'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -26,6 +27,11 @@ const cloudflare =
     ? await getCloudflareContextFromWrangler()
     : await getCloudflareContext({ async: true })
 
+const secret = process.env.PAYLOAD_SECRET
+if (!secret) {
+  throw new Error('PAYLOAD_SECRET environment variable is required')
+}
+
 export default buildConfig({
   admin: {
     user: Users.slug,
@@ -33,9 +39,9 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents],
+  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations],
   editor: lexicalEditor(),
-  secret: process.env.PAYLOAD_SECRET || '',
+  secret,
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },

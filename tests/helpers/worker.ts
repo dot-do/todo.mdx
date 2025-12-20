@@ -5,9 +5,31 @@
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
 const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
+const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
 
 export function hasWorkerCredentials(): boolean {
   return !!WORKER_ACCESS_TOKEN
+}
+
+/**
+ * Generate GitHub webhook signature for testing
+ */
+async function generateGitHubSignature(body: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body))
+  const hex = Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+
+  return `sha256=${hex}`
 }
 
 async function workerFetch(
@@ -204,21 +226,26 @@ export const webhooks = {
       user?: { login: string }
     }
   ): Promise<Response> {
+    const body = JSON.stringify({
+      action,
+      issue,
+      repository: {
+        full_name: `${owner}/${repo}`,
+        owner: { login: owner },
+        name: repo,
+      },
+    })
+
+    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+
     return workerFetch('/github/webhook', {
       method: 'POST',
       headers: {
         'X-GitHub-Event': 'issues',
         'X-GitHub-Delivery': crypto.randomUUID(),
+        'X-Hub-Signature-256': signature,
       },
-      body: JSON.stringify({
-        action,
-        issue,
-        repository: {
-          full_name: `${owner}/${repo}`,
-          owner: { login: owner },
-          name: repo,
-        },
-      }),
+      body,
     })
   },
 
@@ -238,20 +265,25 @@ export const webhooks = {
       }>
     }
   ): Promise<Response> {
+    const body = JSON.stringify({
+      ...payload,
+      repository: {
+        full_name: `${owner}/${repo}`,
+        owner: { login: owner },
+        name: repo,
+      },
+    })
+
+    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+
     return workerFetch('/github/webhook', {
       method: 'POST',
       headers: {
         'X-GitHub-Event': 'push',
         'X-GitHub-Delivery': crypto.randomUUID(),
+        'X-Hub-Signature-256': signature,
       },
-      body: JSON.stringify({
-        ...payload,
-        repository: {
-          full_name: `${owner}/${repo}`,
-          owner: { login: owner },
-          name: repo,
-        },
-      }),
+      body,
     })
   },
 
@@ -267,21 +299,26 @@ export const webhooks = {
       due_on?: string
     }
   ): Promise<Response> {
+    const body = JSON.stringify({
+      action,
+      milestone,
+      repository: {
+        full_name: `${owner}/${repo}`,
+        owner: { login: owner },
+        name: repo,
+      },
+    })
+
+    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+
     return workerFetch('/github/webhook', {
       method: 'POST',
       headers: {
         'X-GitHub-Event': 'milestone',
         'X-GitHub-Delivery': crypto.randomUUID(),
+        'X-Hub-Signature-256': signature,
       },
-      body: JSON.stringify({
-        action,
-        milestone,
-        repository: {
-          full_name: `${owner}/${repo}`,
-          owner: { login: owner },
-          name: repo,
-        },
-      }),
+      body,
     })
   },
 
@@ -298,21 +335,26 @@ export const webhooks = {
       merged: boolean
     }
   ): Promise<Response> {
+    const body = JSON.stringify({
+      action,
+      pull_request: pullRequest,
+      repository: {
+        full_name: `${owner}/${repo}`,
+        owner: { login: owner },
+        name: repo,
+      },
+    })
+
+    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+
     return workerFetch('/github/webhook', {
       method: 'POST',
       headers: {
         'X-GitHub-Event': 'pull_request',
         'X-GitHub-Delivery': crypto.randomUUID(),
+        'X-Hub-Signature-256': signature,
       },
-      body: JSON.stringify({
-        action,
-        pull_request: pullRequest,
-        repository: {
-          full_name: `${owner}/${repo}`,
-          owner: { login: owner },
-          name: repo,
-        },
-      }),
+      body,
     })
   },
 
@@ -331,22 +373,27 @@ export const webhooks = {
       head: { ref: string }
     }
   ): Promise<Response> {
+    const body = JSON.stringify({
+      action,
+      review,
+      pull_request: pullRequest,
+      repository: {
+        full_name: `${owner}/${repo}`,
+        owner: { login: owner },
+        name: repo,
+      },
+    })
+
+    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+
     return workerFetch('/github/webhook', {
       method: 'POST',
       headers: {
         'X-GitHub-Event': 'pull_request_review',
         'X-GitHub-Delivery': crypto.randomUUID(),
+        'X-Hub-Signature-256': signature,
       },
-      body: JSON.stringify({
-        action,
-        review,
-        pull_request: pullRequest,
-        repository: {
-          full_name: `${owner}/${repo}`,
-          owner: { login: owner },
-          name: repo,
-        },
-      }),
+      body,
     })
   },
 }

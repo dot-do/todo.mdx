@@ -5,9 +5,6 @@ import { ViewSwitcher, type ViewType } from '../view-switcher'
 import { FilterBar, defaultFilterState, type IssueStatus, type IssuePriority, type IssueType } from '../filter-bar'
 import { StatsCards } from '../stats-cards'
 import { IssueList, type Issue } from '../issue-list'
-import { BurndownChart } from '../analytics/BurndownChart'
-import { VelocityChart } from '../analytics/VelocityChart'
-import { CumulativeFlowDiagram } from '../analytics/CumulativeFlowDiagram'
 
 // Re-export Issue type for consumers
 export type { Issue } from '../issue-list'
@@ -134,10 +131,10 @@ export function ProjectsView({
         )}
 
         {view === 'analytics' && (
-          <div className="grid gap-6">
-            <BurndownChart />
-            <VelocityChart />
-            <CumulativeFlowDiagram />
+          <div className="rounded-lg border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-gray-950">
+            <p className="text-gray-500 dark:text-gray-400">
+              Analytics charts coming soon.
+            </p>
           </div>
         )}
       </div>

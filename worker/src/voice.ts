@@ -4,6 +4,7 @@
  */
 
 import { Hono } from 'hono'
+import { authMiddleware } from './auth'
 import type { Ai } from '@cloudflare/workers-types'
 
 interface VoiceEnv {
@@ -12,6 +13,9 @@ interface VoiceEnv {
 }
 
 const voice = new Hono<{ Bindings: VoiceEnv }>()
+
+// All voice routes require authentication
+voice.use('/*', authMiddleware)
 
 /**
  * POST /api/voice/transcribe
