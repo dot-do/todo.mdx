@@ -22,14 +22,20 @@ export interface Issue {
   beadsId?: string
   title: string
   body?: string
-  state: 'open' | 'in_progress' | 'closed'
+  state: 'open' | 'in_progress' | 'closed' | 'blocked'
   labels?: string[]
   assignees?: string[]
   priority?: number
-  type?: 'task' | 'bug' | 'feature'
+  type?: 'task' | 'bug' | 'feature' | 'epic' | 'chore'
   milestone?: string
   createdAt: string
   updatedAt: string
+  /** IDs of issues that block this one */
+  blockedBy?: string[]
+  /** IDs of issues this one blocks */
+  blocks?: string[]
+  /** Parent epic ID */
+  epicId?: string
 }
 
 export interface Milestone {

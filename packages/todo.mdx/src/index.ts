@@ -32,4 +32,5 @@ export {
 export {
   compile,
   generateTodoFiles,
+  loadBeadsIssues,
 } from './compiler.js'
