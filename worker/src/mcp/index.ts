@@ -369,14 +369,11 @@ mcp.get('/tools', requireToken, async (c) => {
       },
       {
         name: 'do',
-        description: `Execute TypeScript. SDK: ctx.getRepos(): Repo[], ctx.getIssues(repo): Issue[], ctx.getMilestones(repo): Milestone[], ctx.createIssue(repo, {title, body?, labels?}), ctx.updateIssue(repo, id, {title?, body?, state?}), ctx.query(sql, ...params). Define async function run(ctx) { return result }`,
+        description: `Run JS with todo.mdx SDK. Globals: repos: Repo[], issues: Issue[], milestones: Milestone[], projects: Project[]. Types: Issue {id, title, body, state, labels, assignees, blockers, blocked, repo}, Milestone {id, title, description, state, dueOn, issues, repo}, Repo {name, fullName, issues, milestones}. Return = result.`,
         inputSchema: {
           type: 'object',
           properties: {
-            code: {
-              type: 'string',
-              description: 'TypeScript code with async function run(ctx) { ... }',
-            },
+            code: { type: 'string' },
           },
           required: ['code'],
         },
@@ -652,117 +649,66 @@ mcp.post('/tools/call', requireToken, async (c) => {
     }
 
     case 'do': {
-      // Execute TypeScript code in an isolated worker with SDK access
       const code = args.code
 
       try {
-        // Generate unique worker ID
-        const workerId = `mcp-${userId}-${Date.now()}`
+        // Pre-load all data for the user
+        const reposResult = await c.env.DB.prepare(`
+          SELECT r.* FROM repos r
+          JOIN user_installations ui ON ui.installation_id = r.installation_id
+          WHERE ui.user_id = ?
+        `).bind(userId).all()
 
-        // Wrap user code in a worker module that provides the SDK
+        const repos: any[] = []
+        const allIssues: any[] = []
+        const allMilestones: any[] = []
+
+        for (const repo of reposResult.results as any[]) {
+          const doId = c.env.REPO.idFromName(repo.full_name)
+          const stub = c.env.REPO.get(doId)
+
+          const [issuesRes, milestonesRes] = await Promise.all([
+            stub.fetch(new Request('http://do/issues')),
+            stub.fetch(new Request('http://do/milestones')),
+          ])
+
+          const issues = await issuesRes.json() as any[]
+          const milestones = await milestonesRes.json() as any[]
+
+          // Enrich issues with repo info
+          const enrichedIssues = issues.map(i => ({ ...i, repo: repo.full_name }))
+          const enrichedMilestones = milestones.map(m => ({ ...m, repo: repo.full_name, issues: issues.filter(i => i.milestoneId === m.id) }))
+
+          repos.push({
+            name: repo.name,
+            fullName: repo.full_name,
+            issues: enrichedIssues,
+            milestones: enrichedMilestones,
+          })
+
+          allIssues.push(...enrichedIssues)
+          allMilestones.push(...enrichedMilestones)
+        }
+
+        // Execute code with data in scope
         const wrappedCode = `
-// SDK Context provided to user code
-const ctx = {
-  userId: "${userId}",
-  async getRepos() {
-    const response = await fetch("http://internal/repos");
-    return response.json();
-  },
-  async getIssues(repo) {
-    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/issues\`);
-    return response.json();
-  },
-  async getMilestones(repo) {
-    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/milestones\`);
-    return response.json();
-  },
-  async createIssue(repo, issue) {
-    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/issues\`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(issue),
-    });
-    return response.json();
-  },
-  async updateIssue(repo, id, updates) {
-    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/issues/\${id}\`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    });
-    return response.json();
-  },
-  async query(sql, ...params) {
-    const response = await fetch("http://internal/db/query", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sql, params }),
-    });
-    return response.json();
-  },
-};
+const repos = ${JSON.stringify(repos)};
+const issues = ${JSON.stringify(allIssues)};
+const milestones = ${JSON.stringify(allMilestones)};
+const projects = [];
 
-// User code
 ${code}
-
-// Default export handler
-export default {
-  async fetch(request, env, context) {
-    try {
-      // If user code exports a function, call it
-      if (typeof run === "function") {
-        const result = await run(ctx);
-        if (result instanceof Response) return result;
-        return new Response(JSON.stringify(result), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      // If user code exports a default handler, use it
-      if (typeof handler === "function") {
-        return await handler(request, ctx);
-      }
-      return new Response(JSON.stringify({ error: "No run() or handler() function found" }), {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-      });
-    } catch (error) {
-      return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-  },
-};
 `
-
-        // Create the dynamic worker
-        const worker = c.env.LOADER.get(workerId, async () => ({
-          compatibilityDate: '2024-12-01',
-          compatibilityFlags: ['nodejs_compat'],
-          mainModule: 'worker.js',
-          modules: {
-            'worker.js': wrappedCode,
-          },
-          // No direct network access - sandbox it
-          globalOutbound: null,
-        }))
-
-        // Execute the worker
-        const entrypoint = worker.getEntrypoint()
-        const response = await entrypoint.fetch(new Request('http://internal/execute', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId }),
-        }))
-
-        const result = await response.text()
+        // Use Function constructor for simple eval
+        const fn = new Function('return (async () => { ' + wrappedCode + ' })()')
+        const result = await fn()
 
         return c.json({
-          content: [{ type: 'text', text: result }],
+          content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
         })
       } catch (error: any) {
         return c.json({
-          content: [{ type: 'text', text: `Execution error: ${error.message}` }],
+          content: [{ type: 'text', text: `Error: ${error.message}` }],
           isError: true,
         })
       }
