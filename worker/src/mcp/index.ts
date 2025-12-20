@@ -95,14 +95,20 @@ Examples:
 					const [keywordResults, vectorResults] = await Promise.all([
 						// Keyword search
 						(async () => {
-							const results: Array<{ id: string; title: string; repo: string; state: string }> = [];
-
-							for (const repo of repos) {
+							// Parallelize fetching issues from all repos
+							const repoIssuesPromises = repos.map(async (repo) => {
 								const doId = env.REPO.idFromName(repo.fullName);
 								const stub = env.REPO.get(doId);
 								const issuesResponse = await stub.fetch(new Request("http://do/issues"));
 								const issues = await issuesResponse.json() as any[];
+								return { repo, issues };
+							});
 
+							const repoIssuesResults = await Promise.all(repoIssuesPromises);
+							const results: Array<{ id: string; title: string; repo: string; state: string }> = [];
+
+							// Filter and format results
+							for (const { repo, issues } of repoIssuesResults) {
 								for (const issue of issues) {
 									if (
 										issue.title?.toLowerCase().includes(queryLower) ||
@@ -273,10 +279,8 @@ Example output:
 
 					const repos = await this.getUserRepos(env, workosUserId);
 
-					const allIssues: any[] = [];
-					const allMilestones: any[] = [];
-
-					for (const repo of repos) {
+					// Parallelize fetching issues and milestones from all repos
+					const repoDataPromises = repos.map(async (repo) => {
 						const doId = env.REPO.idFromName(repo.fullName);
 						const stub = env.REPO.get(doId);
 
@@ -288,8 +292,20 @@ Example output:
 						const issues = await issuesRes.json() as any[];
 						const milestones = await milestonesRes.json() as any[];
 
-						allIssues.push(...issues.map(i => ({ ...i, repo: repo.fullName })));
-						allMilestones.push(...milestones.map(m => ({ ...m, repo: repo.fullName })));
+						return {
+							issues: issues.map(i => ({ ...i, repo: repo.fullName })),
+							milestones: milestones.map(m => ({ ...m, repo: repo.fullName })),
+						};
+					});
+
+					const repoDataResults = await Promise.all(repoDataPromises);
+
+					const allIssues: any[] = [];
+					const allMilestones: any[] = [];
+
+					for (const { issues, milestones } of repoDataResults) {
+						allIssues.push(...issues);
+						allMilestones.push(...milestones);
 					}
 
 					const closed = allIssues.filter(i => i.state === "closed").length;
