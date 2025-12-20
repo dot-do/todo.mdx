@@ -1,0 +1,41 @@
+{
+  "name": "@todo.mdx/claude.mdx.do",
+  "version": "0.1.0",
+  "description": "Documentation site for claude.mdx - Fumadocs + OpenNext + WorkOS AuthKit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "deploy": "open-next build && wrangler deploy"
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "^0.2.0",
+    "@todo.mdx/dashboard": "workspace:*",
+    "@workos-inc/authkit-nextjs": "^0.10.0",
+    "clsx": "^2.1.0",
+    "fumadocs-core": "^14.2.0",
+    "fumadocs-mdx": "^14.2.0",
+    "fumadocs-ui": "^14.2.0",
+    "next": "^15.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwind-merge": "^2.5.0",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.90.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

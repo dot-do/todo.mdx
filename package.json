@@ -3,13 +3,16 @@
   "private": true,
   "workspaces": [
     "packages/*",
-    "worker"
+    "apps/*",
+    "worker",
+    "tests"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces --if-present",
     "dev": "npm run dev --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present"
+    "test": "npm run test --workspaces --if-present",
+    "test:e2e": "npm run test --workspace=tests"
   },
   "devDependencies": {
     "typescript": "^5.7.0"

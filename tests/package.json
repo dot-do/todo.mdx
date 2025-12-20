@@ -1,0 +1,14 @@
+{
+  "name": "@todo.mdx/tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@octokit/app": "^14.0.0",
+    "execa": "^9.0.0",
+    "vitest": "^2.0.0"
+  }
+}
