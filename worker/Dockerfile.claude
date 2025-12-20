@@ -2,14 +2,29 @@
 #
 # Provides isolated environment for running Claude Code agents.
 # Used by ClaudeSandbox Durable Object for automated development tasks.
+#
+# Includes:
+# - Claude Code CLI for AI-assisted development
+# - stdio-ws server for terminal WebSocket bridge
+# - Git, curl, and common dev tools
 
 FROM docker.io/cloudflare/sandbox:0.6.7
 
 # Install Claude Code CLI globally
 RUN npm install -g @anthropic-ai/claude-code
 
+# Copy stdio WebSocket server
+COPY sandbox/stdio-ws.ts /workspace/stdio-ws.ts
+
+# Copy startup script
+COPY sandbox/startup.sh /container-server/startup.sh
+RUN chmod +x /container-server/startup.sh
+
 # Extend command timeout for complex tasks (10 minutes)
 ENV COMMAND_TIMEOUT_MS=600000
 
-# Port for any exposed services
+# Port for stdio-ws bridge
+EXPOSE 8080
+
+# Port for any other services
 EXPOSE 3000
