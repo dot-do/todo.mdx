@@ -191,49 +191,101 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 			},
 		);
 
-		// Semantic search across all repos using Vectorize
+		// Hybrid search: combines Vectorize semantic search with keyword matching
 		this.server.tool(
 			"search",
-			"Semantic search across all your issues and milestones",
+			"Search across all your issues and projects",
 			{
-				query: z.string().describe("Natural language search query"),
-				limit: z.number().optional().default(10).describe("Maximum results to return"),
+				query: z.string().describe("Search query (matches title, body, labels)"),
+				limit: z.number().optional().default(50).describe("Maximum results to return"),
 				type: z.enum(["issue", "milestone", "all"]).optional().default("all").describe("Filter by type"),
 			},
 			async ({ query, limit, type }) => {
 				try {
 					const env = this.env as Env;
+					const userId = this.props?.user?.id;
+					const queryLower = query.toLowerCase();
 
-					// Generate query embedding via Workers AI
-					const embeddingResult = await env.AI.run("@cf/baai/bge-m3", {
-						text: [query],
-					}) as { data: number[][] };
+					// Results map to deduplicate by ID
+					const resultsMap = new Map<string, { id: string; title: string; url: string; score?: number }>();
 
-					const queryEmbedding = embeddingResult.data[0];
+					// 1. Vector search (semantic) - try/catch in case Vectorize is empty or fails
+					try {
+						const embeddingResult = await env.AI.run("@cf/baai/bge-m3", {
+							text: [query],
+						}) as { data: number[][] };
 
-					// Query Vectorize for semantic matches
-					const vectorResults = await env.VECTORIZE.query(queryEmbedding, {
-						topK: limit,
-						filter: type !== "all" ? { type } : undefined,
-						returnMetadata: "all",
+						const queryEmbedding = embeddingResult.data[0];
+
+						const vectorResults = await env.VECTORIZE.query(queryEmbedding, {
+							topK: Math.min(limit, 50),
+							filter: type !== "all" ? { type } : undefined,
+							returnMetadata: "all",
+						});
+
+						// Add vector results with scores
+						for (const match of vectorResults.matches) {
+							if (!resultsMap.has(match.id)) {
+								resultsMap.set(match.id, {
+									id: match.id,
+									title: `[${match.metadata?.status || "unknown"}] ${match.metadata?.title || "Untitled"}`,
+									url: match.metadata?.url as string || "",
+									score: match.score,
+								});
+							}
+						}
+					} catch (vectorError) {
+						console.log("Vector search unavailable, falling back to keyword only:", vectorError);
+					}
+
+					// 2. Keyword search (exact matching) - always run for completeness
+					const reposResult = await env.PAYLOAD.find({
+						collection: "repos",
+						where: {
+							"installation.users.workosUserId": { equals: userId },
+						},
+						limit: 100,
 					});
 
-					// Format results
-					const results = vectorResults.matches.map((match) => ({
-						id: match.id,
-						title: match.metadata?.title as string | undefined,
-						type: match.metadata?.type as string | undefined,
-						repo: match.metadata?.repo as string | undefined,
-						status: match.metadata?.status as string | undefined,
-						url: match.metadata?.url as string | undefined,
-						score: match.score,
-					}));
+					for (const repo of (reposResult.docs || []) as any[]) {
+						if (resultsMap.size >= limit) break;
+
+						const doId = env.REPO.idFromName(repo.fullName);
+						const stub = env.REPO.get(doId);
+
+						const issuesResponse = await stub.fetch(new Request("http://do/issues"));
+						const issues = await issuesResponse.json() as any[];
+
+						for (const issue of issues) {
+							if (resultsMap.size >= limit) break;
+
+							const issueId = `issue:${repo.fullName}:${issue.githubNumber || issue.id}`;
+
+							// Skip if already in results from vector search
+							if (resultsMap.has(issueId)) continue;
+
+							const matchesQuery =
+								issue.title?.toLowerCase().includes(queryLower) ||
+								issue.body?.toLowerCase().includes(queryLower) ||
+								issue.labels?.some((l: string) => l.toLowerCase().includes(queryLower));
+
+							if (matchesQuery) {
+								resultsMap.set(issueId, {
+									id: issueId,
+									title: `[${issue.state}] ${issue.title}`,
+									url: `https://github.com/${repo.fullName}/issues/${issue.githubNumber || issue.id}`,
+								});
+							}
+						}
+					}
+
+					// Convert to array and sort by score (vector results first)
+					const results = Array.from(resultsMap.values())
+						.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+						.slice(0, limit);
 
 					return {
-						content: [{
-							type: "text",
-							text: JSON.stringify(results, null, 2),
-						}],
+						content: [{ type: "text", text: JSON.stringify(results) }],
 					};
 				} catch (error: any) {
 					return {
