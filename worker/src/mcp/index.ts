@@ -368,8 +368,16 @@ mcp.get('/tools', requireToken, async (c) => {
         },
       },
       {
+        name: 'roadmap',
+        description: 'Get current roadmap state: all milestones, issues, and progress.',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
         name: 'do',
-        description: `Run JS with todo.mdx SDK. See AGENTS.md for types. Globals: repos[], issues[], milestones[], projects[]. Return value = result.`,
+        description: 'Run JS. Globals: repos[], issues[], milestones[], projects[]',
         inputSchema: {
           type: 'object',
           properties: {
@@ -643,6 +651,61 @@ mcp.post('/tools/call', requireToken, async (c) => {
       } catch (error: any) {
         return c.json({
           content: [{ type: 'text', text: `Fetch error: ${error.message}` }],
+          isError: true,
+        })
+      }
+    }
+
+    case 'roadmap': {
+      try {
+        const reposResult = await c.env.DB.prepare(`
+          SELECT r.* FROM repos r
+          JOIN user_installations ui ON ui.installation_id = r.installation_id
+          WHERE ui.user_id = ?
+        `).bind(userId).all()
+
+        const roadmap: any = { repos: [], summary: { total: 0, open: 0, closed: 0 } }
+
+        for (const repo of reposResult.results as any[]) {
+          const doId = c.env.REPO.idFromName(repo.full_name)
+          const stub = c.env.REPO.get(doId)
+
+          const [issuesRes, milestonesRes] = await Promise.all([
+            stub.fetch(new Request('http://do/issues')),
+            stub.fetch(new Request('http://do/milestones')),
+          ])
+
+          const issues = await issuesRes.json() as any[]
+          const milestones = await milestonesRes.json() as any[]
+
+          const open = issues.filter(i => i.state === 'open').length
+          const closed = issues.filter(i => i.state === 'closed').length
+
+          roadmap.repos.push({
+            repo: repo.full_name,
+            issues: { open, closed, total: issues.length },
+            milestones: milestones.map(m => ({
+              title: m.title,
+              state: m.state,
+              dueOn: m.dueOn,
+              progress: {
+                open: issues.filter(i => i.milestoneId === m.id && i.state === 'open').length,
+                closed: issues.filter(i => i.milestoneId === m.id && i.state === 'closed').length,
+              },
+            })),
+          })
+
+          roadmap.summary.total += issues.length
+          roadmap.summary.open += open
+          roadmap.summary.closed += closed
+        }
+
+        return c.json({
+          content: [{ type: 'text', text: JSON.stringify(roadmap, null, 2) }],
+        })
+      } catch (error: any) {
+        return c.json({
+          content: [{ type: 'text', text: `Error: ${error.message}` }],
           isError: true,
         })
       }
