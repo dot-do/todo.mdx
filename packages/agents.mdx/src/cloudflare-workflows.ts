@@ -221,11 +221,116 @@ async function callClaude(
     throw new Error('Claude sandbox binding not configured')
   }
 
-  // In real implementation, this would be:
-  // const service = binding as Service<ClaudeSandbox>
-  // return service.rpc(action, ...args)
+  // binding is a DurableObjectNamespace for ClaudeSandbox
+  const namespace = binding as {
+    idFromName(name: string): { toString(): string }
+    get(id: { toString(): string }): {
+      fetch(request: Request): Promise<Response>
+    }
+  }
 
-  throw new Error(`Claude cloud transport not implemented: ${action}`)
+  // Create a unique sandbox instance for this execution
+  const sandboxId = `claude-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  const doId = namespace.idFromName(sandboxId)
+  const sandbox = namespace.get(doId)
+
+  // Route to appropriate handler based on action
+  switch (action) {
+    case 'do': {
+      const [opts] = args as [{ task: string; context?: string; model?: string }]
+      const response = await sandbox.fetch(new Request('http://sandbox/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: opts.task,
+          context: opts.context,
+          // repo and installationId should be passed via transport config
+        }),
+      }))
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Claude execution failed: ${error}`)
+      }
+
+      return response.json()
+    }
+
+    case 'research': {
+      const [opts] = args as [{ topic: string; depth?: string; context?: string }]
+      // Research uses the same execute endpoint with a research-focused prompt
+      const response = await sandbox.fetch(new Request('http://sandbox/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: `Research: ${opts.topic}`,
+          context: opts.context,
+        }),
+      }))
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Claude research failed: ${error}`)
+      }
+
+      const result = await response.json() as { summary: string; diff: string }
+      return {
+        findings: result.summary,
+        sources: [], // Would need to parse from output
+        confidence: 'medium' as const,
+      }
+    }
+
+    case 'review': {
+      const [opts] = args as [{ pr: { number: number; title: string; body: string } }]
+      const response = await sandbox.fetch(new Request('http://sandbox/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: `Review PR #${opts.pr.number}: ${opts.pr.title}\n\n${opts.pr.body}`,
+        }),
+      }))
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Claude review failed: ${error}`)
+      }
+
+      const result = await response.json() as { summary: string }
+      // Parse review output to determine approval
+      const approved = !result.summary.toLowerCase().includes('reject') &&
+                       !result.summary.toLowerCase().includes('changes requested')
+
+      return {
+        approved,
+        comments: [], // Would need to parse from output
+        summary: result.summary,
+      }
+    }
+
+    case 'ask': {
+      const [opts] = args as [{ question: string; context?: string }]
+      const response = await sandbox.fetch(new Request('http://sandbox/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task: opts.question,
+          context: opts.context,
+        }),
+      }))
+
+      if (!response.ok) {
+        const error = await response.text()
+        throw new Error(`Claude ask failed: ${error}`)
+      }
+
+      const result = await response.json() as { summary: string }
+      return result.summary
+    }
+
+    default:
+      throw new Error(`Unknown Claude action: ${action}`)
+  }
 }
 
 async function callPayload(

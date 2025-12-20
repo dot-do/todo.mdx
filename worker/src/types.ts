@@ -18,6 +18,7 @@ export interface Env {
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
+  CLAUDE_SANDBOX: DurableObjectNamespace
   AI: Ai
   VECTORIZE: VectorizeIndex
   LOADER: any

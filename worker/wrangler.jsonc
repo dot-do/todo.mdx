@@ -17,7 +17,8 @@
     { "pattern": "todo.mdx.do/mcp*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/api/*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/github/*", "zone_name": "mdx.do" },
-    { "pattern": "todo.mdx.do/linear/*", "zone_name": "mdx.do" }
+    { "pattern": "todo.mdx.do/linear/*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/terminal/*", "zone_name": "mdx.do" }
   ],
 
   // Workers AI for voice and embeddings
@@ -43,12 +44,22 @@
     }
   ],
 
+  // Containers - Claude Code sandbox
+  "containers": [
+    {
+      "class_name": "ClaudeSandbox",
+      "image": "./Dockerfile.claude",
+      "instance_type": "basic"
+    }
+  ],
+
   // Durable Objects
   "durable_objects": {
     "bindings": [
       { "name": "REPO", "class_name": "RepoDO" },
       { "name": "PROJECT", "class_name": "ProjectDO" },
-      { "name": "MCP_OBJECT", "class_name": "TodoMCP" }
+      { "name": "MCP_OBJECT", "class_name": "TodoMCP" },
+      { "name": "CLAUDE_SANDBOX", "class_name": "ClaudeSandbox" }
     ]
   },
 
@@ -60,6 +71,10 @@
     {
       "tag": "v2",
       "new_sqlite_classes": ["TodoMCP"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["ClaudeSandbox"]
     }
   ],
 

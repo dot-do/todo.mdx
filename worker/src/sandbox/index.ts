@@ -15,3 +15,10 @@ export {
   workflowRegistry,
 } from './loader'
 export type { SandboxConfig, WorkflowTrigger, WorkflowModule } from './loader'
+
+// Claude Code Sandbox
+export { Sandbox as ClaudeSandbox } from './claude'
+export type { ExecuteOptions, ExecuteResult, StreamEvent, Session } from './claude'
+
+// Default export for wiring to routes
+export { default as claudeSandboxHandler } from './claude'

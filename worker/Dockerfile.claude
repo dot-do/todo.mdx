@@ -1,0 +1,15 @@
+# Claude Code Sandbox Container
+#
+# Provides isolated environment for running Claude Code agents.
+# Used by ClaudeSandbox Durable Object for automated development tasks.
+
+FROM docker.io/cloudflare/sandbox:0.6.7
+
+# Install Claude Code CLI globally
+RUN npm install -g @anthropic-ai/claude-code
+
+# Extend command timeout for complex tasks (10 minutes)
+ENV COMMAND_TIMEOUT_MS=600000
+
+# Port for any exposed services
+EXPOSE 3000

@@ -9,11 +9,14 @@ import { cors } from 'hono/cors'
 import { voice } from './voice'
 import { mcp, TodoMCP } from './mcp'
 import { linear } from './api/linear'
+import sandbox from './api/sandbox'
+import terminal from './api/terminal'
 import { authMiddleware, type AuthContext } from './auth'
 import type { Env } from './types'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
+export { ClaudeSandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { TodoMCP }
@@ -75,6 +78,18 @@ app.all('/mcp', async (c) => {
 // ============================================
 
 app.route('/api/linear', linear)
+
+// ============================================
+// Claude Sandbox API routes
+// ============================================
+
+app.route('/api/sandbox', sandbox)
+
+// ============================================
+// Terminal WebSocket routes
+// ============================================
+
+app.route('/terminal', terminal)
 
 // Linear webhook - accessible at /linear/webhook (not behind /api)
 app.post('/linear/webhook', async (c) => {
