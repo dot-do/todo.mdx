@@ -2,6 +2,66 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+## todo.mdx SDK
+
+When using the `do` tool, you have access to pre-loaded data:
+
+```typescript
+// Global arrays - already loaded
+repos: Repo[]
+issues: Issue[]
+milestones: Milestone[]
+projects: Project[]
+
+// Types
+interface Issue {
+  id: string
+  title: string
+  body: string
+  state: 'open' | 'closed'
+  labels: string[]
+  assignees: string[]
+  blockers: Issue[]   // issues blocking this one
+  blocked: Issue[]    // issues this one blocks
+  repo: string        // owner/name
+}
+
+interface Milestone {
+  id: string
+  title: string
+  description: string
+  state: 'open' | 'closed'
+  dueOn: string | null
+  issues: Issue[]
+  repo: string
+}
+
+interface Repo {
+  name: string
+  fullName: string    // owner/name
+  issues: Issue[]
+  milestones: Milestone[]
+}
+
+interface Project {
+  id: string
+  title: string
+  items: Issue[]
+}
+```
+
+**Examples:**
+```javascript
+// Find blocked issues
+return issues.filter(i => i.blockers.length > 0)
+
+// Get open issues by repo
+return repos.map(r => ({ repo: r.fullName, open: r.issues.filter(i => i.state === 'open').length }))
+
+// Find overdue milestones
+return milestones.filter(m => m.dueOn && new Date(m.dueOn) < new Date())
+```
+
 ## Quick Reference
 
 ```bash

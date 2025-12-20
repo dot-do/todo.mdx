@@ -369,7 +369,7 @@ mcp.get('/tools', requireToken, async (c) => {
       },
       {
         name: 'do',
-        description: `Run JS with todo.mdx SDK. Globals: repos: Repo[], issues: Issue[], milestones: Milestone[], projects: Project[]. Types: Issue {id, title, body, state, labels, assignees, blockers, blocked, repo}, Milestone {id, title, description, state, dueOn, issues, repo}, Repo {name, fullName, issues, milestones}. Return = result.`,
+        description: `Run JS with todo.mdx SDK. See AGENTS.md for types. Globals: repos[], issues[], milestones[], projects[]. Return value = result.`,
         inputSchema: {
           type: 'object',
           properties: {
