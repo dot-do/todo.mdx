@@ -225,3 +225,51 @@ title: Roadmap
 
 <Milestones.Open />
 `
+
+/** Render roadmap data to markdown */
+export function render(data: {
+  milestones?: Milestone[]
+  epics?: Epic[]
+  issues?: Array<{ id: string; title: string; state: string; milestoneId?: string }>
+  title?: string
+}): string {
+  const { milestones = [], epics = [], issues = [], title = 'Roadmap' } = data
+
+  const lines: string[] = [`# ${title}`, '']
+
+  // Stats
+  const openMilestones = milestones.filter(m => m.state === 'open').length
+  const activeEpics = epics.filter(e => e.status !== 'closed').length
+  const openIssues = issues.filter(i => i.state === 'open').length
+  const closedIssues = issues.filter(i => i.state === 'closed').length
+
+  lines.push(`${closedIssues}/${issues.length} complete · ${openMilestones} milestones · ${activeEpics} epics`, '')
+
+  // Milestones with issues
+  for (const m of milestones) {
+    const mIssues = issues.filter(i => i.milestoneId === m.id)
+    const closed = mIssues.filter(i => i.state === 'closed').length
+    const pct = mIssues.length ? Math.round((closed / mIssues.length) * 100) : 0
+
+    lines.push(`## ${m.title} ${m.state === 'closed' ? '✓' : `(${pct}%)`}`)
+    if (m.dueOn) lines.push(`Due: ${m.dueOn}`)
+    lines.push('')
+
+    for (const issue of mIssues) {
+      lines.push(`- [${issue.state === 'closed' ? 'x' : ' '}] ${issue.title}`)
+    }
+    lines.push('')
+  }
+
+  // Backlog (unassigned)
+  const backlog = issues.filter(i => !i.milestoneId)
+  if (backlog.length) {
+    lines.push('## Backlog', '')
+    for (const issue of backlog) {
+      lines.push(`- [${issue.state === 'closed' ? 'x' : ' '}] ${issue.title}`)
+    }
+    lines.push('')
+  }
+
+  return lines.join('\n')
+}

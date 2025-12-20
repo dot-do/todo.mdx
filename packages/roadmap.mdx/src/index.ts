@@ -15,7 +15,8 @@ export type {
   SyncResult,
 } from './types.js'
 
-// Compilation
+// Compilation & Rendering
 export {
   compile,
+  render,
 } from './compiler.js'
