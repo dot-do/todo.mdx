@@ -1,0 +1,508 @@
+/**
+ * Worker API Helper
+ * Helpers for communicating with the todo.mdx worker API
+ */
+
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
+const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
+
+export function hasWorkerCredentials(): boolean {
+  return !!WORKER_ACCESS_TOKEN
+}
+
+async function workerFetch(
+  path: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options.headers as Record<string, string>) || {}),
+  }
+
+  if (WORKER_ACCESS_TOKEN) {
+    headers['Authorization'] = `Bearer ${WORKER_ACCESS_TOKEN}`
+  }
+
+  return fetch(`${WORKER_BASE_URL}${path}`, {
+    ...options,
+    headers,
+  })
+}
+
+export interface WorkerIssue {
+  id: number
+  github_id: number | null
+  github_number: number | null
+  beads_id: string | null
+  title: string
+  body: string | null
+  state: string
+  labels: string | null
+  assignees: string | null
+  priority: number | null
+  type: string | null
+}
+
+export interface WorkerMilestone {
+  id: number
+  github_id: number | null
+  github_number: number | null
+  beads_id: string | null
+  title: string
+  description: string | null
+  state: string
+  due_on: string | null
+}
+
+export interface SyncPayload {
+  source: 'github' | 'beads' | 'file' | 'mcp'
+  issues: Array<{
+    githubId?: number
+    beadsId?: string
+    title: string
+    body?: string
+    state: string
+    labels?: string[]
+    assignees?: string[]
+    priority?: number
+    type?: string
+    filePath?: string
+    updatedAt?: string
+  }>
+}
+
+export interface MilestoneSyncPayload {
+  source: 'github' | 'beads' | 'file' | 'mcp'
+  milestones: Array<{
+    githubId?: number
+    githubNumber?: number
+    beadsId?: string
+    title: string
+    description?: string
+    state: string
+    dueOn?: string
+    filePath?: string
+    updatedAt?: string
+  }>
+}
+
+export interface PushSyncPayload {
+  ref: string
+  before: string
+  after: string
+  files: string[]
+  installationId?: number
+}
+
+// Repo API
+export const repos = {
+  async listIssues(
+    owner: string,
+    repo: string,
+    params?: { status?: string }
+  ): Promise<{ issues: WorkerIssue[] }> {
+    const query = params?.status ? `?status=${params.status}` : ''
+    const response = await workerFetch(`/api/repos/${owner}/${repo}/issues${query}`)
+    return response.json()
+  },
+
+  async getIssue(
+    owner: string,
+    repo: string,
+    id: string
+  ): Promise<{ issue: WorkerIssue }> {
+    const response = await workerFetch(`/api/repos/${owner}/${repo}/issues/${id}`)
+    return response.json()
+  },
+
+  async createIssue(
+    owner: string,
+    repo: string,
+    data: {
+      title: string
+      body?: string
+      labels?: string[]
+      assignees?: string[]
+      milestone?: number
+      priority?: number
+    }
+  ): Promise<{ issue: WorkerIssue }> {
+    const response = await workerFetch(`/api/repos/${owner}/${repo}/issues`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    return response.json()
+  },
+
+  async updateIssue(
+    owner: string,
+    repo: string,
+    id: string,
+    data: Partial<{
+      title: string
+      body: string
+      state: string
+      labels: string[]
+      assignees: string[]
+      priority: number
+    }>
+  ): Promise<{ issue: WorkerIssue }> {
+    const response = await workerFetch(`/api/repos/${owner}/${repo}/issues/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    })
+    return response.json()
+  },
+
+  async deleteIssue(owner: string, repo: string, id: string): Promise<void> {
+    await workerFetch(`/api/repos/${owner}/${repo}/issues/${id}`, {
+      method: 'DELETE',
+    })
+  },
+
+  async listMilestones(
+    owner: string,
+    repo: string,
+    params?: { state?: string }
+  ): Promise<{ milestones: WorkerMilestone[] }> {
+    const query = params?.state ? `?state=${params.state}` : ''
+    const response = await workerFetch(
+      `/api/repos/${owner}/${repo}/milestones${query}`
+    )
+    return response.json()
+  },
+
+  async createMilestone(
+    owner: string,
+    repo: string,
+    data: {
+      title: string
+      description?: string
+      dueOn?: string
+    }
+  ): Promise<{ milestone: WorkerMilestone }> {
+    const response = await workerFetch(`/api/repos/${owner}/${repo}/milestones`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+    return response.json()
+  },
+}
+
+// Webhook simulation
+export const webhooks = {
+  async simulateIssueEvent(
+    owner: string,
+    repo: string,
+    action: 'opened' | 'edited' | 'closed' | 'reopened',
+    issue: {
+      number: number
+      title: string
+      body?: string
+      state: string
+      labels?: Array<{ name: string }>
+      user?: { login: string }
+    }
+  ): Promise<Response> {
+    return workerFetch('/github/webhook', {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Event': 'issues',
+        'X-GitHub-Delivery': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        action,
+        issue,
+        repository: {
+          full_name: `${owner}/${repo}`,
+          owner: { login: owner },
+          name: repo,
+        },
+      }),
+    })
+  },
+
+  async simulatePushEvent(
+    owner: string,
+    repo: string,
+    payload: {
+      ref: string
+      before: string
+      after: string
+      commits: Array<{
+        id: string
+        message: string
+        added: string[]
+        modified: string[]
+        removed: string[]
+      }>
+    }
+  ): Promise<Response> {
+    return workerFetch('/github/webhook', {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Event': 'push',
+        'X-GitHub-Delivery': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        ...payload,
+        repository: {
+          full_name: `${owner}/${repo}`,
+          owner: { login: owner },
+          name: repo,
+        },
+      }),
+    })
+  },
+
+  async simulateMilestoneEvent(
+    owner: string,
+    repo: string,
+    action: 'created' | 'edited' | 'closed' | 'opened' | 'deleted',
+    milestone: {
+      number: number
+      title: string
+      description?: string
+      state: string
+      due_on?: string
+    }
+  ): Promise<Response> {
+    return workerFetch('/github/webhook', {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Event': 'milestone',
+        'X-GitHub-Delivery': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        action,
+        milestone,
+        repository: {
+          full_name: `${owner}/${repo}`,
+          owner: { login: owner },
+          name: repo,
+        },
+      }),
+    })
+  },
+
+  async simulatePullRequestEvent(
+    owner: string,
+    repo: string,
+    action: 'opened' | 'closed' | 'reopened' | 'synchronize',
+    pullRequest: {
+      number: number
+      title: string
+      body: string
+      head: { ref: string }
+      base: { ref: string }
+      merged: boolean
+    }
+  ): Promise<Response> {
+    return workerFetch('/github/webhook', {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Event': 'pull_request',
+        'X-GitHub-Delivery': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        action,
+        pull_request: pullRequest,
+        repository: {
+          full_name: `${owner}/${repo}`,
+          owner: { login: owner },
+          name: repo,
+        },
+      }),
+    })
+  },
+
+  async simulatePullRequestReviewEvent(
+    owner: string,
+    repo: string,
+    action: 'submitted' | 'edited' | 'dismissed',
+    review: {
+      state: 'approved' | 'changes_requested' | 'commented'
+      user: { login: string }
+    },
+    pullRequest: {
+      number: number
+      title: string
+      body: string
+      head: { ref: string }
+    }
+  ): Promise<Response> {
+    return workerFetch('/github/webhook', {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Event': 'pull_request_review',
+        'X-GitHub-Delivery': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        action,
+        review,
+        pull_request: pullRequest,
+        repository: {
+          full_name: `${owner}/${repo}`,
+          owner: { login: owner },
+          name: repo,
+        },
+      }),
+    })
+  },
+}
+
+// Workflow API
+export const workflows = {
+  async triggerIssueReady(
+    issue: { id: string; title: string },
+    repo: { owner: string; name: string; fullName: string },
+    installationId: number
+  ): Promise<Response> {
+    return workerFetch('/api/workflows/issue/ready', {
+      method: 'POST',
+      body: JSON.stringify({ issue, repo, installationId }),
+    })
+  },
+
+  async getWorkflowStatus(workflowId: string): Promise<{
+    id: string
+    status: string
+    result?: any
+  }> {
+    const response = await workerFetch(`/api/workflows/${workflowId}`)
+    return response.json()
+  },
+}
+
+// Durable Object sync
+export const sync = {
+  async syncIssues(
+    owner: string,
+    repo: string,
+    payload: SyncPayload
+  ): Promise<{
+    queued: boolean
+    syncState: string
+    pendingEvents: number
+  }> {
+    const response = await workerFetch(
+      `/api/repos/${owner}/${repo}/do/issues/sync`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    )
+    return response.json()
+  },
+
+  async syncMilestones(
+    owner: string,
+    repo: string,
+    payload: MilestoneSyncPayload
+  ): Promise<{
+    synced: Array<{ action: string; id?: number }>
+  }> {
+    const response = await workerFetch(
+      `/api/repos/${owner}/${repo}/do/milestones/sync`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    )
+    return response.json()
+  },
+
+  async syncPush(
+    owner: string,
+    repo: string,
+    payload: PushSyncPayload
+  ): Promise<{
+    queued: boolean
+    files: { beads: number; todo: number; roadmap: number }
+    syncState: string
+    pendingEvents: number
+  }> {
+    const response = await workerFetch(
+      `/api/repos/${owner}/${repo}/do/sync/push`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }
+    )
+    return response.json()
+  },
+
+  async getStatus(
+    owner: string,
+    repo: string
+  ): Promise<{
+    issues: number
+    milestones: number
+    recentSyncs: any[]
+    syncStatus: {
+      state: string
+      pendingEvents: number
+      currentEvent: any
+      lastSyncAt: string | null
+      errorCount: number
+      lastError: string | null
+    } | null
+  }> {
+    const response = await workerFetch(`/api/repos/${owner}/${repo}/do/status`)
+    return response.json()
+  },
+
+  async resetSyncState(owner: string, repo: string): Promise<void> {
+    await workerFetch(`/api/repos/${owner}/${repo}/do/sync/reset`, {
+      method: 'POST',
+    })
+  },
+}
+
+// MCP API
+export const mcp = {
+  async getInfo(): Promise<{
+    name: string
+    version: string
+    capabilities: { tools: any; resources: any }
+  }> {
+    const response = await workerFetch('/mcp/info')
+    return response.json()
+  },
+
+  async getTools(): Promise<{
+    tools: Array<{
+      name: string
+      description: string
+      inputSchema: any
+    }>
+  }> {
+    const response = await workerFetch('/mcp/tools')
+    return response.json()
+  },
+
+  async getResources(): Promise<{
+    resources: Array<{
+      uri: string
+      name: string
+      description?: string
+    }>
+  }> {
+    const response = await workerFetch('/mcp/resources')
+    return response.json()
+  },
+
+  async callTool(
+    name: string,
+    args: Record<string, any>
+  ): Promise<{
+    content: Array<{ type: string; text: string }>
+    isError?: boolean
+  }> {
+    const response = await workerFetch('/mcp/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({ name, arguments: args }),
+    })
+    return response.json()
+  },
+}

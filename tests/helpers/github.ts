@@ -1,4 +1,4 @@
-import { App, Octokit } from '@octokit/app'
+import { App } from '@octokit/app'
 import type { Worktree } from './worktree'
 import { execa } from 'execa'
 
@@ -10,13 +10,15 @@ const GITHUB_INSTALLATION_ID = process.env.GITHUB_INSTALLATION_ID
 const TEST_REPO_OWNER = 'dot-do' // TODO: Make configurable
 const TEST_REPO_NAME = 'test.mdx'
 
-let cachedOctokit: Octokit | null = null
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let cachedOctokit: any = null
 
 export function hasGitHubCredentials(): boolean {
   return !!(GITHUB_APP_ID && GITHUB_PRIVATE_KEY && GITHUB_INSTALLATION_ID)
 }
 
-export async function createGitHubClient(): Promise<Octokit> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function createGitHubClient(): Promise<any> {
   if (cachedOctokit) {
     return cachedOctokit
   }
