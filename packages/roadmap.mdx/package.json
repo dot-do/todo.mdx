@@ -1,5 +1,5 @@
 {
-  "name": "roadmap.mdx",
+  "name": "@todo.mdx/roadmap.mdx",
   "version": "0.1.0",
   "description": "Bidirectional sync between ROADMAP.mdx templates, .roadmap/*.md files, GitHub Milestones/Projects, and beads epics",
   "type": "module",
@@ -47,7 +47,8 @@
     "directory": "packages/roadmap.mdx"
   },
   "dependencies": {
-    "mdxld": "^1.0.0"
+    "mdxld": "^1.0.0",
+    "@mdxld/markdown": "^1.9.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
