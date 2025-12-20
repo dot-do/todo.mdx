@@ -34,5 +34,11 @@ coverage/
 yarn.lock
 pnpm-lock.yaml
 bun.lockb
-apps/todo.mdx.do/.next/
+# Next.js build output
+.next/
+
+# Fumadocs generated source
+.source/
+
+# Turbo cache
 .turbo/
