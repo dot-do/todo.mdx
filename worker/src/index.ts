@@ -8,7 +8,6 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { voice } from './voice'
 import { mcp, TodoMCP } from './mcp'
-import { linear } from './api/linear'
 import sandbox from './api/sandbox'
 import terminal from './api/terminal'
 import { authMiddleware, type AuthContext } from './auth'
@@ -74,12 +73,6 @@ app.all('/mcp', async (c) => {
 })
 
 // ============================================
-// Linear Integration API routes
-// ============================================
-
-app.route('/api/linear', linear)
-
-// ============================================
 // Claude Sandbox API routes
 // ============================================
 
@@ -90,37 +83,6 @@ app.route('/api/sandbox', sandbox)
 // ============================================
 
 app.route('/terminal', terminal)
-
-// Linear webhook - accessible at /linear/webhook (not behind /api)
-app.post('/linear/webhook', async (c) => {
-  // Forward to the linear router's webhook handler
-  const signature = c.req.header('Linear-Signature')
-  const payload = await c.req.json() as any
-
-  console.log('Linear webhook received:', payload.type, payload.action)
-
-  // Find integration by organizationId
-  const integrations = await c.env.PAYLOAD.find({
-    collection: 'linear-integrations',
-    where: {
-      'linearData.organizationId': { equals: payload.organizationId },
-    },
-    limit: 1,
-  })
-
-  if (!integrations.docs || integrations.docs.length === 0) {
-    console.log('No integration found for organization:', payload.organizationId)
-    return c.json({ status: 'ignored', reason: 'no integration found' })
-  }
-
-  const integration = integrations.docs[0]
-
-  // Import and use the handler
-  const { handleLinearWebhook } = await import('./integrations/linear')
-  const result = await handleLinearWebhook(c.env, payload, integration.id as string)
-
-  return c.json(result)
-})
 
 // ============================================
 // Auth routes (via OAuth 2.1 / WorkOS API keys)

@@ -8,7 +8,7 @@ export const Issues: CollectionConfig = {
   slug: 'issues',
   admin: {
     useAsTitle: 'title',
-    defaultColumns: ['title', 'state', 'status', 'priority', 'repo', 'milestone'],
+    defaultColumns: ['title', 'status', 'priority', 'repo', 'milestone'],
     group: 'Content',
   },
   access: {
@@ -65,27 +65,18 @@ export const Issues: CollectionConfig = {
       },
     },
     {
-      name: 'state',
-      type: 'select',
-      required: true,
-      options: [
-        { label: 'Open', value: 'open' },
-        { label: 'Closed', value: 'closed' },
-      ],
-      defaultValue: 'open',
-      index: true,
-    },
-    {
       name: 'status',
       type: 'select',
+      required: true,
       options: [
         { label: 'Open', value: 'open' },
         { label: 'In Progress', value: 'in_progress' },
         { label: 'Closed', value: 'closed' },
       ],
       defaultValue: 'open',
+      index: true,
       admin: {
-        description: 'Extended status (beyond GitHub open/closed)',
+        description: 'Issue status (maps to GitHub open/closed)',
       },
     },
     {
@@ -182,59 +173,6 @@ export const Issues: CollectionConfig = {
       admin: {
         description: 'Reason for closing the issue',
       },
-    },
-    // Linear integration data
-    {
-      name: 'linearData',
-      type: 'group',
-      admin: {
-        description: 'Linear integration metadata',
-      },
-      fields: [
-        {
-          name: 'id',
-          type: 'text',
-          index: true,
-          admin: {
-            description: 'Linear issue ID',
-          },
-        },
-        {
-          name: 'identifier',
-          type: 'text',
-          admin: {
-            description: 'Linear issue identifier (e.g., TODO-123)',
-          },
-        },
-        {
-          name: 'stateId',
-          type: 'text',
-          admin: {
-            description: 'Linear state ID',
-          },
-        },
-        {
-          name: 'stateName',
-          type: 'text',
-          admin: {
-            description: 'Linear state name',
-          },
-        },
-        {
-          name: 'cycleId',
-          type: 'text',
-          admin: {
-            description: 'Linear cycle ID',
-          },
-        },
-        {
-          name: 'projectId',
-          type: 'text',
-          admin: {
-            description: 'Linear project ID',
-          },
-        },
-      ],
     },
   ],
   timestamps: true,

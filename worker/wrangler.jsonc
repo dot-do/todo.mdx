@@ -17,7 +17,6 @@
     { "pattern": "todo.mdx.do/mcp*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/api/*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/github/*", "zone_name": "mdx.do" },
-    { "pattern": "todo.mdx.do/linear/*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/terminal/*", "zone_name": "mdx.do" }
   ],
 
@@ -106,7 +105,7 @@
     }
   ],
 
-  // KV namespace for OAuth state (Linear OAuth)
+  // KV namespace for MCP OAuth state
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
@@ -117,6 +116,5 @@
   // Environment variables (set via wrangler secret)
   // GitHub App: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
   // WorkOS AuthKit: WORKOS_CLIENT_ID, WORKOS_CLIENT_SECRET, COOKIE_ENCRYPTION_KEY
-  // Linear: LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET, LINEAR_WEBHOOK_SECRET
   // AI: ANTHROPIC_API_KEY
 }

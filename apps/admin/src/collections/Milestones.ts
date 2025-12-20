@@ -111,38 +111,6 @@ export const Milestones: CollectionConfig = {
       collection: 'issues',
       on: 'milestone',
     },
-    // Linear integration data
-    {
-      name: 'linearData',
-      type: 'group',
-      admin: {
-        description: 'Linear integration metadata (for cycles)',
-      },
-      fields: [
-        {
-          name: 'id',
-          type: 'text',
-          index: true,
-          admin: {
-            description: 'Linear cycle ID',
-          },
-        },
-        {
-          name: 'number',
-          type: 'number',
-          admin: {
-            description: 'Linear cycle number',
-          },
-        },
-        {
-          name: 'startsAt',
-          type: 'date',
-          admin: {
-            description: 'Linear cycle start date',
-          },
-        },
-      ],
-    },
   ],
   timestamps: true,
 }

@@ -43,11 +43,6 @@ export interface Env {
   WORKOS_CLIENT_SECRET: string
   COOKIE_ENCRYPTION_KEY: string
 
-  // Linear Integration
-  LINEAR_CLIENT_ID: string
-  LINEAR_CLIENT_SECRET: string
-  LINEAR_WEBHOOK_SECRET?: string
-
   // AI
   ANTHROPIC_API_KEY?: string
 }
@@ -71,8 +66,7 @@ export interface Issue {
   id: string
   title: string
   body?: string
-  state: 'open' | 'closed'
-  status?: 'open' | 'in_progress' | 'closed'
+  status: 'open' | 'in_progress' | 'closed'
   labels?: string[]
   assignees?: string[]
   milestoneId?: string
