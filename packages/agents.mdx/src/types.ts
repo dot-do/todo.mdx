@@ -1,0 +1,289 @@
+/**
+ * agents.mdx - Workflow Runtime Types
+ *
+ * This interface defines the globalThis contract for workflow code.
+ * Two implementations exist:
+ * - Local: CLI + miniflare (shells out to git, bd, claude CLI)
+ * - Cloud: Worker + capnweb (API calls to services)
+ */
+
+// ============================================================================
+// Core Domain Types
+// ============================================================================
+
+export interface Repo {
+  owner: string
+  name: string
+  defaultBranch: string
+  url: string
+}
+
+export interface Issue {
+  id: string
+  title: string
+  description: string
+  status: 'open' | 'in_progress' | 'blocked' | 'closed'
+  priority: number
+  type: 'bug' | 'feature' | 'task' | 'epic' | 'chore'
+  assignee?: string
+  labels: string[]
+  createdAt: string
+  updatedAt: string
+  closedAt?: string
+}
+
+export interface PR {
+  number: number
+  title: string
+  body: string
+  branch: string
+  url: string
+  state: 'open' | 'closed' | 'merged'
+}
+
+export interface IssueFilter {
+  status?: Issue['status']
+  priority?: number
+  type?: Issue['type']
+  assignee?: string
+  labels?: string[]
+}
+
+// ============================================================================
+// Claude Result Types
+// ============================================================================
+
+export interface DoResult {
+  diff: string
+  summary: string
+  filesChanged: string[]
+}
+
+export interface ResearchResult {
+  findings: string
+  sources: string[]
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export interface ReviewResult {
+  approved: boolean
+  comments: Array<{
+    file: string
+    line: number
+    body: string
+    severity: 'critical' | 'warning' | 'suggestion'
+  }>
+  summary: string
+}
+
+// ============================================================================
+// Claude Options Types
+// ============================================================================
+
+export interface DoOpts {
+  task: string
+  context?: string
+  model?: 'opus' | 'sonnet' | 'haiku'
+}
+
+export interface ResearchOpts {
+  topic: string
+  depth?: 'quick' | 'thorough' | 'exhaustive'
+  context?: string
+}
+
+export interface ReviewOpts {
+  pr: PR
+  focus?: Array<'security' | 'performance' | 'correctness' | 'style'>
+}
+
+export interface AskOpts {
+  question: string
+  context?: string
+}
+
+// ============================================================================
+// Template Literal + Callable Method Type
+// ============================================================================
+
+/**
+ * A method that supports both template literal and structured call styles:
+ *
+ * @example
+ * // Template literal style
+ * await claude.do`implement ${feature}`
+ *
+ * @example
+ * // Structured style
+ * await claude.do({ task: 'implement feature', context: '...' })
+ */
+export interface ClaudeMethod<TOpts, TResult> {
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<TResult>
+  (opts: TOpts): Promise<TResult>
+}
+
+// ============================================================================
+// Claude Interface
+// ============================================================================
+
+export interface Claude {
+  /**
+   * Root template tag - defaults to .do behavior
+   * @example await claude`implement ${feature}`
+   */
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<DoResult>
+
+  /**
+   * Execute a task (write code, fix bug, implement feature)
+   * @example await claude.do`implement ${issue.title}`
+   * @example await claude.do({ task: 'fix the bug', context: '...' })
+   */
+  do: ClaudeMethod<DoOpts, DoResult>
+
+  /**
+   * Research a topic (investigate, gather info, analyze - no code changes)
+   * @example await claude.research`best approach for ${problem}`
+   * @example await claude.research({ topic: 'auth patterns', depth: 'thorough' })
+   */
+  research: ClaudeMethod<ResearchOpts, ResearchResult>
+
+  /**
+   * Review a pull request
+   * @example await claude.review`${pull} focusing on security`
+   * @example await claude.review({ pr: pull, focus: ['security', 'perf'] })
+   */
+  review: ClaudeMethod<ReviewOpts, ReviewResult>
+
+  /**
+   * Ask a quick question
+   * @example await claude.ask`how should I handle ${edgeCase}?`
+   * @example await claude.ask({ question: 'what pattern should I use?' })
+   */
+  ask: ClaudeMethod<AskOpts, string>
+}
+
+// ============================================================================
+// PR Interface
+// ============================================================================
+
+export interface PRNamespace {
+  create(opts: { branch: string; title: string; body: string }): Promise<PR>
+  merge(pr: PR): Promise<void>
+  comment(pr: PR, message: string): Promise<void>
+  waitForApproval(pr: PR, opts?: { timeout?: string }): Promise<void>
+  list(filter?: { state?: 'open' | 'closed' | 'all' }): Promise<PR[]>
+}
+
+// ============================================================================
+// Issues Interface
+// ============================================================================
+
+export interface IssuesNamespace {
+  list(filter?: IssueFilter): Promise<Issue[]>
+  ready(): Promise<Issue[]>
+  blocked(): Promise<Issue[]>
+  create(opts: { title: string; description?: string; type?: Issue['type']; priority?: number }): Promise<Issue>
+  update(id: string, fields: Partial<Issue>): Promise<Issue>
+  close(id: string, reason?: string): Promise<void>
+  show(id: string): Promise<Issue>
+}
+
+// ============================================================================
+// Epics Interface
+// ============================================================================
+
+export interface EpicsNamespace {
+  list(): Promise<Issue[]>
+  progress(id: string): Promise<{ total: number; completed: number; percentage: number }>
+  create(opts: { title: string; description?: string }): Promise<Issue>
+}
+
+// ============================================================================
+// Git Interface
+// ============================================================================
+
+export interface GitNamespace {
+  commit(message: string): Promise<string> // returns sha
+  push(branch?: string): Promise<void>
+  pull(): Promise<void>
+  branch(name: string): Promise<void>
+  checkout(ref: string): Promise<void>
+  status(): Promise<{ modified: string[]; staged: string[]; untracked: string[] }>
+  diff(ref?: string): Promise<string>
+  worktree: {
+    create(name: string): Promise<string> // returns path
+    remove(name: string): Promise<void>
+    list(): Promise<Array<{ path: string; branch: string }>>
+  }
+}
+
+// ============================================================================
+// Todo Interface (Context Rendering)
+// ============================================================================
+
+export interface TodoNamespace {
+  render(): Promise<string>
+  ready(limit?: number): Promise<string>
+  blocked(): Promise<string>
+  inProgress(): Promise<string>
+}
+
+// ============================================================================
+// Complete Workflow Runtime Interface
+// ============================================================================
+
+export interface WorkflowRuntime {
+  // Context - injected per workflow execution
+  repo: Repo
+  issue?: Issue // The triggering issue (if applicable)
+
+  // Claude - AI agent operations
+  claude: Claude
+
+  // PR - Pull request operations
+  pr: PRNamespace
+
+  // Issues - Issue tracking (unified beads + GitHub)
+  issues: IssuesNamespace
+
+  // Epics - Epic management
+  epics: EpicsNamespace
+
+  // Git - Local git operations
+  git: GitNamespace
+
+  // Todo - Context rendering for agents
+  todo: TodoNamespace
+}
+
+// ============================================================================
+// Transport Abstraction
+// ============================================================================
+
+/**
+ * Transport interface - how the runtime communicates with backends
+ */
+export interface Transport {
+  call(method: string, args: unknown[]): Promise<unknown>
+  close?(): void
+}
+
+/**
+ * Transport factory - creates transport based on environment
+ */
+export type TransportFactory = () => Transport | Promise<Transport>
+
+// ============================================================================
+// Runtime Factory
+// ============================================================================
+
+export interface RuntimeConfig {
+  repo: Repo
+  issue?: Issue
+  transport: Transport | TransportFactory
+}
+
+/**
+ * Create a workflow runtime with the given configuration
+ */
+export type CreateRuntime = (config: RuntimeConfig) => WorkflowRuntime
