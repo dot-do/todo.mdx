@@ -10,15 +10,18 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "wrangler d1 migrations apply todo-mdx",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "auth:generate": "npx @better-auth/cli generate --config src/auth.ts"
   },
   "dependencies": {
-    "drizzle-orm": "^0.38.0",
+    "better-auth": "^1.0.0",
+    "drizzle-orm": "^0.41.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {
+    "@better-auth/cli": "^1.0.0",
     "@cloudflare/workers-types": "^4.20241205.0",
-    "drizzle-kit": "^0.30.0",
+    "drizzle-kit": "^0.31.4",
     "typescript": "^5.7.0",
     "wrangler": "^3.99.0"
   }

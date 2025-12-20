@@ -1,25 +1,61 @@
 /**
  * TODO.mdx Worker
  * GitHub App backend for syncing issues, milestones, and projects
+ * With Better Auth for user authentication
  */
 
 import { Hono } from 'hono'
-import { drizzle } from 'drizzle-orm/d1'
-import * as schema from './db/schema'
+import { cors } from 'hono/cors'
+import { createAuth } from './auth'
+import { voice } from './voice'
+import { mcp } from './mcp'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
 
 export interface Env {
   DB: D1Database
+  AI: Ai
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
+  // GitHub App
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
   GITHUB_WEBHOOK_SECRET: string
+  // Better Auth
+  BETTER_AUTH_SECRET: string
+  BETTER_AUTH_URL: string
+  GITHUB_CLIENT_ID: string
+  GITHUB_CLIENT_SECRET: string
+  // Claude API
+  ANTHROPIC_API_KEY: string
 }
 
-const app = new Hono<{ Bindings: Env }>()
+interface User {
+  id: string
+  name: string
+  email: string
+  image?: string
+  githubId?: number
+  githubUsername?: string
+}
+
+interface Session {
+  user: User
+}
+
+type Variables = {
+  user: User
+  session: Session
+}
+
+const app = new Hono<{ Bindings: Env; Variables: Variables }>()
+
+// CORS for API access
+app.use('/api/*', cors({
+  origin: ['https://todo.mdx.do', 'https://priya.do', 'http://localhost:3000'],
+  credentials: true,
+}))
 
 // Health check
 app.get('/', (c) => {
@@ -30,20 +66,97 @@ app.get('/', (c) => {
   })
 })
 
+// ============================================
+// Voice API routes (STT/TTS/Chat)
+// ============================================
+
+app.route('/api/voice', voice)
+
+// ============================================
+// MCP Server with OAuth 2.1
+// ============================================
+
+app.route('/mcp', mcp)
+
+// ============================================
+// Better Auth routes
+// ============================================
+
+app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
+  const auth = createAuth({
+    DB: c.env.DB,
+    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
+    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+  })
+
+  return auth.handler(c.req.raw)
+})
+
+// Get current user
+app.get('/api/me', async (c) => {
+  const auth = createAuth({
+    DB: c.env.DB,
+    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
+    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+  })
+
+  const session = await auth.api.getSession({
+    headers: c.req.raw.headers,
+  })
+
+  if (!session) {
+    return c.json({ user: null }, 401)
+  }
+
+  return c.json({ user: session.user })
+})
+
+// ============================================
 // GitHub App installation callback
+// Links installation to authenticated user
+// ============================================
+
 app.get('/github/callback', async (c) => {
   const installationId = c.req.query('installation_id')
   const setupAction = c.req.query('setup_action')
 
   if (setupAction === 'install' && installationId) {
-    // TODO: Fetch installation details from GitHub API and store
-    return c.redirect('https://todo.mdx.do/success')
+    // Get current user session
+    const auth = createAuth({
+      DB: c.env.DB,
+      BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+      BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
+      GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
+      GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+    })
+
+    const session = await auth.api.getSession({
+      headers: c.req.raw.headers,
+    })
+
+    if (session?.user) {
+      // Link installation to user
+      const now = new Date().toISOString()
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO user_installations (user_id, installation_id, role, created_at)
+        VALUES (?, ?, 'owner', ?)
+      `).bind(session.user.id, installationId, now).run()
+    }
+
+    return c.redirect('https://todo.mdx.do/dashboard?installed=true')
   }
 
   return c.redirect('https://todo.mdx.do')
 })
 
+// ============================================
 // GitHub webhook handler
+// ============================================
+
 app.post('/github/webhook', async (c) => {
   const signature = c.req.header('x-hub-signature-256')
   const event = c.req.header('x-github-event')
@@ -75,7 +188,6 @@ app.post('/github/webhook', async (c) => {
 
 // Installation webhook
 async function handleInstallation(c: any, payload: any): Promise<Response> {
-  const db = drizzle(c.env.DB, { schema })
   const now = new Date().toISOString()
 
   if (payload.action === 'created') {
@@ -132,11 +244,9 @@ async function handleIssues(c: any, payload: any): Promise<Response> {
   const repo = payload.repository
   const issue = payload.issue
 
-  // Get Durable Object for this repo
   const doId = c.env.REPO.idFromName(repo.full_name)
   const stub = c.env.REPO.get(doId)
 
-  // Sync issue to DO
   const response = await stub.fetch(new Request('http://do/issues/sync', {
     method: 'POST',
     body: JSON.stringify({
@@ -192,7 +302,6 @@ async function handleMilestone(c: any, payload: any): Promise<Response> {
 async function handlePush(c: any, payload: any): Promise<Response> {
   const repo = payload.repository
 
-  // Check if any .todo/ or TODO.md files were modified
   const todoFiles: string[] = []
 
   for (const commit of payload.commits || []) {
@@ -242,7 +351,62 @@ async function handleProjectItem(c: any, payload: any): Promise<Response> {
   return c.json({ status: 'synced', result })
 }
 
-// API: List installations
+// ============================================
+// Protected API routes (require auth)
+// ============================================
+
+// Middleware to check auth
+const requireAuth = async (c: any, next: () => Promise<void>) => {
+  const auth = createAuth({
+    DB: c.env.DB,
+    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
+    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
+    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
+    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+  })
+
+  const session = await auth.api.getSession({
+    headers: c.req.raw.headers,
+  })
+
+  if (!session) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+
+  c.set('user', session.user)
+  c.set('session', session)
+  await next()
+}
+
+// Get user's installations
+app.get('/api/user/installations', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const result = await c.env.DB.prepare(`
+    SELECT i.*, ui.role
+    FROM installations i
+    JOIN user_installations ui ON ui.installation_id = i.installation_id
+    WHERE ui.user_id = ?
+  `).bind(user.id).all()
+
+  return c.json(result.results)
+})
+
+// Get user's repos
+app.get('/api/user/repos', requireAuth, async (c) => {
+  const user = c.get('user')
+
+  const result = await c.env.DB.prepare(`
+    SELECT r.*
+    FROM repos r
+    JOIN user_installations ui ON ui.installation_id = r.installation_id
+    WHERE ui.user_id = ?
+  `).bind(user.id).all()
+
+  return c.json(result.results)
+})
+
+// API: List all installations (admin)
 app.get('/api/installations', async (c) => {
   const result = await c.env.DB.prepare('SELECT * FROM installations').all()
   return c.json(result.results)
@@ -271,7 +435,7 @@ app.get('/api/repos/:owner/:name/status', async (c) => {
 })
 
 // API: Trigger manual sync for a repo
-app.post('/api/repos/:owner/:name/sync', async (c) => {
+app.post('/api/repos/:owner/:name/sync', requireAuth, async (c) => {
   const owner = c.req.param('owner')
   const name = c.req.param('name')
   const fullName = `${owner}/${name}`

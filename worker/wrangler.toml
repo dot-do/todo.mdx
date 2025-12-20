@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-12-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Workers AI for voice
+[ai]
+binding = "AI"
+
 # D1 Database for app installs and DO registry
 [[d1_databases]]
 binding = "DB"
@@ -22,6 +26,16 @@ tag = "v1"
 new_sqlite_classes = ["RepoDO", "ProjectDO"]
 
 # Environment variables (set via wrangler secret)
+# GitHub App
 # GITHUB_APP_ID
 # GITHUB_PRIVATE_KEY
 # GITHUB_WEBHOOK_SECRET
+
+# Better Auth (OAuth)
+# BETTER_AUTH_SECRET
+# BETTER_AUTH_URL
+# GITHUB_CLIENT_ID
+# GITHUB_CLIENT_SECRET
+
+# AI
+# ANTHROPIC_API_KEY
