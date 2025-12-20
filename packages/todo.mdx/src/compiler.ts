@@ -71,6 +71,17 @@ function parseYaml(yaml: string): Record<string, unknown> {
   return result
 }
 
+/** Load issues from API (internal helper) */
+async function loadApiIssuesInternal(config: TodoConfig): Promise<Issue[]> {
+  const { loadApiIssues } = await import('./api-client.js')
+  return loadApiIssues({
+    baseUrl: config.apiUrl,
+    apiKey: config.apiKey,
+    owner: config.owner,
+    repo: config.repo,
+  })
+}
+
 /** Load issues from beads-workflows SDK */
 export async function loadBeadsIssues(): Promise<Issue[]> {
   try {
@@ -145,6 +156,130 @@ async function loadFileIssues(todoDir: string, pattern: string): Promise<Issue[]
   return issues
 }
 
+/** In-memory cache for GitHub issues (per run) */
+const githubIssuesCache = new Map<string, Issue[]>()
+
+/** Parse priority from GitHub issue labels */
+function parsePriority(labels: Array<{ name: string }>): number | undefined {
+  for (const label of labels) {
+    // Try priority:N format
+    const priorityMatch = label.name.match(/^priority:(\d+)$/i)
+    if (priorityMatch) {
+      return parseInt(priorityMatch[1], 10)
+    }
+    // Try P0/P1/P2 format
+    const pMatch = label.name.match(/^P(\d+)$/i)
+    if (pMatch) {
+      return parseInt(pMatch[1], 10)
+    }
+  }
+  return undefined
+}
+
+/** Parse issue type from GitHub issue labels */
+function parseIssueType(labels: Array<{ name: string }>): Issue['type'] {
+  const labelNames = labels.map(l => l.name.toLowerCase())
+  if (labelNames.includes('bug')) return 'bug'
+  if (labelNames.includes('feature')) return 'feature'
+  if (labelNames.includes('epic')) return 'epic'
+  if (labelNames.includes('chore')) return 'chore'
+  return 'task'
+}
+
+/** Load issues from GitHub API (requires GITHUB_TOKEN) */
+export async function loadGitHubIssues(config: TodoConfig): Promise<Issue[]> {
+  const { owner, repo } = config
+  if (!owner || !repo) return []
+
+  const token = process.env.GITHUB_TOKEN
+  if (!token) return []
+
+  // Check cache
+  const cacheKey = `${owner}/${repo}`
+  if (githubIssuesCache.has(cacheKey)) {
+    return githubIssuesCache.get(cacheKey)!
+  }
+
+  try {
+    const allIssues: Issue[] = []
+    let page = 1
+    let hasMore = true
+
+    // GitHub API returns max 100 per page
+    while (hasMore) {
+      const response = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/issues?state=all&per_page=100&page=${page}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'todo.mdx',
+          },
+        }
+      )
+
+      if (!response.ok) {
+        // Don't fail hard, just return what we have so far
+        break
+      }
+
+      const data = await response.json() as Array<{
+        id: number
+        number: number
+        title: string
+        body: string | null
+        state: 'open' | 'closed'
+        labels: Array<{ id: number; name: string; color: string }>
+        assignees: Array<{ login: string; id: number }>
+        milestone?: { number: number; title: string }
+        created_at: string
+        updated_at: string
+        pull_request?: unknown // PRs show up in issues API but have this field
+      }>
+
+      // Filter out pull requests (they have pull_request field)
+      const issues = data.filter(item => !item.pull_request)
+
+      if (issues.length === 0) {
+        hasMore = false
+        break
+      }
+
+      for (const issue of issues) {
+        allIssues.push({
+          id: `github-${issue.number}`,
+          githubId: issue.id,
+          githubNumber: issue.number,
+          title: issue.title,
+          body: issue.body || undefined,
+          state: issue.state === 'closed' ? 'closed' : 'open',
+          labels: issue.labels.map(l => l.name),
+          assignees: issue.assignees.map(a => a.login),
+          priority: parsePriority(issue.labels),
+          type: parseIssueType(issue.labels),
+          milestone: issue.milestone?.title,
+          createdAt: issue.created_at,
+          updatedAt: issue.updated_at,
+        })
+      }
+
+      // Check if there are more pages
+      if (issues.length < 100) {
+        hasMore = false
+      } else {
+        page++
+      }
+    }
+
+    // Cache the results
+    githubIssuesCache.set(cacheKey, allIssues)
+
+    return allIssues
+  } catch {
+    return []
+  }
+}
+
 /** Compile TODO.mdx to TODO.md */
 export async function compile(options: {
   input?: string
@@ -184,20 +319,34 @@ export async function compile(options: {
   const finalConfig: TodoConfig = {
     ...config,
     beads: frontmatter.beads as boolean ?? config.beads ?? true,
+    api: frontmatter.api as boolean ?? config.api ?? false,
+    apiUrl: frontmatter.apiUrl as string ?? config.apiUrl,
+    apiKey: frontmatter.apiKey as string ?? config.apiKey,
     filePattern: frontmatter.filePattern as string ?? config.filePattern ?? DEFAULT_PATTERN,
+    owner: frontmatter.owner as string ?? config.owner,
+    repo: frontmatter.repo as string ?? config.repo,
   }
 
   // Parse outputs array from frontmatter
   const outputs = frontmatter.outputs as string[] ?? [output]
 
   // Load issues from various sources
-  const [beadsIssues, fileIssues] = await Promise.all([
+  const [beadsIssues, fileIssues, githubIssues, apiIssues] = await Promise.all([
     finalConfig.beads ? loadBeadsIssues() : [],
     loadFileIssues(todoDir, finalConfig.filePattern!),
+    loadGitHubIssues(finalConfig),
+    finalConfig.api ? loadApiIssuesInternal(finalConfig) : [],
   ])
 
-  // Merge issues (file issues take precedence)
+  // Merge issues (priority: file > beads > api > github)
   const issueMap = new Map<string, Issue>()
+  for (const issue of githubIssues) {
+    issueMap.set(issue.id, issue)
+    if (issue.githubNumber) issueMap.set(`github-${issue.githubNumber}`, issue)
+  }
+  for (const issue of apiIssues) {
+    issueMap.set(issue.id, issue)
+  }
   for (const issue of beadsIssues) {
     issueMap.set(issue.id, issue)
   }

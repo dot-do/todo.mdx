@@ -9,6 +9,12 @@ export interface TodoConfig {
   repo?: string
   /** Sync with beads */
   beads?: boolean
+  /** Use API client to fetch issues */
+  api?: boolean
+  /** API base URL (for api mode) */
+  apiUrl?: string
+  /** API key (for api mode) */
+  apiKey?: string
   /** File naming pattern for .todo files */
   filePattern?: string
   /** Output format */
@@ -73,7 +79,7 @@ export interface FilePattern {
   format: (issue: Issue) => string
 }
 
-export type SyncSource = 'github' | 'beads' | 'file'
+export type SyncSource = 'github' | 'beads' | 'file' | 'api'
 
 export interface SyncResult {
   source: SyncSource

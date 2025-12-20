@@ -6,9 +6,11 @@
 
 import { parseArgs } from 'node:util'
 import { existsSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
-import { compile, generateTodoFiles, loadBeadsIssues } from './compiler.js'
-import type { Issue } from './types.js'
+import { readFile, writeFile } from 'node:fs/promises'
+import { compile, generateTodoFiles, loadBeadsIssues, loadGitHubIssues } from './compiler.js'
+import { loadApiIssues } from './api-client.js'
+import { watch } from './watcher.js'
+import type { Issue, TodoConfig } from './types.js'
 
 const DEFAULT_TEMPLATE = `---
 title: TODO
@@ -107,13 +109,98 @@ Examples:
       }
       issues = await loadBeadsIssues()
     } else if (source === 'github') {
-      // TODO: Implement loadGitHubIssues() - see todo-0u4
-      console.error('GitHub source not yet implemented. Use beads for now.')
-      process.exit(1)
+      if (!values.quiet) {
+        console.log('Loading issues from GitHub...')
+      }
+
+      // Check for required environment variable
+      if (!process.env.GITHUB_TOKEN) {
+        console.error('Error: GITHUB_TOKEN environment variable is required for GitHub source')
+        console.error('Set it with: export GITHUB_TOKEN=ghp_your_token_here')
+        process.exit(1)
+      }
+
+      // GitHub requires owner/repo - try to read from TODO.mdx frontmatter
+      const config: TodoConfig = {}
+      try {
+        if (existsSync('TODO.mdx')) {
+          const content = await readFile('TODO.mdx', 'utf-8')
+          const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+          if (match) {
+            const frontmatter = match[1]
+            const ownerMatch = frontmatter.match(/owner:\s*(.+)/)
+            const repoMatch = frontmatter.match(/repo:\s*(.+)/)
+            if (ownerMatch) config.owner = ownerMatch[1].trim()
+            if (repoMatch) config.repo = repoMatch[1].trim()
+          }
+        }
+      } catch {
+        // Ignore errors reading TODO.mdx
+      }
+
+      if (!config.owner || !config.repo) {
+        console.error('Error: GitHub owner/repo not configured')
+        console.error('Add to TODO.mdx frontmatter:')
+        console.error('---')
+        console.error('owner: your-github-username')
+        console.error('repo: your-repo-name')
+        console.error('---')
+        process.exit(1)
+      }
+
+      issues = await loadGitHubIssues(config)
     } else if (source === 'api') {
-      // TODO: Implement API client - see todo-si1
-      console.error('API source not yet implemented. Use beads for now.')
-      process.exit(1)
+      if (!values.quiet) {
+        console.log('Loading issues from todo.mdx.do API...')
+      }
+
+      // API requires owner/repo and API key - try to read from TODO.mdx frontmatter or environment
+      const config: TodoConfig = {}
+      try {
+        if (existsSync('TODO.mdx')) {
+          const content = await readFile('TODO.mdx', 'utf-8')
+          const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+          if (match) {
+            const frontmatter = match[1]
+            const ownerMatch = frontmatter.match(/owner:\s*(.+)/)
+            const repoMatch = frontmatter.match(/repo:\s*(.+)/)
+            const apiUrlMatch = frontmatter.match(/apiUrl:\s*(.+)/)
+            const apiKeyMatch = frontmatter.match(/apiKey:\s*(.+)/)
+            if (ownerMatch) config.owner = ownerMatch[1].trim()
+            if (repoMatch) config.repo = repoMatch[1].trim()
+            if (apiUrlMatch) config.apiUrl = apiUrlMatch[1].trim()
+            if (apiKeyMatch) config.apiKey = apiKeyMatch[1].trim()
+          }
+        }
+      } catch {
+        // Ignore errors reading TODO.mdx
+      }
+
+      // Environment variables override frontmatter
+      config.owner = config.owner || process.env.TODO_MDX_OWNER
+      config.repo = config.repo || process.env.TODO_MDX_REPO
+      config.apiUrl = config.apiUrl || process.env.TODO_MDX_API_URL
+      config.apiKey = config.apiKey || process.env.TODO_MDX_API_KEY
+
+      if (!config.owner || !config.repo) {
+        console.error('Error: API owner/repo not configured')
+        console.error('Add to TODO.mdx frontmatter:')
+        console.error('---')
+        console.error('owner: your-github-username')
+        console.error('repo: your-repo-name')
+        console.error('apiKey: your-api-key  # Optional if using TODO_MDX_API_KEY env var')
+        console.error('---')
+        console.error('Or set environment variables: TODO_MDX_OWNER, TODO_MDX_REPO, TODO_MDX_API_KEY')
+        process.exit(1)
+      }
+
+      if (!config.apiKey) {
+        console.error('Error: TODO_MDX_API_KEY environment variable or apiKey in frontmatter is required for API source')
+        console.error('Set it with: export TODO_MDX_API_KEY=your_api_key_here')
+        process.exit(1)
+      }
+
+      issues = await loadApiIssues(config)
     } else {
       console.error(`Unknown source: ${source}. Valid sources: beads, github, api`)
       process.exit(1)
@@ -121,7 +208,7 @@ Examples:
 
     if (issues.length === 0) {
       if (!values.quiet) {
-        console.log('No issues found. Make sure you have a .beads/ directory with issues.')
+        console.log('No issues found.')
       }
       return
     }
@@ -181,8 +268,42 @@ async function runCompile(options: {
     }
 
     if (options.watch) {
-      // TODO: Implement watch mode - see todo-az6
-      console.log('Watch mode not yet implemented')
+      if (!options.quiet) {
+        console.log('Starting watch mode...')
+        console.log('Watching .todo/*.md for changes')
+      }
+
+      // Start the file watcher
+      const stopWatcher = await watch({
+        todoDir: '.todo',
+        verbose: !options.quiet,
+        onEvent: (event) => {
+          if (!options.quiet) {
+            if (event.action === 'updated') {
+              console.log(`Synced ${event.issueId}: ${event.path}`)
+            } else if (event.action === 'error') {
+              console.error(`Error syncing ${event.path}: ${event.error}`)
+            }
+          }
+        },
+      })
+
+      // Handle graceful shutdown
+      process.on('SIGINT', async () => {
+        if (!options.quiet) {
+          console.log('\nStopping watch mode...')
+        }
+        await stopWatcher()
+        process.exit(0)
+      })
+
+      process.on('SIGTERM', async () => {
+        await stopWatcher()
+        process.exit(0)
+      })
+
+      // Keep process alive
+      await new Promise(() => {})
     }
   } catch (error) {
     console.error('Compilation failed:', error)

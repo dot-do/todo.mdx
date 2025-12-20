@@ -33,4 +33,22 @@ export {
   compile,
   generateTodoFiles,
   loadBeadsIssues,
+  loadGitHubIssues,
 } from './compiler.js'
+
+// API Client
+export {
+  TodoApiClient,
+  loadApiIssues,
+  type ApiClientConfig,
+  type IssueFilter,
+} from './api-client.js'
+
+// Watcher
+export {
+  watch,
+} from './watcher.js'
+export type {
+  WatchOptions,
+  WatchEvent,
+} from './watcher.js'
