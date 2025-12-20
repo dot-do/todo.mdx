@@ -8,6 +8,18 @@ export { Terminal } from './Terminal'
 export { SandboxEditor } from './Editor'
 export { FileTree } from './FileTree'
 
+// Project visualization components
+export { ViewSwitcher } from './view-switcher'
+export { FilterBar, defaultFilterState } from './filter-bar'
+export { StatsCards } from './stats-cards'
+export { IssueList } from './issue-list'
+export { ProjectsView } from './projects'
+
+// Analytics components
+export { BurndownChart } from './analytics/BurndownChart'
+export { VelocityChart } from './analytics/VelocityChart'
+export { CumulativeFlowDiagram } from './analytics/CumulativeFlowDiagram'
+
 export type { DashboardProps } from './dashboard'
 export type { DashboardLayoutProps } from './layout'
 export type { DashboardNavProps } from './nav'
@@ -15,3 +27,8 @@ export type { DashboardSidebarProps, NavItem } from './sidebar'
 export type { TerminalProps, WebSocketMessage, ClientMessage } from './Terminal'
 export type { SandboxEditorProps } from './Editor'
 export type { FileTreeProps, FileNode } from './FileTree'
+
+// Project visualization types
+export type { ViewType } from './view-switcher'
+export type { IssueStatus, IssuePriority, IssueType } from './filter-bar'
+export type { Issue } from './issue-list'
