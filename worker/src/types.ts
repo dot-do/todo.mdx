@@ -2,17 +2,28 @@
  * Worker environment types
  */
 
-import type { PayloadRPC } from '../../apps/admin/src/rpc'
+// PayloadRPC type - the actual implementation is in the admin app
+// We use a generic interface here since we access it via RPC
+export interface PayloadRPC {
+  find(args: { collection: string; where?: Record<string, unknown>; limit?: number; depth?: number; sort?: string }): Promise<{ docs: any[]; totalDocs: number }>
+  findByID(args: { collection: string; id: string; depth?: number }): Promise<any>
+  create(args: { collection: string; data: Record<string, unknown> }): Promise<any>
+  update(args: { collection: string; id: string; data: Record<string, unknown> }): Promise<any>
+  delete(args: { collection: string; id: string }): Promise<any>
+}
 
 export interface Env {
   // Bindings
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
+  MCP_OBJECT: DurableObjectNamespace
   AI: any
   LOADER: any
   OAUTH_KV: KVNamespace
-  PAYLOAD: Service<PayloadRPC>
+  // PAYLOAD is a service binding to the Payload CMS worker
+  // We cast to PayloadRPC in the calling code for type safety
+  PAYLOAD: PayloadRPC
 
   // Cloudflare Workflows
   DEVELOP_WORKFLOW: WorkflowNamespace
@@ -22,14 +33,11 @@ export interface Env {
   GITHUB_PRIVATE_KEY: string
   GITHUB_WEBHOOK_SECRET: string
 
-  // WorkOS (API keys + AuthKit)
+  // WorkOS AuthKit
   WORKOS_API_KEY: string
   WORKOS_CLIENT_ID: string
   WORKOS_CLIENT_SECRET: string
-
-  // oauth.do (CLI OAuth)
-  OAUTH_DO_CLIENT_ID: string
-  OAUTH_DO_ISSUER: string
+  COOKIE_ENCRYPTION_KEY: string
 
   // Linear Integration
   LINEAR_CLIENT_ID: string

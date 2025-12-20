@@ -7,13 +7,13 @@
 import { DurableObject } from 'cloudflare:workers'
 import { createActor, setup, assign } from 'xstate'
 import { SignJWT, importPKCS8 } from 'jose'
-import type { PayloadRPC } from '../../../apps/admin/src/rpc'
+import type { PayloadRPC } from '../types'
 
 export interface Env {
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
-  PAYLOAD: Service<PayloadRPC>
+  PAYLOAD: PayloadRPC
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
 }

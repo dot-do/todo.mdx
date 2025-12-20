@@ -18,9 +18,9 @@
  * 7. Dependent issues unblock automatically
  */
 
-import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers'
+import { WorkflowEntrypoint, WorkflowStep as CFWorkflowStep, WorkflowEvent } from 'cloudflare:workers'
 import { createRuntime } from 'agents.mdx'
-import { durableTransport } from 'agents.mdx/cloudflare-workflows'
+import { durableTransport, type WorkflowStep } from 'agents.mdx/cloudflare-workflows'
 import type { Issue, Repo } from 'agents.mdx'
 
 // ============================================================================
@@ -47,8 +47,8 @@ export interface DevelopWorkflowPayload {
 
 interface WorkflowEnv {
   // Service bindings
-  PAYLOAD: Service<any> // PayloadRPC
-  CLAUDE_SANDBOX: Service<any> // ClaudeSandbox
+  PAYLOAD: any // PayloadRPC
+  CLAUDE_SANDBOX: any // ClaudeSandbox
 
   // API keys
   ANTHROPIC_API_KEY: string
@@ -65,17 +65,18 @@ interface WorkflowEnv {
 export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWorkflowPayload> {
   async run(
     event: WorkflowEvent<DevelopWorkflowPayload>,
-    step: WorkflowStep
+    step: CFWorkflowStep
   ): Promise<void> {
     const { repo, issue, installationId, context } = event.payload
 
     console.log(`[DevelopWorkflow] Starting for issue ${issue.id}: ${issue.title}`)
 
     // Create durable runtime
+    // Cast step to our WorkflowStep interface for durableTransport
     const runtime = createRuntime({
       repo,
       issue,
-      transport: durableTransport(step, {
+      transport: durableTransport(step as unknown as WorkflowStep, {
         repo,
         payloadBinding: this.env.PAYLOAD,
         claudeBinding: this.env.CLAUDE_SANDBOX,

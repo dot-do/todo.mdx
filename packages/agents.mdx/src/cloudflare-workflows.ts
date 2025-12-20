@@ -36,7 +36,8 @@ import type { Transport, Repo, PR } from './types'
 import type { CloudTransportConfig } from './cloud'
 
 // Cloudflare Workflows types
-// These are imported from 'cloudflare:workflows' in the worker environment
+// Compatible with cloudflare:workers WorkflowStep
+// Uses a flexible interface that works with the actual Cloudflare API
 export interface WorkflowStep {
   /**
    * Execute a step with automatic retries
@@ -47,14 +48,14 @@ export interface WorkflowStep {
   /**
    * Wait for an external event
    * Pauses workflow execution until the event is received or timeout expires
+   *
+   * Note: Cloudflare's actual API requires { type: string } in options.
+   * We accept any options object for compatibility.
    */
   waitForEvent<T = unknown>(
     eventName: string,
-    options?: {
-      timeout?: string // e.g., '7d', '1h', '30m'
-      timeoutError?: Error
-    }
-  ): Promise<T>
+    options?: Record<string, unknown>
+  ): Promise<T | { payload: T }>
 
   /**
    * Sleep for a duration
@@ -154,12 +155,16 @@ export function durableTransport(
         const eventName =
           eventNames.prApproval?.(pr) || `pr.${pr.number}.approved`
 
-        return step.waitForEvent(eventName, {
+        // Cloudflare's waitForEvent requires 'type' in options
+        const result = await step.waitForEvent(eventName, {
+          type: 'pr_approval',
           timeout: opts.timeout || '7d',
-          timeoutError: new Error(
-            `PR approval timeout after ${opts.timeout || '7d'}`
-          ),
         })
+
+        // Handle both our interface and Cloudflare's { payload: T } return type
+        return typeof result === 'object' && result !== null && 'payload' in result
+          ? (result as { payload: unknown }).payload
+          : result
       }
 
       // All other calls are wrapped in step.do for durability

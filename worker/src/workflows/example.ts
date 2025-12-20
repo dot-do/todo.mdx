@@ -8,9 +8,9 @@
  * 4. Integrating with webhooks
  */
 
-import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers'
+import { WorkflowEntrypoint, WorkflowStep as CFWorkflowStep, WorkflowEvent } from 'cloudflare:workers'
 import { createRuntime } from 'agents.mdx'
-import { durableTransport } from 'agents.mdx/cloudflare-workflows'
+import { durableTransport, type WorkflowStep } from 'agents.mdx/cloudflare-workflows'
 import type { Issue, Repo } from 'agents.mdx'
 
 // ============================================================================
@@ -29,15 +29,16 @@ interface SimpleWorkflowPayload {
 export class SimpleAutoDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflowPayload> {
   async run(
     event: WorkflowEvent<SimpleWorkflowPayload>,
-    step: WorkflowStep
+    step: CFWorkflowStep
   ): Promise<void> {
     const { repo, issue, installationId } = event.payload
 
     // Create runtime with durable transport
+    // Cast step to our WorkflowStep interface for durableTransport
     const runtime = createRuntime({
       repo,
       issue,
-      transport: durableTransport(step, {
+      transport: durableTransport(step as unknown as WorkflowStep, {
         repo,
         payloadBinding: this.env.PAYLOAD,
         installationId,
@@ -77,14 +78,15 @@ export class SimpleAutoDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflo
 export class ProductionDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflowPayload> {
   async run(
     event: WorkflowEvent<SimpleWorkflowPayload>,
-    step: WorkflowStep
+    step: CFWorkflowStep
   ): Promise<void> {
     const { repo, issue, installationId } = event.payload
 
+    // Cast step to our WorkflowStep interface for durableTransport
     const runtime = createRuntime({
       repo,
       issue,
-      transport: durableTransport(step, {
+      transport: durableTransport(step as unknown as WorkflowStep, {
         repo,
         payloadBinding: this.env.PAYLOAD,
         installationId,
@@ -97,7 +99,7 @@ export class ProductionDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflo
 
     // Implementation phase
     let implementationAttempts = 0
-    let result
+    let result: { summary: string; filesChanged: string[]; diff: string } | undefined
 
     while (implementationAttempts < 3) {
       try {
@@ -117,8 +119,14 @@ export class ProductionDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflo
         }
 
         // Wait before retry (exponential backoff)
-        await step.sleep(`${Math.pow(2, implementationAttempts)}m`)
+        // Cloudflare's sleep requires a name and duration
+        await step.sleep(`retry-backoff-${implementationAttempts}`, `${Math.pow(2, implementationAttempts)}m` as any)
       }
+    }
+
+    // Ensure result is defined (should always be after successful loop)
+    if (!result) {
+      throw new Error('Implementation failed: no result')
     }
 
     // Create PR
