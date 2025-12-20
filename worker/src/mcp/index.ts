@@ -367,6 +367,20 @@ mcp.get('/tools', requireToken, async (c) => {
           required: ['id'],
         },
       },
+      {
+        name: 'do',
+        description: `Execute TypeScript. SDK: ctx.getRepos(): Repo[], ctx.getIssues(repo): Issue[], ctx.getMilestones(repo): Milestone[], ctx.createIssue(repo, {title, body?, labels?}), ctx.updateIssue(repo, id, {title?, body?, state?}), ctx.query(sql, ...params). Define async function run(ctx) { return result }`,
+        inputSchema: {
+          type: 'object',
+          properties: {
+            code: {
+              type: 'string',
+              description: 'TypeScript code with async function run(ctx) { ... }',
+            },
+          },
+          required: ['code'],
+        },
+      },
     ],
   })
 })
@@ -632,6 +646,123 @@ mcp.post('/tools/call', requireToken, async (c) => {
       } catch (error: any) {
         return c.json({
           content: [{ type: 'text', text: `Fetch error: ${error.message}` }],
+          isError: true,
+        })
+      }
+    }
+
+    case 'do': {
+      // Execute TypeScript code in an isolated worker with SDK access
+      const code = args.code
+
+      try {
+        // Generate unique worker ID
+        const workerId = `mcp-${userId}-${Date.now()}`
+
+        // Wrap user code in a worker module that provides the SDK
+        const wrappedCode = `
+// SDK Context provided to user code
+const ctx = {
+  userId: "${userId}",
+  async getRepos() {
+    const response = await fetch("http://internal/repos");
+    return response.json();
+  },
+  async getIssues(repo) {
+    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/issues\`);
+    return response.json();
+  },
+  async getMilestones(repo) {
+    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/milestones\`);
+    return response.json();
+  },
+  async createIssue(repo, issue) {
+    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/issues\`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(issue),
+    });
+    return response.json();
+  },
+  async updateIssue(repo, id, updates) {
+    const response = await fetch(\`http://internal/repos/\${encodeURIComponent(repo)}/issues/\${id}\`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    return response.json();
+  },
+  async query(sql, ...params) {
+    const response = await fetch("http://internal/db/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sql, params }),
+    });
+    return response.json();
+  },
+};
+
+// User code
+${code}
+
+// Default export handler
+export default {
+  async fetch(request, env, context) {
+    try {
+      // If user code exports a function, call it
+      if (typeof run === "function") {
+        const result = await run(ctx);
+        if (result instanceof Response) return result;
+        return new Response(JSON.stringify(result), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      // If user code exports a default handler, use it
+      if (typeof handler === "function") {
+        return await handler(request, ctx);
+      }
+      return new Response(JSON.stringify({ error: "No run() or handler() function found" }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: error.message, stack: error.stack }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  },
+};
+`
+
+        // Create the dynamic worker
+        const worker = c.env.LOADER.get(workerId, async () => ({
+          compatibilityDate: '2024-12-01',
+          compatibilityFlags: ['nodejs_compat'],
+          mainModule: 'worker.js',
+          modules: {
+            'worker.js': wrappedCode,
+          },
+          // No direct network access - sandbox it
+          globalOutbound: null,
+        }))
+
+        // Execute the worker
+        const entrypoint = worker.getEntrypoint()
+        const response = await entrypoint.fetch(new Request('http://internal/execute', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId }),
+        }))
+
+        const result = await response.text()
+
+        return c.json({
+          content: [{ type: 'text', text: result }],
+        })
+      } catch (error: any) {
+        return c.json({
+          content: [{ type: 'text', text: `Execution error: ${error.message}` }],
           isError: true,
         })
       }

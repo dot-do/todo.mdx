@@ -18,6 +18,7 @@ export interface Env {
   AI: Ai
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
+  LOADER: WorkerLoader
   // GitHub App
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
@@ -29,6 +30,28 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string
   // Claude API
   ANTHROPIC_API_KEY: string
+}
+
+// Worker Loader types
+interface WorkerLoader {
+  get(id: string, getCode: () => Promise<WorkerCode>): WorkerStub
+}
+
+interface WorkerCode {
+  compatibilityDate: string
+  compatibilityFlags?: string[]
+  mainModule: string
+  modules: Record<string, string>
+  env?: Record<string, unknown>
+  globalOutbound?: null
+}
+
+interface WorkerStub {
+  getEntrypoint(): WorkerEntrypoint
+}
+
+interface WorkerEntrypoint {
+  fetch(request: Request | string): Promise<Response>
 }
 
 interface User {

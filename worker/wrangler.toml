@@ -26,6 +26,10 @@ bindings = [
 tag = "v1"
 new_sqlite_classes = ["RepoDO", "ProjectDO"]
 
+# Dynamic Worker Loader for code execution
+[[worker_loaders]]
+binding = "LOADER"
+
 # Environment variables (set via wrangler secret)
 # GitHub App
 # GITHUB_APP_ID
