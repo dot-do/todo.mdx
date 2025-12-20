@@ -1,0 +1,69 @@
+{
+  "name": "roadmap.mdx",
+  "version": "0.1.0",
+  "description": "Bidirectional sync between ROADMAP.mdx templates, .roadmap/*.md files, GitHub Milestones/Projects, and beads epics",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "roadmap.mdx": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./docs": {
+      "types": "./dist/docs.d.ts",
+      "import": "./dist/docs.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "keywords": [
+    "roadmap",
+    "mdx",
+    "github",
+    "milestones",
+    "projects",
+    "beads",
+    "epics",
+    "sync",
+    "markdown"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dot-do/todo.mdx.git",
+    "directory": "packages/roadmap.mdx"
+  },
+  "dependencies": {
+    "mdxld": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.0.0"
+  },
+  "peerDependencies": {
+    "beads-workflows": ">=0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "beads-workflows": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

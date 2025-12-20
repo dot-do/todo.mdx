@@ -1,0 +1,39 @@
+---
+title: todo.mdx
+description: Bidirectional sync between TODO.mdx, .todo/*.md, GitHub Issues, and beads
+---
+
+# todo.mdx
+
+Write `TODO.mdx` templates with live data, compile to `TODO.md`, and sync with GitHub Issues and beads.
+
+## Features
+
+- **Bidirectional sync** - Edit markdown files, changes sync to GitHub Issues
+- **Template-driven** - Define your TODO.md layout with MDX components
+- **File patterns** - Configure how `.todo/*.md` files are named
+- **beads integration** - Optional sync with beads issue tracker
+- **GitHub App** - Real-time sync via webhooks
+
+## Quick Start
+
+```bash
+npx todo.mdx
+```
+
+This will:
+1. Create `TODO.mdx` if it doesn't exist
+2. Compile to `TODO.md` with live issue data
+
+## How It Works
+
+```
+GitHub Issues  ←→  TODO.mdx Worker  ←→  .todo/*.md files
+                        ↕
+                   beads (optional)
+```
+
+The TODO.mdx GitHub App keeps everything in sync:
+- Changes to GitHub Issues → updates `.todo/*.md` files
+- Edits to `.todo/*.md` files → updates GitHub Issues
+- Last-write-wins conflict resolution
