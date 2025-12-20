@@ -1,0 +1,3 @@
+[submodule "tests/fixtures/test.mdx"]
+	path = tests/fixtures/test.mdx
+	url = https://github.com/dot-do/test.mdx
