@@ -341,7 +341,7 @@ mcp.get('/tools', requireToken, async (c) => {
       },
       {
         name: 'search',
-        description: 'Search across all your issues and projects. Returns matching items with titles, status, and metadata.',
+        description: 'Search across all your issues and projects. Returns matching items with id, title, and url.',
         inputSchema: {
           type: 'object',
           properties: {
@@ -349,49 +349,22 @@ mcp.get('/tools', requireToken, async (c) => {
               type: 'string',
               description: 'Search query (matches title, body, labels)',
             },
-            type: {
-              type: 'string',
-              enum: ['issue', 'milestone', 'all'],
-              description: 'Filter by type (default: all)',
-            },
-            status: {
-              type: 'string',
-              enum: ['open', 'closed', 'all'],
-              description: 'Filter by status (default: all)',
-            },
-            repo: {
-              type: 'string',
-              description: 'Filter by repository (owner/name format, optional)',
-            },
-            limit: {
-              type: 'number',
-              description: 'Max results to return (default: 20)',
-            },
           },
           required: ['query'],
         },
       },
       {
-        name: 'get',
-        description: 'Get a single issue or milestone by ID or number.',
+        name: 'fetch',
+        description: 'Fetch a single issue or milestone by ID. Returns the full document with title, text content, and metadata.',
         inputSchema: {
           type: 'object',
           properties: {
-            repo: {
-              type: 'string',
-              description: 'Repository in owner/name format',
-            },
-            type: {
-              type: 'string',
-              enum: ['issue', 'milestone'],
-              description: 'Type of item to fetch',
-            },
             id: {
               type: 'string',
-              description: 'Issue/milestone ID or number',
+              description: 'Item ID from search results',
             },
           },
-          required: ['repo', 'type', 'id'],
+          required: ['id'],
         },
       },
     ],
@@ -479,11 +452,8 @@ mcp.post('/tools/call', requireToken, async (c) => {
     }
 
     case 'search': {
+      // ChatGPT deep research spec: single query string, returns [{id, title, url}, ...]
       const query = args.query.toLowerCase()
-      const filterType = args.type || 'all'
-      const filterStatus = args.status || 'all'
-      const filterRepo = args.repo
-      const limit = Math.min(args.limit || 20, 100)
 
       try {
         // Get all repos the user has access to
@@ -493,86 +463,63 @@ mcp.post('/tools/call', requireToken, async (c) => {
           WHERE ui.user_id = ?
         `).bind(userId).all()
 
-        const repos = filterRepo
-          ? reposResult.results.filter((r: any) => r.full_name === filterRepo)
-          : reposResult.results
-
-        const results: any[] = []
+        const results: Array<{ id: string; title: string; url: string }> = []
+        const limit = 50
 
         // Search each repo
-        for (const repo of repos as any[]) {
+        for (const repo of reposResult.results as any[]) {
           if (results.length >= limit) break
 
           const doId = c.env.REPO.idFromName(repo.full_name)
           const stub = c.env.REPO.get(doId)
 
           // Search issues
-          if (filterType === 'all' || filterType === 'issue') {
-            const issuesResponse = await stub.fetch(new Request('http://do/issues'))
-            const issues = await issuesResponse.json() as any[]
+          const issuesResponse = await stub.fetch(new Request('http://do/issues'))
+          const issues = await issuesResponse.json() as any[]
 
-            for (const issue of issues) {
-              if (results.length >= limit) break
+          for (const issue of issues) {
+            if (results.length >= limit) break
 
-              // Filter by status
-              if (filterStatus !== 'all' && issue.state !== filterStatus) continue
+            const matchesQuery =
+              issue.title?.toLowerCase().includes(query) ||
+              issue.body?.toLowerCase().includes(query) ||
+              issue.labels?.some((l: string) => l.toLowerCase().includes(query))
 
-              // Search in title and body
-              const matchesQuery =
-                issue.title?.toLowerCase().includes(query) ||
-                issue.body?.toLowerCase().includes(query) ||
-                issue.labels?.some((l: string) => l.toLowerCase().includes(query))
-
-              if (matchesQuery) {
-                results.push({
-                  type: 'issue',
-                  repo: repo.full_name,
-                  id: issue.id,
-                  number: issue.githubNumber,
-                  title: issue.title,
-                  state: issue.state,
-                  labels: issue.labels,
-                })
-              }
+            if (matchesQuery) {
+              // ID format: issue:owner/repo:number
+              results.push({
+                id: `issue:${repo.full_name}:${issue.githubNumber || issue.id}`,
+                title: `[${issue.state}] ${issue.title}`,
+                url: `https://github.com/${repo.full_name}/issues/${issue.githubNumber || issue.id}`,
+              })
             }
           }
 
           // Search milestones
-          if (filterType === 'all' || filterType === 'milestone') {
-            const milestonesResponse = await stub.fetch(new Request('http://do/milestones'))
-            const milestones = await milestonesResponse.json() as any[]
+          const milestonesResponse = await stub.fetch(new Request('http://do/milestones'))
+          const milestones = await milestonesResponse.json() as any[]
 
-            for (const milestone of milestones) {
-              if (results.length >= limit) break
+          for (const milestone of milestones) {
+            if (results.length >= limit) break
 
-              // Filter by status
-              if (filterStatus !== 'all' && milestone.state !== filterStatus) continue
+            const matchesQuery =
+              milestone.title?.toLowerCase().includes(query) ||
+              milestone.description?.toLowerCase().includes(query)
 
-              // Search in title and description
-              const matchesQuery =
-                milestone.title?.toLowerCase().includes(query) ||
-                milestone.description?.toLowerCase().includes(query)
-
-              if (matchesQuery) {
-                results.push({
-                  type: 'milestone',
-                  repo: repo.full_name,
-                  id: milestone.id,
-                  number: milestone.githubNumber,
-                  title: milestone.title,
-                  state: milestone.state,
-                  dueOn: milestone.dueOn,
-                })
-              }
+            if (matchesQuery) {
+              // ID format: milestone:owner/repo:number
+              results.push({
+                id: `milestone:${repo.full_name}:${milestone.githubNumber || milestone.id}`,
+                title: `[Milestone] ${milestone.title}`,
+                url: `https://github.com/${repo.full_name}/milestone/${milestone.githubNumber || milestone.id}`,
+              })
             }
           }
         }
 
+        // ChatGPT expects: array of {id, title, url}
         return c.json({
-          content: [{
-            type: 'text',
-            text: JSON.stringify({ query, count: results.length, results }, null, 2)
-          }],
+          content: [{ type: 'text', text: JSON.stringify(results) }],
         })
       } catch (error: any) {
         return c.json({
@@ -582,52 +529,99 @@ mcp.post('/tools/call', requireToken, async (c) => {
       }
     }
 
-    case 'get': {
-      const { repo, type, id } = args
-
-      // Verify access
-      const accessResult = await c.env.DB.prepare(`
-        SELECT r.* FROM repos r
-        JOIN user_installations ui ON ui.installation_id = r.installation_id
-        WHERE ui.user_id = ? AND r.full_name = ?
-      `).bind(userId, repo).first()
-
-      if (!accessResult) {
-        return c.json({
-          content: [{ type: 'text', text: 'Access denied: You do not have access to this repository' }],
-          isError: true,
-        })
-      }
+    case 'fetch': {
+      // ChatGPT deep research spec: single id string, returns {id, title, text, url, metadata?}
+      // ID format from search: "issue:owner/repo:number" or "milestone:owner/repo:number"
+      const id = args.id
 
       try {
+        const parts = id.split(':')
+        if (parts.length < 3) {
+          return c.json({
+            content: [{ type: 'text', text: `Invalid ID format: ${id}` }],
+            isError: true,
+          })
+        }
+
+        const type = parts[0] // 'issue' or 'milestone'
+        const repo = parts[1] // 'owner/repo'
+        const number = parts[2] // issue/milestone number
+
+        // Verify access
+        const accessResult = await c.env.DB.prepare(`
+          SELECT r.* FROM repos r
+          JOIN user_installations ui ON ui.installation_id = r.installation_id
+          WHERE ui.user_id = ? AND r.full_name = ?
+        `).bind(userId, repo).first()
+
+        if (!accessResult) {
+          return c.json({
+            content: [{ type: 'text', text: 'Access denied' }],
+            isError: true,
+          })
+        }
+
         const doId = c.env.REPO.idFromName(repo)
         const stub = c.env.REPO.get(doId)
 
         if (type === 'issue') {
-          const response = await stub.fetch(new Request(`http://do/issues/${id}`))
+          const response = await stub.fetch(new Request(`http://do/issues/${number}`))
           if (!response.ok) {
             return c.json({
-              content: [{ type: 'text', text: `Issue not found: ${id}` }],
+              content: [{ type: 'text', text: `Issue not found: ${number}` }],
               isError: true,
             })
           }
-          const issue = await response.json()
+          const issue = await response.json() as any
+
+          // ChatGPT expects: {id, title, text, url, metadata?}
+          const doc = {
+            id,
+            title: issue.title,
+            text: `# ${issue.title}\n\n${issue.body || ''}\n\n---\nStatus: ${issue.state}\nLabels: ${(issue.labels || []).join(', ') || 'none'}\nAssignees: ${(issue.assignees || []).join(', ') || 'unassigned'}`,
+            url: `https://github.com/${repo}/issues/${number}`,
+            metadata: {
+              type: 'issue',
+              repo,
+              number,
+              state: issue.state,
+              labels: issue.labels,
+              assignees: issue.assignees,
+            },
+          }
+
           return c.json({
-            content: [{ type: 'text', text: JSON.stringify(issue, null, 2) }],
+            content: [{ type: 'text', text: JSON.stringify(doc) }],
           })
         }
 
         if (type === 'milestone') {
-          const response = await stub.fetch(new Request(`http://do/milestones/${id}`))
+          const response = await stub.fetch(new Request(`http://do/milestones/${number}`))
           if (!response.ok) {
             return c.json({
-              content: [{ type: 'text', text: `Milestone not found: ${id}` }],
+              content: [{ type: 'text', text: `Milestone not found: ${number}` }],
               isError: true,
             })
           }
-          const milestone = await response.json()
+          const milestone = await response.json() as any
+
+          // ChatGPT expects: {id, title, text, url, metadata?}
+          const doc = {
+            id,
+            title: milestone.title,
+            text: `# ${milestone.title}\n\n${milestone.description || ''}\n\n---\nStatus: ${milestone.state}\nDue: ${milestone.dueOn || 'no due date'}`,
+            url: `https://github.com/${repo}/milestone/${number}`,
+            metadata: {
+              type: 'milestone',
+              repo,
+              number,
+              state: milestone.state,
+              dueOn: milestone.dueOn,
+            },
+          }
+
           return c.json({
-            content: [{ type: 'text', text: JSON.stringify(milestone, null, 2) }],
+            content: [{ type: 'text', text: JSON.stringify(doc) }],
           })
         }
 
@@ -637,7 +631,7 @@ mcp.post('/tools/call', requireToken, async (c) => {
         })
       } catch (error: any) {
         return c.json({
-          content: [{ type: 'text', text: `Get error: ${error.message}` }],
+          content: [{ type: 'text', text: `Fetch error: ${error.message}` }],
           isError: true,
         })
       }
