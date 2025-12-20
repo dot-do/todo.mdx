@@ -35,3 +35,4 @@ yarn.lock
 pnpm-lock.yaml
 bun.lockb
 apps/todo.mdx.do/.next/
+.turbo/

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Keys - todo.mdx</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="https://js.workos.com/widgets.js"></script>
+</head>
+<body>
+  <nav>
+    <div class="logo">todo.mdx</div>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/api-keys.html" class="active">API Keys</a>
+      <a href="/repos.html">Repos</a>
+    </div>
+    <div class="user-menu" id="user-menu"></div>
+  </nav>
+
+  <main class="dashboard">
+    <h1>API Keys</h1>
+    <p class="description">
+      Create API keys for programmatic access to the todo.mdx API.
+      Use these in CI/CD pipelines or other automation.
+    </p>
+
+    <div id="auth-required" class="auth-message" style="display: none;">
+      <p>Please sign in to manage your API keys.</p>
+      <button onclick="signIn()" class="btn primary">Sign in with GitHub</button>
+    </div>
+
+    <div id="api-keys-content" style="display: none;">
+      <div class="usage-example">
+        <h3>Usage</h3>
+        <pre><code># Environment variable
+export TODOMDX_API_KEY=sk_live_xxx
+
+# SDK usage
+import { createClient } from 'todo.mdx'
+
+const client = createClient({
+  repo: 'owner/repo',
+  apiKey: process.env.TODOMDX_API_KEY,
+})
+
+const issues = await client.issues.list()</code></pre>
+      </div>
+
+      <div class="widget-container">
+        <h3>Your API Keys</h3>
+        <div id="api-keys-widget"></div>
+      </div>
+    </div>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    checkAuth().then(async user => {
+      if (user) {
+        document.getElementById('api-keys-content').style.display = 'block';
+        document.getElementById('user-menu').innerHTML = `
+          <span>${user.email || user.name}</span>
+          <button onclick="signOut()" class="btn-small">Sign out</button>
+        `;
+
+        // Get WorkOS widget token
+        try {
+          const { token } = await api('/api/widget/token');
+          WorkOS.createWidget('api-keys', {
+            token,
+            container: '#api-keys-widget',
+          });
+        } catch (error) {
+          console.error('Failed to load API keys widget:', error);
+          document.getElementById('api-keys-widget').innerHTML =
+            '<p class="error">Failed to load API keys. Please try again.</p>';
+        }
+      } else {
+        document.getElementById('auth-required').style.display = 'block';
+      }
+    });
+  </script>
+</body>
+</html>

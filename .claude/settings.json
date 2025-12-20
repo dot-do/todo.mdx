@@ -1,0 +1,8 @@
+{
+  "enabledPlugins": {
+    "beads@beads-marketplace": true,
+    "payload@payload-marketplace": true,
+    "superpowers@superpowers-dev": true
+  },
+  "enabledMcpjsonServers": ["beads"]
+}

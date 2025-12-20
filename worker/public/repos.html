@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Repositories - todo.mdx</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <div class="logo">todo.mdx</div>
+    <div class="nav-links">
+      <a href="/">Home</a>
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/api-keys.html">API Keys</a>
+      <a href="/repos.html" class="active">Repos</a>
+    </div>
+    <div class="user-menu" id="user-menu"></div>
+  </nav>
+
+  <main class="dashboard">
+    <h1 id="page-title">Repositories</h1>
+
+    <div id="auth-required" class="auth-message" style="display: none;">
+      <p>Please sign in to view your repositories.</p>
+      <button onclick="signIn()" class="btn primary">Sign in with GitHub</button>
+    </div>
+
+    <div id="repos-list" style="display: none;">
+      <div class="repos-grid" id="repos"></div>
+    </div>
+
+    <div id="repo-detail" style="display: none;">
+      <a href="/repos.html" class="back-link">&larr; All Repositories</a>
+
+      <div class="repo-header">
+        <h2 id="repo-name"></h2>
+        <div class="repo-actions">
+          <button onclick="triggerSync()" class="btn primary" id="sync-btn">Sync Now</button>
+        </div>
+      </div>
+
+      <section class="sync-status">
+        <h3>Sync Status</h3>
+        <div class="status-info">
+          <div class="status-item">
+            <span class="label">State:</span>
+            <span id="sync-state">-</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Last Sync:</span>
+            <span id="last-sync">-</span>
+          </div>
+          <div class="status-item">
+            <span class="label">Pending:</span>
+            <span id="pending-count">0</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="issues-section">
+        <h3>Issues</h3>
+        <div id="issues-list"></div>
+      </section>
+
+      <section class="milestones-section">
+        <h3>Milestones</h3>
+        <div id="milestones-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/assets/app.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const repoParam = params.get('repo');
+
+    checkAuth().then(async user => {
+      if (!user) {
+        document.getElementById('auth-required').style.display = 'block';
+        return;
+      }
+
+      document.getElementById('user-menu').innerHTML = `
+        <span>${user.email || user.name}</span>
+        <button onclick="signOut()" class="btn-small">Sign out</button>
+      `;
+
+      if (repoParam) {
+        await loadRepoDetail(repoParam);
+      } else {
+        await loadReposList();
+      }
+    });
+
+    async function loadReposList() {
+      document.getElementById('repos-list').style.display = 'block';
+
+      try {
+        const { repos } = await api('/api/repos');
+        const reposEl = document.getElementById('repos');
+
+        if (repos?.length) {
+          reposEl.innerHTML = repos.map(repo => `
+            <div class="repo-card">
+              <h4>${repo.fullName}</h4>
+              <div class="repo-meta">
+                <span class="${repo.private ? 'private' : 'public'}">${repo.private ? 'Private' : 'Public'}</span>
+              </div>
+              <a href="/repos.html?repo=${encodeURIComponent(repo.fullName)}" class="btn-small">View Details</a>
+            </div>
+          `).join('');
+        } else {
+          reposEl.innerHTML = `
+            <div class="empty-state">
+              <p>No repositories connected.</p>
+              <a href="https://github.com/apps/todo-mdx" class="btn primary">Install GitHub App</a>
+            </div>
+          `;
+        }
+      } catch (error) {
+        console.error('Failed to load repos:', error);
+      }
+    }
+
+    async function loadRepoDetail(repoName) {
+      document.getElementById('page-title').textContent = repoName;
+      document.getElementById('repo-detail').style.display = 'block';
+      document.getElementById('repo-name').textContent = repoName;
+
+      const [owner, name] = repoName.split('/');
+
+      try {
+        // Load sync status
+        const status = await api(`/api/repos/${owner}/${name}/sync/status`);
+        document.getElementById('sync-state').textContent = status.state || 'idle';
+        document.getElementById('last-sync').textContent = status.lastSyncAt
+          ? new Date(status.lastSyncAt).toLocaleString()
+          : 'Never';
+        document.getElementById('pending-count').textContent = status.pendingEvents || 0;
+
+        // Load issues
+        const { issues } = await api(`/api/repos/${owner}/${name}/issues`);
+        const issuesEl = document.getElementById('issues-list');
+        if (issues?.length) {
+          issuesEl.innerHTML = issues.map(issue => `
+            <div class="issue-item ${issue.state}">
+              <span class="issue-title">${issue.title}</span>
+              <span class="issue-status">${issue.status || issue.state}</span>
+            </div>
+          `).join('');
+        } else {
+          issuesEl.innerHTML = '<p class="empty">No issues</p>';
+        }
+
+        // Load milestones
+        const { milestones } = await api(`/api/repos/${owner}/${name}/milestones`);
+        const milestonesEl = document.getElementById('milestones-list');
+        if (milestones?.length) {
+          milestonesEl.innerHTML = milestones.map(m => `
+            <div class="milestone-item ${m.state}">
+              <span class="milestone-title">${m.title}</span>
+              <span class="milestone-due">${m.dueOn || 'No due date'}</span>
+            </div>
+          `).join('');
+        } else {
+          milestonesEl.innerHTML = '<p class="empty">No milestones</p>';
+        }
+      } catch (error) {
+        console.error('Failed to load repo detail:', error);
+      }
+    }
+
+    async function triggerSync() {
+      const btn = document.getElementById('sync-btn');
+      btn.disabled = true;
+      btn.textContent = 'Syncing...';
+
+      try {
+        const [owner, name] = repoParam.split('/');
+        await api(`/api/repos/${owner}/${name}/sync`, { method: 'POST' });
+        await loadRepoDetail(repoParam);
+      } catch (error) {
+        console.error('Sync failed:', error);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sync Now';
+      }
+    }
+  </script>
+</body>
+</html>
