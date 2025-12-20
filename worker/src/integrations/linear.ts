@@ -105,7 +105,7 @@ export class LinearClient {
       throw new Error(`Linear API error: ${error}`)
     }
 
-    const result = await response.json()
+    const result = await response.json() as { data: T; errors?: any[] }
 
     if (result.errors) {
       throw new Error(`Linear GraphQL error: ${JSON.stringify(result.errors)}`)

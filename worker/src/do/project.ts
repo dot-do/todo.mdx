@@ -195,16 +195,14 @@ interface GraphQLProjectField {
   options?: Array<{ id: string; name: string }>
 }
 
-export class ProjectDO extends DurableObject {
+export class ProjectDO extends DurableObject<Env> {
   private sql: SqlStorage
   private initialized = false
   private syncActor: ReturnType<typeof createActor<typeof projectSyncMachine>> | null = null
-  private env: Env
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.sql = ctx.storage.sql
-    this.env = env
   }
 
   /**
@@ -1008,6 +1006,7 @@ export class ProjectDO extends DurableObject {
       action: 'create' | 'update' | 'delete'
       title: string
       dueOn?: string
+      state?: string
       repoMilestones?: Array<{
         fullName: string
         milestoneNumber: number
@@ -1038,6 +1037,7 @@ export class ProjectDO extends DurableObject {
     }
 
     const repoMilestonesJson = body.repoMilestones ? JSON.stringify(body.repoMilestones) : '[]'
+    const affectedRepos = body.repoMilestones?.map(rm => rm.fullName) || []
 
     if (existing) {
       // Update existing mapping
@@ -1060,6 +1060,13 @@ export class ProjectDO extends DurableObject {
         VALUES (?, ?, ?, ?, ?, ?)
       `, 'milestone_mapping', body.title, 'updated', JSON.stringify({ repoCount: body.repoMilestones?.length || 0 }), 'success', now)
 
+      // Queue milestone_changed event to propagate to repos
+      await this.enqueueSyncEvent('milestone_changed', {
+        title: body.title,
+        dueOn: body.dueOn,
+        state: body.state || 'open',
+      }, affectedRepos)
+
       return Response.json({ action: 'updated', title: body.title })
     } else {
       // Create new mapping
@@ -1080,6 +1087,13 @@ export class ProjectDO extends DurableObject {
         VALUES (?, ?, ?, ?, ?, ?)
       `, 'milestone_mapping', body.title, 'created', JSON.stringify({ repoCount: body.repoMilestones?.length || 0 }), 'success', now)
 
+      // Queue milestone_changed event to propagate to repos
+      await this.enqueueSyncEvent('milestone_changed', {
+        title: body.title,
+        dueOn: body.dueOn,
+        state: body.state || 'open',
+      }, affectedRepos)
+
       return Response.json({ action: 'created', title: body.title })
     }
   }
@@ -1091,12 +1105,25 @@ export class ProjectDO extends DurableObject {
     const fieldCount = this.sql.exec('SELECT COUNT(*) as count FROM project_fields').toArray()[0] as { count: number }
     const milestoneCount = this.sql.exec('SELECT COUNT(*) as count FROM milestone_mappings').toArray()[0] as { count: number }
 
+    // Get sync state machine status
+    const state = this.syncActor?.getSnapshot()
+    const syncStatus = state ? {
+      state: state.value,
+      pendingEvents: state.context.pendingEvents.length,
+      currentEvent: state.context.currentEvent,
+      lastSyncAt: state.context.lastSyncAt,
+      errorCount: state.context.errorCount,
+      lastError: state.context.lastError,
+      projectNodeId: state.context.projectNodeId,
+    } : null
+
     return Response.json({
       project: projectMeta || null,
       linkedRepos: repoCount.count,
       items: itemCount.count,
       fields: fieldCount.count,
       milestoneMappings: milestoneCount.count,
+      syncStatus,
     })
   }
 
@@ -1283,11 +1310,163 @@ export class ProjectDO extends DurableObject {
   }
 
   private async triggerFullSync(request: Request): Promise<Response> {
-    // This would trigger a full sync from GitHub GraphQL API
-    // For now, just return a placeholder
-    return Response.json({
-      status: 'queued',
-      message: 'Full sync not yet implemented - requires GitHub GraphQL API integration',
-    })
+    const body = await request.json() as {
+      projectNodeId: string
+      installationId: number
+    }
+
+    const now = new Date().toISOString()
+
+    try {
+      // Set the project node ID in the state machine
+      if (this.syncActor) {
+        this.syncActor.send({ type: 'SET_PROJECT_ID', projectId: body.projectNodeId })
+      }
+
+      // Fetch fields first
+      const fields = await this.fetchProjectFields(body.projectNodeId, body.installationId)
+
+      // Sync fields to database
+      for (const field of fields) {
+        const existing = this.sql.exec(
+          'SELECT * FROM project_fields WHERE github_field_id = ?',
+          field.id
+        ).toArray()[0]
+
+        const optionsJson = field.options ? JSON.stringify(field.options) : null
+
+        if (existing) {
+          this.sql.exec(`
+            UPDATE project_fields SET
+              name = ?,
+              data_type = ?,
+              options = ?,
+              updated_at = ?
+            WHERE github_field_id = ?
+          `,
+            field.name,
+            field.dataType,
+            optionsJson,
+            now,
+            field.id
+          )
+        } else {
+          this.sql.exec(`
+            INSERT INTO project_fields (github_field_id, name, data_type, options, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `,
+            field.id,
+            field.name,
+            field.dataType,
+            optionsJson,
+            now,
+            now
+          )
+        }
+      }
+
+      // Fetch project items with full details
+      const items = await this.fetchProjectItems(body.projectNodeId, body.installationId)
+
+      // Sync items to database
+      for (const item of items) {
+        const existing = this.sql.exec(
+          'SELECT * FROM project_items WHERE github_item_id = ?',
+          item.id
+        ).toArray()[0]
+
+        // Extract field values
+        const fieldValues: Record<string, any> = {}
+        for (const fv of item.fieldValues.nodes) {
+          const fieldName = fv.field.name
+          if (fv.name) fieldValues[fieldName] = fv.name
+          if (fv.text) fieldValues[fieldName] = fv.text
+          if (fv.date) fieldValues[fieldName] = fv.date
+          if (fv.number !== undefined) fieldValues[fieldName] = fv.number
+        }
+
+        const repoFullName = item.content.repository?.nameWithOwner || null
+        const title = item.content.title || `Item ${item.id}`
+
+        if (existing) {
+          this.sql.exec(`
+            UPDATE project_items SET
+              github_content_id = ?,
+              repo_full_name = ?,
+              title = ?,
+              status = ?,
+              priority = ?,
+              iteration = ?,
+              milestone_title = ?,
+              github_updated_at = ?,
+              last_sync_at = ?,
+              updated_at = ?
+            WHERE github_item_id = ?
+          `,
+            item.content.id,
+            repoFullName,
+            title,
+            fieldValues.Status || null,
+            fieldValues.Priority || null,
+            fieldValues.Iteration || null,
+            fieldValues.Milestone || null,
+            now,
+            now,
+            now,
+            item.id
+          )
+        } else {
+          this.sql.exec(`
+            INSERT INTO project_items (
+              github_item_id, github_content_id, content_type, content_id, repo_full_name,
+              title, status, priority, iteration, milestone_title, is_archived,
+              github_created_at, github_updated_at, last_sync_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+            item.id,
+            item.content.id,
+            'Issue',
+            item.content.number || 0,
+            repoFullName,
+            title,
+            fieldValues.Status || null,
+            fieldValues.Priority || null,
+            fieldValues.Iteration || null,
+            fieldValues.Milestone || null,
+            0,
+            now,
+            now,
+            now,
+            now,
+            now
+          )
+        }
+      }
+
+      // Log the sync
+      this.sql.exec(`
+        INSERT INTO sync_log (entity_type, entity_id, action, details, status, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, 'project', body.projectNodeId, 'full_sync', JSON.stringify({
+        fields: fields.length,
+        items: items.length,
+      }), 'success', now)
+
+      return Response.json({
+        status: 'complete',
+        synced: {
+          fields: fields.length,
+          items: items.length,
+        },
+      })
+    } catch (error) {
+      // Log the error
+      this.sql.exec(`
+        INSERT INTO sync_log (entity_type, entity_id, action, details, status, error, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `, 'project', body.projectNodeId, 'full_sync', null, 'error', String(error), now)
+
+      throw error
+    }
   }
 }

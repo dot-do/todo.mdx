@@ -106,7 +106,7 @@ linear.get('/callback', async (c) => {
       return c.json({ error: `Token exchange failed: ${errorText}` }, 400)
     }
 
-    const tokenData = await tokenResponse.json()
+    const tokenData = await tokenResponse.json() as { access_token: string }
     const accessToken = tokenData.access_token
 
     // Store token in Vault
@@ -129,7 +129,7 @@ linear.get('/callback', async (c) => {
     })
 
     const integrationData = {
-      user: userId,
+      user: userId.toString(),
       linearData: {
         organizationId: viewer.viewer.organization.id,
         organizationName: viewer.viewer.organization.name,
@@ -248,12 +248,13 @@ linear.post('/sync', authMiddleware, async (c) => {
       return c.json({ error: 'Repo not found' }, 404)
     }
 
-    // Check access
-    const hasAccess = repo.installation?.users?.some((u: any) =>
+    // Check access (type-safe check)
+    const installation = repo.installation as any
+    const hasAccess = installation?.users?.some((u: any) =>
       u.workosUserId === auth.userId || u.id === auth.userId
     )
 
-    if (!hasAccess && !auth.authType) {
+    if (!hasAccess) {
       return c.json({ error: 'Access denied' }, 403)
     }
 
