@@ -2,6 +2,7 @@ import { source } from '@/source'
 import { DocsPage, DocsBody } from 'fumadocs-ui/page'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
+import defaultMdxComponents from 'fumadocs-ui/mdx'
 
 export default async function Page({
   params,
@@ -18,7 +19,7 @@ export default async function Page({
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsBody>
         <h1>{page.data.title}</h1>
-        <MDX />
+        <MDX components={{ ...defaultMdxComponents }} />
       </DocsBody>
     </DocsPage>
   )

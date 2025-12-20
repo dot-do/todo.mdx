@@ -1,3 +1,3 @@
-import { authkitLoader } from '@workos-inc/authkit-nextjs'
+import { handleAuth } from '@workos-inc/authkit-nextjs'
 
-export const { GET, POST } = authkitLoader()
+export const GET = handleAuth()

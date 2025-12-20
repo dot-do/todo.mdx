@@ -1,0 +1,8 @@
+import { toRuntime, toRuntimeAsync } from "fumadocs-mdx"
+import * as docs_0 from "../content/docs/components.mdx?collection=docs&hash=829c7a514a43c9f216aed76686d27c25feebf2d752d9a8de1499ae83afd1cc00"
+import * as docs_1 from "../content/docs/examples.mdx?collection=docs&hash=829c7a514a43c9f216aed76686d27c25feebf2d752d9a8de1499ae83afd1cc00"
+import * as docs_2 from "../content/docs/index.mdx?collection=docs&hash=829c7a514a43c9f216aed76686d27c25feebf2d752d9a8de1499ae83afd1cc00"
+import * as docs_3 from "../content/docs/rendering.mdx?collection=docs&hash=829c7a514a43c9f216aed76686d27c25feebf2d752d9a8de1499ae83afd1cc00"
+import * as meta_0 from "../content/docs/meta.json?collection=meta&hash=829c7a514a43c9f216aed76686d27c25feebf2d752d9a8de1499ae83afd1cc00"
+export const docs = [toRuntime("doc", docs_0, {"path":"components.mdx","absolutePath":"/Users/nathanclevenger/projects/todo.mdx/apps/cli.mdx.do/content/docs/components.mdx"}), toRuntime("doc", docs_1, {"path":"examples.mdx","absolutePath":"/Users/nathanclevenger/projects/todo.mdx/apps/cli.mdx.do/content/docs/examples.mdx"}), toRuntime("doc", docs_2, {"path":"index.mdx","absolutePath":"/Users/nathanclevenger/projects/todo.mdx/apps/cli.mdx.do/content/docs/index.mdx"}), toRuntime("doc", docs_3, {"path":"rendering.mdx","absolutePath":"/Users/nathanclevenger/projects/todo.mdx/apps/cli.mdx.do/content/docs/rendering.mdx"})];
+export const meta = [toRuntime("meta", meta_0, {"path":"meta.json","absolutePath":"/Users/nathanclevenger/projects/todo.mdx/apps/cli.mdx.do/content/docs/meta.json"})];

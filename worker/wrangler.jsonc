@@ -54,11 +54,11 @@
     }
   ],
 
-  // KV namespace for OAuth state
+  // KV namespace for OAuth state (Linear OAuth)
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "replace-with-kv-namespace-id"
+      "id": "5602c4ff6e3249b684e5c8eaea0b1901"
     }
   ],
 

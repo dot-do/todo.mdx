@@ -1,16 +1,8 @@
 import { source } from '@/source'
 import type { Metadata } from 'next'
-import { DocsPage, DocsBody, DocsTitle, DocsDescription } from 'fumadocs-ui/page'
+import { DocsPage, DocsBody } from 'fumadocs-ui/page'
 import { notFound } from 'next/navigation'
 import defaultMdxComponents from 'fumadocs-ui/mdx'
-
-interface PageData {
-  title: string
-  description?: string
-  toc: { title: string; url: string; depth: number }[]
-  full?: boolean
-  body: React.ComponentType<{ components?: Record<string, unknown> }>
-}
 
 export default async function Page(props: {
   params: Promise<{ slug?: string[] }>
@@ -19,14 +11,12 @@ export default async function Page(props: {
   const page = source.getPage(params.slug)
   if (!page) notFound()
 
-  const data = page.data as PageData
-  const MDX = data.body
+  const MDX = page.data.body
 
   return (
-    <DocsPage toc={data.toc} full={data.full}>
-      <DocsTitle>{data.title}</DocsTitle>
-      <DocsDescription>{data.description}</DocsDescription>
+    <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsBody>
+        <h1>{page.data.title}</h1>
         <MDX components={{ ...defaultMdxComponents }} />
       </DocsBody>
     </DocsPage>

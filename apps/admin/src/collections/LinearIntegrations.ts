@@ -7,8 +7,7 @@ import type { CollectionConfig } from 'payload'
 export const LinearIntegrations: CollectionConfig = {
   slug: 'linear-integrations',
   admin: {
-    useAsTitle: 'linearData.organizationName',
-    defaultColumns: ['linearData.organizationName', 'user', 'repo', 'active', 'lastSyncAt'],
+    defaultColumns: ['user', 'repo', 'active', 'lastSyncAt'],
     group: 'Integrations',
   },
   access: {

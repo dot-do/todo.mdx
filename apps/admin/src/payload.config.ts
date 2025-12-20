@@ -7,14 +7,6 @@ import { CloudflareContext, getCloudflareContext } from '@opennextjs/cloudflare'
 import { GetPlatformProxyOptions } from 'wrangler'
 import { r2Storage } from '@payloadcms/storage-r2'
 
-// Extend CloudflareEnv to include our bindings
-declare global {
-  interface CloudflareEnv {
-    D1: D1Database
-    R2: R2Bucket
-  }
-}
-
 import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Installations } from './collections/Installations'
@@ -23,7 +15,6 @@ import { Issues } from './collections/Issues'
 import { Milestones } from './collections/Milestones'
 import { SyncEvents } from './collections/SyncEvents'
 import { LinearIntegrations } from './collections/LinearIntegrations'
-import { migrations } from './migrations'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -34,7 +25,7 @@ const isProduction = process.env.NODE_ENV === 'production'
 const cloudflare =
   isCLI || !isProduction
     ? await getCloudflareContextFromWrangler()
-    : await getCloudflareContext()
+    : await getCloudflareContext({ async: true })
 
 export default buildConfig({
   admin: {
@@ -49,10 +40,7 @@ export default buildConfig({
   typescript: {
     outputFile: path.resolve(dirname, 'payload-types.ts'),
   },
-  db: sqliteD1Adapter({
-    binding: cloudflare.env.D1,
-    prodMigrations: migrations,
-  }),
+  db: sqliteD1Adapter({ binding: cloudflare.env.D1 }),
   plugins: [
     r2Storage({
       bucket: cloudflare.env.R2,

@@ -1,239 +1,101 @@
-# Payload RPC Worker
+# Payload Cloudflare Template
 
-This worker exports the Payload CMS instance via Cloudflare Workers RPC, allowing other workers to access Payload through service bindings.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/payloadcms/payload/tree/main/templates/with-cloudflare-d1)
 
-## Architecture
+**This can only be deployed on Paid Workers right now due to size limits.** This template comes configured with the bare minimum to get started on anything you need.
 
-```
-Main Worker (worker/)
-    ↓ (service binding: PAYLOAD)
-Payload RPC Worker (apps/admin/)
-    ↓ (D1 + R2 bindings)
-Payload CMS
-    ↓
-Collections (Issues, Repos, etc.)
-```
+## Quick start
 
-## Setup
+This template can be deployed directly to Cloudflare Workers by clicking the button to take you to the setup screen.
 
-### 1. Install Dependencies
+From there you can connect your code to a git provider such Github or Gitlab, name your Workers, D1 Database and R2 Bucket as well as attach any additional environment variables or services you need.
 
-```bash
-cd apps/admin
-pnpm install
-```
+## Quick Start - local setup
 
-### 2. Set Secrets
+To spin up this template locally, follow these steps:
 
-```bash
-# Set the Payload secret
-wrangler secret put PAYLOAD_SECRET
-```
+### Clone
 
-### 3. Deploy
-
-```bash
-# Deploy the Payload RPC worker
-pnpm deploy
-
-# Deploy the main worker (automatically uses the service binding)
-cd ../../worker
-pnpm deploy
-```
-
-## Usage in Main Worker
-
-The main worker can now access Payload through the `env.PAYLOAD` service binding:
-
-```typescript
-import type { Env } from './types'
-
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Get the Payload instance
-    const payload = await env.PAYLOAD.getPayload()
-
-    // Use Payload directly
-    const issues = await payload.find({
-      collection: 'issues',
-      where: { state: { equals: 'open' } },
-      limit: 10,
-    })
-
-    return Response.json(issues)
-  }
-}
-```
-
-### Available Methods
-
-The `PayloadRPC` class exposes these methods:
-
-#### `getPayload()`
-Returns the Payload instance for direct access to all Payload methods.
-
-```typescript
-const payload = await env.PAYLOAD.getPayload()
-const result = await payload.find({ collection: 'issues' })
-```
-
-#### `find(params)`
-Direct access to find operations.
-
-```typescript
-const issues = await env.PAYLOAD.find({
-  collection: 'issues',
-  where: { state: { equals: 'open' } },
-  limit: 10,
-  page: 1,
-  sort: '-createdAt',
-  depth: 2,
-})
-```
-
-#### `findByID(params)`
-Find a single document by ID.
-
-```typescript
-const issue = await env.PAYLOAD.findByID({
-  collection: 'issues',
-  id: '123',
-  depth: 2,
-})
-```
-
-#### `create(params)`
-Create a new document.
-
-```typescript
-const newIssue = await env.PAYLOAD.create({
-  collection: 'issues',
-  data: {
-    localId: 'todo-abc',
-    title: 'New issue',
-    state: 'open',
-    repo: 'repo-id-here',
-  },
-})
-```
-
-#### `update(params)`
-Update an existing document.
-
-```typescript
-const updated = await env.PAYLOAD.update({
-  collection: 'issues',
-  id: '123',
-  data: {
-    state: 'closed',
-    closedAt: new Date().toISOString(),
-  },
-})
-```
-
-#### `delete(params)`
-Delete a document.
-
-```typescript
-await env.PAYLOAD.delete({
-  collection: 'issues',
-  id: '123',
-})
-```
-
-## Collections
-
-The following collections are available:
-
-- `installations` - GitHub App installations
-- `repos` - Repositories
-- `issues` - Issues/todos
-- `milestones` - Milestones
-- `sync-events` - Sync event log
-- `users` - User accounts
-- `media` - Media files (stored in R2)
-
-## Development
+After you click the `Deploy` button above, you'll want to have standalone copy of this repo on your machine. Cloudflare will connect your app to a git provider such as Github and you can access your code from there.
 
 ### Local Development
 
-```bash
-# Start the Payload RPC worker locally
-pnpm dev
-```
+## How it works
 
-This starts the worker with local bindings to D1 and R2.
+Out of the box, using [`Wrangler`](https://developers.cloudflare.com/workers/wrangler/) will automatically create local bindings for you to connect to the remote services and it can even create a local mock of the services you're using with Cloudflare.
 
-### Testing RPC Calls
+We've pre-configured Payload for you with the following:
 
-You can test the RPC interface locally using wrangler:
+### Collections
 
-```bash
-# In one terminal, start the Payload RPC worker
-cd apps/admin
-pnpm dev
+See the [Collections](https://payloadcms.com/docs/configuration/collections) docs for details on how to extend this functionality.
 
-# In another terminal, test it from the main worker
-cd worker
-pnpm dev
-```
+- #### Users (Authentication)
 
-The main worker will automatically connect to the local Payload RPC worker.
+  Users are auth-enabled collections that have access to the admin panel.
 
-## Configuration
+  For additional help, see the official [Auth Example](https://github.com/payloadcms/payload/tree/main/examples/auth) or the [Authentication](https://payloadcms.com/docs/authentication/overview#authentication-overview) docs.
 
-### wrangler.toml
+- #### Media
 
-The Payload RPC worker is configured in `apps/admin/wrangler.toml`:
+  This is the uploads enabled collection.
 
-- D1 binding: `D1` (todo-mdx database)
-- R2 binding: `R2` (todo-mdx-media bucket)
-- Entry point: `src/rpc.ts` (exports `PayloadRPC` class)
+### Image Storage (R2)
 
-### Service Binding
+Images will be served from an R2 bucket which you can then further configure to use a CDN to serve for your frontend directly.
 
-The main worker's `wrangler.toml` includes:
+### D1 Database
 
-```toml
-[[services]]
-binding = "PAYLOAD"
-service = "payload-rpc"
-entrypoint = "PayloadRPC"
-```
+The Worker will have direct access to a D1 SQLite database which Wrangler can connect locally to, just note that you won't have a connection string as you would typically with other providers.
 
-This binds `env.PAYLOAD` to the `PayloadRPC` class from the `payload-rpc` worker.
+You can enable read replicas by adding `readReplicas: 'first-primary'` in the DB adapter and then enabling it on your D1 Cloudflare dashboard. Read more about this feature on [our docs](https://payloadcms.com/docs/database/sqlite#d1-read-replicas).
 
-## Troubleshooting
+## Working with Cloudflare
 
-### "Service not found" error
-
-Make sure the Payload RPC worker is deployed:
+Firstly, after installing dependencies locally you need to authenticate with Wrangler by running:
 
 ```bash
-cd apps/admin
-pnpm deploy
+pnpm wrangler login
 ```
 
-### Type errors with PayloadRPC
+This will take you to Cloudflare to login and then you can use the Wrangler CLI locally for anything, use `pnpm wrangler help` to see all available options.
 
-Ensure the worker's types are importing correctly:
+Wrangler is pretty smart so it will automatically bind your services for local development just by running `pnpm dev`.
 
-```typescript
-import type { PayloadRPC } from '../../apps/admin/src/rpc'
+## Deployments
+
+When you're ready to deploy, first make sure you have created your migrations:
+
+```bash
+pnpm payload migrate:create
 ```
 
-### D1 or R2 binding errors
+Then run the following command:
 
-Verify the bindings match between the two wrangler.toml files. Both should reference the same database and bucket.
+```bash
+pnpm run deploy
+```
 
-## Why Workers RPC?
+This will spin up Wrangler in `production` mode, run any created migrations, build the app and then deploy the bundle up to Cloudflare.
 
-Workers RPC provides several benefits:
+That's it! You can if you wish move these steps into your CI pipeline as well.
 
-1. **Type Safety** - Full TypeScript types across workers
-2. **No HTTP Overhead** - Direct function calls, no serialization
-3. **Automatic Batching** - Cloudflare optimizes RPC calls
-4. **Shared State** - Payload instance is cached in the RPC worker
-5. **Clean Separation** - Payload logic isolated from main worker
+## Enabling logs
 
-This pattern allows the main worker to focus on API routes, webhooks, and MCP, while the Payload RPC worker handles all CMS operations.
+By default logs are not enabled for your API, we've made this decision because it does run against your quota so we've left it opt-in. But you can easily enable logs in one click in the Cloudflare panel, [see docs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs).
+
+## Known issues
+
+### GraphQL
+
+We are currently waiting on some issues with GraphQL to be [fixed upstream in Workers](https://github.com/cloudflare/workerd/issues/5175) so full support for GraphQL is not currently guaranteed when deployed.
+
+### Worker size limits
+
+We currently recommend deploying this template to the Paid Workers plan due to bundle [size limits](https://developers.cloudflare.com/workers/platform/limits/#worker-size) of 3mb. We're actively trying to reduce our bundle footprint over time to better meet this metric.
+
+This also applies to your own code, in the case of importing a lot of libraries you may find yourself limited by the bundle.
+
+## Questions
+
+If you have any issues or questions, reach out to us on [Discord](https://discord.com/invite/payload) or start a [GitHub discussion](https://github.com/payloadcms/payload/discussions).
