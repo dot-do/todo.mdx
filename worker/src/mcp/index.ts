@@ -339,6 +339,61 @@ mcp.get('/tools', requireToken, async (c) => {
           required: ['repo'],
         },
       },
+      {
+        name: 'search',
+        description: 'Search across all your issues and projects. Returns matching items with titles, status, and metadata.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Search query (matches title, body, labels)',
+            },
+            type: {
+              type: 'string',
+              enum: ['issue', 'milestone', 'all'],
+              description: 'Filter by type (default: all)',
+            },
+            status: {
+              type: 'string',
+              enum: ['open', 'closed', 'all'],
+              description: 'Filter by status (default: all)',
+            },
+            repo: {
+              type: 'string',
+              description: 'Filter by repository (owner/name format, optional)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Max results to return (default: 20)',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'get',
+        description: 'Get a single issue or milestone by ID or number.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            repo: {
+              type: 'string',
+              description: 'Repository in owner/name format',
+            },
+            type: {
+              type: 'string',
+              enum: ['issue', 'milestone'],
+              description: 'Type of item to fetch',
+            },
+            id: {
+              type: 'string',
+              description: 'Issue/milestone ID or number',
+            },
+          },
+          required: ['repo', 'type', 'id'],
+        },
+      },
     ],
   })
 })
@@ -421,6 +476,171 @@ mcp.post('/tools/call', requireToken, async (c) => {
       return c.json({
         content: [{ type: 'text', text: JSON.stringify(milestones, null, 2) }],
       })
+    }
+
+    case 'search': {
+      const query = args.query.toLowerCase()
+      const filterType = args.type || 'all'
+      const filterStatus = args.status || 'all'
+      const filterRepo = args.repo
+      const limit = Math.min(args.limit || 20, 100)
+
+      try {
+        // Get all repos the user has access to
+        const reposResult = await c.env.DB.prepare(`
+          SELECT r.full_name FROM repos r
+          JOIN user_installations ui ON ui.installation_id = r.installation_id
+          WHERE ui.user_id = ?
+        `).bind(userId).all()
+
+        const repos = filterRepo
+          ? reposResult.results.filter((r: any) => r.full_name === filterRepo)
+          : reposResult.results
+
+        const results: any[] = []
+
+        // Search each repo
+        for (const repo of repos as any[]) {
+          if (results.length >= limit) break
+
+          const doId = c.env.REPO.idFromName(repo.full_name)
+          const stub = c.env.REPO.get(doId)
+
+          // Search issues
+          if (filterType === 'all' || filterType === 'issue') {
+            const issuesResponse = await stub.fetch(new Request('http://do/issues'))
+            const issues = await issuesResponse.json() as any[]
+
+            for (const issue of issues) {
+              if (results.length >= limit) break
+
+              // Filter by status
+              if (filterStatus !== 'all' && issue.state !== filterStatus) continue
+
+              // Search in title and body
+              const matchesQuery =
+                issue.title?.toLowerCase().includes(query) ||
+                issue.body?.toLowerCase().includes(query) ||
+                issue.labels?.some((l: string) => l.toLowerCase().includes(query))
+
+              if (matchesQuery) {
+                results.push({
+                  type: 'issue',
+                  repo: repo.full_name,
+                  id: issue.id,
+                  number: issue.githubNumber,
+                  title: issue.title,
+                  state: issue.state,
+                  labels: issue.labels,
+                })
+              }
+            }
+          }
+
+          // Search milestones
+          if (filterType === 'all' || filterType === 'milestone') {
+            const milestonesResponse = await stub.fetch(new Request('http://do/milestones'))
+            const milestones = await milestonesResponse.json() as any[]
+
+            for (const milestone of milestones) {
+              if (results.length >= limit) break
+
+              // Filter by status
+              if (filterStatus !== 'all' && milestone.state !== filterStatus) continue
+
+              // Search in title and description
+              const matchesQuery =
+                milestone.title?.toLowerCase().includes(query) ||
+                milestone.description?.toLowerCase().includes(query)
+
+              if (matchesQuery) {
+                results.push({
+                  type: 'milestone',
+                  repo: repo.full_name,
+                  id: milestone.id,
+                  number: milestone.githubNumber,
+                  title: milestone.title,
+                  state: milestone.state,
+                  dueOn: milestone.dueOn,
+                })
+              }
+            }
+          }
+        }
+
+        return c.json({
+          content: [{
+            type: 'text',
+            text: JSON.stringify({ query, count: results.length, results }, null, 2)
+          }],
+        })
+      } catch (error: any) {
+        return c.json({
+          content: [{ type: 'text', text: `Search error: ${error.message}` }],
+          isError: true,
+        })
+      }
+    }
+
+    case 'get': {
+      const { repo, type, id } = args
+
+      // Verify access
+      const accessResult = await c.env.DB.prepare(`
+        SELECT r.* FROM repos r
+        JOIN user_installations ui ON ui.installation_id = r.installation_id
+        WHERE ui.user_id = ? AND r.full_name = ?
+      `).bind(userId, repo).first()
+
+      if (!accessResult) {
+        return c.json({
+          content: [{ type: 'text', text: 'Access denied: You do not have access to this repository' }],
+          isError: true,
+        })
+      }
+
+      try {
+        const doId = c.env.REPO.idFromName(repo)
+        const stub = c.env.REPO.get(doId)
+
+        if (type === 'issue') {
+          const response = await stub.fetch(new Request(`http://do/issues/${id}`))
+          if (!response.ok) {
+            return c.json({
+              content: [{ type: 'text', text: `Issue not found: ${id}` }],
+              isError: true,
+            })
+          }
+          const issue = await response.json()
+          return c.json({
+            content: [{ type: 'text', text: JSON.stringify(issue, null, 2) }],
+          })
+        }
+
+        if (type === 'milestone') {
+          const response = await stub.fetch(new Request(`http://do/milestones/${id}`))
+          if (!response.ok) {
+            return c.json({
+              content: [{ type: 'text', text: `Milestone not found: ${id}` }],
+              isError: true,
+            })
+          }
+          const milestone = await response.json()
+          return c.json({
+            content: [{ type: 'text', text: JSON.stringify(milestone, null, 2) }],
+          })
+        }
+
+        return c.json({
+          content: [{ type: 'text', text: `Unknown type: ${type}` }],
+          isError: true,
+        })
+      } catch (error: any) {
+        return c.json({
+          content: [{ type: 'text', text: `Get error: ${error.message}` }],
+          isError: true,
+        })
+      }
     }
 
     default:
