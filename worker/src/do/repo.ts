@@ -1,191 +1,102 @@
 /**
  * Repo Durable Object
- * Manages sync state for a single repository
- * Uses XState for sync coordination
+ *
+ * Source of truth for issue sync between GitHub Issues and beads.
+ * Schema matches beads exactly for seamless JSONL import/export.
  */
 
 import { DurableObject } from 'cloudflare:workers'
-import { createActor, setup, assign } from 'xstate'
 import { SignJWT, importPKCS8 } from 'jose'
-import type { PayloadRPC } from '../types'
 
 export interface Env {
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
-  PAYLOAD: PayloadRPC
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
 }
 
-// Sync event types
-type SyncSource = 'github' | 'beads' | 'file' | 'mcp'
+// =============================================================================
+// Types matching beads schema
+// =============================================================================
 
-interface SyncEvent {
+export interface Issue {
   id: string
-  source: SyncSource
-  timestamp: string
-  payload: any
-}
-
-interface SyncContext {
-  pendingEvents: SyncEvent[]
-  currentEvent: SyncEvent | null
-  lastSyncAt: string | null
-  errorCount: number
-  lastError: string | null
-}
-
-// State machine for sync coordination
-const syncMachine = setup({
-  types: {
-    context: {} as SyncContext,
-    events: {} as
-      | { type: 'ENQUEUE'; event: SyncEvent }
-      | { type: 'PROCESS_NEXT' }
-      | { type: 'SYNC_COMPLETE' }
-      | { type: 'SYNC_ERROR'; error: string }
-      | { type: 'RESET' },
-  },
-  actions: {
-    enqueueEvent: assign({
-      pendingEvents: ({ context, event }) => {
-        if (event.type !== 'ENQUEUE') return context.pendingEvents
-        return [...context.pendingEvents, event.event]
-      },
-    }),
-    dequeueEvent: assign({
-      currentEvent: ({ context }) => context.pendingEvents[0] || null,
-      pendingEvents: ({ context }) => context.pendingEvents.slice(1),
-    }),
-    clearCurrentEvent: assign({
-      currentEvent: () => null,
-      lastSyncAt: () => new Date().toISOString(),
-    }),
-    recordError: assign({
-      lastError: ({ event }) => (event.type === 'SYNC_ERROR' ? event.error : null),
-      errorCount: ({ context }) => context.errorCount + 1,
-    }),
-    resetErrors: assign({
-      errorCount: () => 0,
-      lastError: () => null,
-    }),
-  },
-  guards: {
-    hasMoreEvents: ({ context }) => context.pendingEvents.length > 0,
-    noMoreEvents: ({ context }) => context.pendingEvents.length === 0,
-    tooManyErrors: ({ context }) => context.errorCount >= 5,
-  },
-}).createMachine({
-  id: 'repoSync',
-  initial: 'idle',
-  context: {
-    pendingEvents: [],
-    currentEvent: null,
-    lastSyncAt: null,
-    errorCount: 0,
-    lastError: null,
-  },
-  states: {
-    idle: {
-      on: {
-        ENQUEUE: {
-          actions: ['enqueueEvent', 'dequeueEvent'],
-          target: 'syncing',
-        },
-      },
-    },
-    syncing: {
-      on: {
-        ENQUEUE: {
-          actions: 'enqueueEvent',
-        },
-        SYNC_COMPLETE: [
-          {
-            guard: 'hasMoreEvents',
-            actions: ['clearCurrentEvent', 'resetErrors', 'dequeueEvent'],
-            target: 'syncing',
-          },
-          {
-            guard: 'noMoreEvents',
-            actions: ['clearCurrentEvent', 'resetErrors'],
-            target: 'idle',
-          },
-        ],
-        SYNC_ERROR: [
-          {
-            guard: 'tooManyErrors',
-            actions: ['recordError', 'clearCurrentEvent'],
-            target: 'error',
-          },
-          {
-            actions: ['recordError', 'clearCurrentEvent'],
-            target: 'retrying',
-          },
-        ],
-      },
-    },
-    retrying: {
-      after: {
-        1000: [
-          {
-            guard: 'hasMoreEvents',
-            actions: 'dequeueEvent',
-            target: 'syncing',
-          },
-          {
-            target: 'idle',
-          },
-        ],
-      },
-      on: {
-        ENQUEUE: {
-          actions: 'enqueueEvent',
-        },
-      },
-    },
-    error: {
-      on: {
-        RESET: {
-          actions: 'resetErrors',
-          target: 'idle',
-        },
-        ENQUEUE: {
-          actions: ['enqueueEvent', 'resetErrors', 'dequeueEvent'],
-          target: 'syncing',
-        },
-      },
-    },
-  },
-})
-
-interface Issue {
-  id: number
-  github_id: number | null
-  github_number: number | null
-  beads_id: string | null
   title: string
-  body: string | null
-  state: string
-  labels: string | null
-  assignees: string | null
-  priority: number | null
-  type: string | null
-  file_path: string | null
-  file_hash: string | null
-  github_updated_at: string | null
-  beads_updated_at: string | null
-  file_updated_at: string | null
-  last_sync_at: string | null
-  sync_source: string | null
+  description: string
+  design: string
+  acceptance_criteria: string
+  notes: string
+  status: 'open' | 'in_progress' | 'blocked' | 'closed'
+  priority: number
+  issue_type: 'bug' | 'feature' | 'task' | 'epic' | 'chore'
+  assignee: string | null
   created_at: string
   updated_at: string
+  closed_at: string | null
+  close_reason: string
+  external_ref: string | null
+  // Sync metadata (extensions to beads schema)
+  github_number: number | null
+  github_id: number | null
+  last_sync_at: string | null
 }
+
+export interface Dependency {
+  issue_id: string
+  depends_on_id: string
+  type: 'blocks' | 'related' | 'parent-child' | 'discovered-from'
+  created_at: string
+  created_by: string
+}
+
+export interface Label {
+  issue_id: string
+  label: string
+}
+
+export interface Comment {
+  id: number
+  issue_id: string
+  author: string
+  text: string
+  created_at: string
+}
+
+// Beads JSONL format (what we parse from .beads/issues.jsonl)
+interface BeadsIssue {
+  id: string
+  title: string
+  description?: string
+  design?: string
+  acceptance_criteria?: string
+  notes?: string
+  status: string
+  priority?: number
+  issue_type?: string
+  assignee?: string
+  created_at: string
+  updated_at: string
+  closed_at?: string
+  close_reason?: string
+  external_ref?: string
+  labels?: string[]
+  dependencies?: Array<{
+    issue_id: string
+    depends_on_id: string
+    type: string
+    created_at: string
+    created_by: string
+  }>
+}
+
+// =============================================================================
+// RepoDO Class
+// =============================================================================
 
 export class RepoDO extends DurableObject {
   private sql: SqlStorage
   private initialized = false
-  private syncActor: ReturnType<typeof createActor<typeof syncMachine>> | null = null
   private repoFullName: string | null = null
   private installationId: number | null = null
 
@@ -194,53 +105,132 @@ export class RepoDO extends DurableObject {
     this.sql = ctx.storage.sql
   }
 
-  /**
-   * Initialize repo context from storage
-   */
+  // ===========================================================================
+  // Schema initialization (matches beads)
+  // ===========================================================================
+
+  private ensureInitialized() {
+    if (this.initialized) return
+
+    this.sql.exec(`
+      -- Issues table (matches beads schema)
+      CREATE TABLE IF NOT EXISTS issues (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        design TEXT NOT NULL DEFAULT '',
+        acceptance_criteria TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        priority INTEGER NOT NULL DEFAULT 2 CHECK(priority >= 0 AND priority <= 4),
+        issue_type TEXT NOT NULL DEFAULT 'task',
+        assignee TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        closed_at TEXT,
+        close_reason TEXT DEFAULT '',
+        external_ref TEXT,
+        -- Sync metadata (extensions)
+        github_number INTEGER,
+        github_id INTEGER UNIQUE,
+        last_sync_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status);
+      CREATE INDEX IF NOT EXISTS idx_issues_priority ON issues(priority);
+      CREATE INDEX IF NOT EXISTS idx_issues_github_number ON issues(github_number);
+
+      -- Dependencies table (matches beads schema)
+      CREATE TABLE IF NOT EXISTS dependencies (
+        issue_id TEXT NOT NULL,
+        depends_on_id TEXT NOT NULL,
+        type TEXT NOT NULL DEFAULT 'blocks',
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        PRIMARY KEY (issue_id, depends_on_id),
+        FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE,
+        FOREIGN KEY (depends_on_id) REFERENCES issues(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_deps_issue ON dependencies(issue_id);
+      CREATE INDEX IF NOT EXISTS idx_deps_depends_on ON dependencies(depends_on_id);
+
+      -- Labels table (matches beads schema)
+      CREATE TABLE IF NOT EXISTS labels (
+        issue_id TEXT NOT NULL,
+        label TEXT NOT NULL,
+        PRIMARY KEY (issue_id, label),
+        FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_labels_label ON labels(label);
+
+      -- Comments table (matches beads schema)
+      CREATE TABLE IF NOT EXISTS comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id TEXT NOT NULL,
+        author TEXT NOT NULL,
+        text TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_comments_issue ON comments(issue_id);
+
+      -- Sync log for debugging
+      CREATE TABLE IF NOT EXISTS sync_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        action TEXT NOT NULL,
+        details TEXT,
+        created_at TEXT NOT NULL
+      );
+    `)
+
+    this.initialized = true
+  }
+
+  // ===========================================================================
+  // Repo context management
+  // ===========================================================================
+
   private async initRepoContext(): Promise<void> {
     if (this.repoFullName && this.installationId) return
 
-    const stored = await this.ctx.storage.get<{ repoFullName: string; installationId: number }>('repoContext')
+    const stored = await this.ctx.storage.get<{
+      repoFullName: string
+      installationId: number
+    }>('repoContext')
+
     if (stored) {
       this.repoFullName = stored.repoFullName
       this.installationId = stored.installationId
     }
   }
 
-  /**
-   * Set repo context (called on first use)
-   */
   private async setRepoContext(repoFullName: string, installationId: number): Promise<void> {
     this.repoFullName = repoFullName
     this.installationId = installationId
     await this.ctx.storage.put('repoContext', { repoFullName, installationId })
   }
 
-  /**
-   * Generate GitHub App JWT for authentication
-   */
+  // ===========================================================================
+  // GitHub API helpers
+  // ===========================================================================
+
   private async generateGitHubAppJWT(): Promise<string> {
     const now = Math.floor(Date.now() / 1000)
-
-    // Convert PEM private key to crypto key using jose library
     const privateKeyPEM = (this.env as Env).GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n')
-
-    // Import the private key using jose (handles both PKCS1 and PKCS8 formats)
     const key = await importPKCS8(privateKeyPEM, 'RS256')
 
-    const jwt = await new SignJWT({})
+    return new SignJWT({})
       .setProtectedHeader({ alg: 'RS256' })
       .setIssuedAt(now)
-      .setExpirationTime(now + 600) // 10 minutes
+      .setExpirationTime(now + 600)
       .setIssuer((this.env as Env).GITHUB_APP_ID)
       .sign(key)
-
-    return jwt
   }
 
-  /**
-   * Get installation access token from GitHub
-   */
   private async getInstallationToken(installationId: number): Promise<string> {
     const jwt = await this.generateGitHubAppJWT()
 
@@ -261,20 +251,17 @@ export class RepoDO extends DurableObject {
       throw new Error(`Failed to get installation token: ${response.status} ${error}`)
     }
 
-    const data = await response.json() as { token: string }
+    const data = (await response.json()) as { token: string }
     return data.token
   }
 
-  /**
-   * Fetch file contents from GitHub repository
-   */
-  private async fetchGitHubFile(path: string, installationId: number, ref?: string): Promise<string> {
+  private async fetchGitHubFile(path: string, ref?: string): Promise<string> {
     await this.initRepoContext()
-    if (!this.repoFullName) {
+    if (!this.repoFullName || !this.installationId) {
       throw new Error('Repo context not initialized')
     }
 
-    const token = await this.getInstallationToken(installationId)
+    const token = await this.getInstallationToken(this.installationId)
     const url = `https://api.github.com/repos/${this.repoFullName}/contents/${path}${ref ? `?ref=${ref}` : ''}`
 
     const response = await fetch(url, {
@@ -290,801 +277,711 @@ export class RepoDO extends DurableObject {
       throw new Error(`Failed to fetch file ${path}: ${response.status} ${error}`)
     }
 
-    const data = await response.json() as { content: string; encoding: string }
+    const data = (await response.json()) as { content: string; encoding: string; sha: string }
     if (data.encoding === 'base64') {
       return atob(data.content.replace(/\n/g, ''))
     }
     return data.content
   }
 
-  /**
-   * Parse beads issues from JSONL format
-   */
-  private parseBeadsIssues(jsonl: string): Array<{
-    id: string
-    title: string
-    description?: string
-    status: string
-    priority?: number
-    issue_type?: string
-    created_at: string
-    updated_at: string
-    closed_at?: string
-    close_reason?: string
-    assignee?: string
-    labels?: string[]
-    dependencies?: Array<{ issue_id: string; depends_on_id: string; type: string }>
-  }> {
-    const lines = jsonl.trim().split('\n').filter(line => line.trim())
-    return lines.map(line => JSON.parse(line))
-  }
-
-  private async initSyncActor() {
-    if (this.syncActor) return
-
-    // Restore persisted state if available
-    const persistedState = await this.ctx.storage.get<any>('syncState')
-
-    this.syncActor = createActor(syncMachine, {
-      snapshot: persistedState || undefined,
-    })
-
-    // Persist state on every change
-    this.syncActor.subscribe((state) => {
-      this.ctx.storage.put('syncState', state.toJSON())
-    })
-
-    this.syncActor.start()
-  }
-
-  private async enqueueSyncEvent(source: SyncSource, payload: any): Promise<void> {
-    await this.initSyncActor()
-    if (!this.syncActor) return
-
-    const event: SyncEvent = {
-      id: crypto.randomUUID(),
-      source,
-      timestamp: new Date().toISOString(),
-      payload,
-    }
-
-    this.syncActor.send({ type: 'ENQUEUE', event })
-
-    // If we just transitioned to syncing, process the event
-    const state = this.syncActor.getSnapshot()
-    if (state.value === 'syncing' && state.context.currentEvent?.id === event.id) {
-      await this.processSyncEvent(event)
-    }
-  }
-
-  private async processSyncEvent(event: SyncEvent): Promise<void> {
-    if (!this.syncActor) return
-
-    try {
-      // Process based on source
-      switch (event.source) {
-        case 'github':
-          await this.processGithubSync(event.payload)
-          break
-        case 'beads':
-          await this.processBeadsSync(event.payload)
-          break
-        case 'file':
-          await this.processFileSync(event.payload)
-          break
-        case 'mcp':
-          await this.processMcpSync(event.payload)
-          break
-      }
-
-      this.syncActor.send({ type: 'SYNC_COMPLETE' })
-
-      // Process next event if any
-      const state = this.syncActor.getSnapshot()
-      if (state.value === 'syncing' && state.context.currentEvent) {
-        await this.processSyncEvent(state.context.currentEvent)
-      }
-    } catch (error) {
-      this.syncActor.send({ type: 'SYNC_ERROR', error: String(error) })
-    }
-  }
-
-  private async processGithubSync(payload: any): Promise<void> {
-    // GitHub webhook payload processing
-    console.log('[RepoDO] Processing GitHub sync', { payload })
-
-    // Extract GitHub issue data from webhook
-    const githubIssue = payload.issue
-    if (!githubIssue) {
-      console.log('[RepoDO] No issue in GitHub payload')
-      return
-    }
-
-    // Map GitHub issue to our format
-    const issue = {
-      githubId: githubIssue.id,
-      githubNumber: githubIssue.number,
-      title: githubIssue.title,
-      body: githubIssue.body || '',
-      state: githubIssue.state, // 'open' or 'closed'
-      status: githubIssue.state === 'closed' ? 'closed' : 'open',
-      labels: githubIssue.labels?.map((l: any) => l.name) || [],
-      assignees: githubIssue.assignees?.map((a: any) => a.login) || [],
-      updatedAt: githubIssue.updated_at,
-    }
-
-    // Sync to internal storage
-    await this.syncIssuesInternal('github', [issue])
-
-    // Sync to Payload CMS
-    await this.syncToPayload([issue], 'github')
-  }
-
-  private async processBeadsSync(payload: any): Promise<void> {
-    // Beads sync payload processing from push webhook
-    console.log('[RepoDO] Processing beads sync', { payload })
-
-    const { files, commit, installationId } = payload
-
-    // Check if .beads/issues.jsonl was changed
-    if (!files.includes('.beads/issues.jsonl')) {
-      console.log('[RepoDO] No .beads/issues.jsonl in changed files')
-      return
-    }
-
-    try {
-      // Fetch the file from GitHub
-      const jsonl = await this.fetchGitHubFile('.beads/issues.jsonl', installationId, commit)
-
-      // Parse the JSONL
-      const beadsIssues = this.parseBeadsIssues(jsonl)
-      console.log('[RepoDO] Parsed beads issues', { count: beadsIssues.length })
-
-      // Map beads issues to our format
-      const issues = beadsIssues.map(beadsIssue => ({
-        beadsId: beadsIssue.id,
-        title: beadsIssue.title,
-        body: beadsIssue.description || '',
-        state: beadsIssue.status === 'closed' ? 'closed' : 'open',
-        status: beadsIssue.status,
-        priority: beadsIssue.priority ?? 2,
-        type: beadsIssue.issue_type || 'task',
-        labels: beadsIssue.labels || [],
-        assignees: beadsIssue.assignee ? [beadsIssue.assignee] : [],
-        updatedAt: beadsIssue.updated_at,
-      }))
-
-      // Sync to internal storage
-      await this.syncIssuesInternal('beads', issues)
-
-      // Sync to Payload CMS
-      await this.syncToPayload(issues, 'beads')
-    } catch (error) {
-      console.error('[RepoDO] Failed to process beads sync:', error)
-      throw error
-    }
-  }
-
-  private async processFileSync(payload: any): Promise<void> {
-    // File change payload processing
-    const issues = payload.issues || []
-    await this.syncIssuesInternal('file', issues)
-  }
-
-  private async processMcpSync(payload: any): Promise<void> {
-    // MCP sync payload processing
-    const issues = payload.issues || []
-    await this.syncIssuesInternal('mcp', issues)
-  }
-
-  /**
-   * Sync issues to Payload CMS via RPC
-   */
-  private async syncToPayload(issues: Array<{
-    githubId?: number
-    githubNumber?: number
-    beadsId?: string
-    title: string
-    body?: string
-    state: string
-    status?: string
-    labels?: string[]
-    assignees?: string[]
-    priority?: number
-    type?: string
-    updatedAt?: string
-  }>, source: SyncSource): Promise<void> {
+  private async commitFile(path: string, content: string, message: string): Promise<void> {
     await this.initRepoContext()
-    if (!this.repoFullName) {
-      console.log('[RepoDO] Cannot sync to Payload: repo context not initialized')
-      return
+    if (!this.repoFullName || !this.installationId) {
+      throw new Error('Repo context not initialized')
     }
 
-    const env = this.env as Env
-    console.log('[RepoDO] Syncing to Payload', { count: issues.length, source })
+    const token = await this.getInstallationToken(this.installationId)
+    const url = `https://api.github.com/repos/${this.repoFullName}/contents/${path}`
 
-    // First, find the repo in Payload to get its ID
-    const repoResult = await env.PAYLOAD.find({
-      collection: 'repos',
-      where: {
-        fullName: { equals: this.repoFullName },
+    // Get current file SHA if it exists
+    let sha: string | undefined
+    try {
+      const getResponse = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      })
+      if (getResponse.ok) {
+        const data = (await getResponse.json()) as { sha: string }
+        sha = data.sha
+      }
+    } catch {
+      // File doesn't exist, that's fine
+    }
+
+    // Commit the file
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
       },
-      limit: 1,
+      body: JSON.stringify({
+        message,
+        content: btoa(content),
+        sha,
+      }),
     })
 
-    if (!repoResult.docs || repoResult.docs.length === 0) {
-      console.log('[RepoDO] Repo not found in Payload', { repoFullName: this.repoFullName })
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to commit file ${path}: ${response.status} ${error}`)
+    }
+  }
+
+  // ===========================================================================
+  // Issue CRUD operations
+  // ===========================================================================
+
+  private upsertIssue(issue: BeadsIssue): void {
+    const now = new Date().toISOString()
+
+    // Check if issue exists
+    const existing = this.sql
+      .exec('SELECT id FROM issues WHERE id = ?', issue.id)
+      .toArray()
+
+    if (existing.length > 0) {
+      // Update
+      this.sql.exec(
+        `UPDATE issues SET
+          title = ?,
+          description = ?,
+          design = ?,
+          acceptance_criteria = ?,
+          notes = ?,
+          status = ?,
+          priority = ?,
+          issue_type = ?,
+          assignee = ?,
+          updated_at = ?,
+          closed_at = ?,
+          close_reason = ?,
+          external_ref = ?,
+          last_sync_at = ?
+        WHERE id = ?`,
+        issue.title,
+        issue.description || '',
+        issue.design || '',
+        issue.acceptance_criteria || '',
+        issue.notes || '',
+        issue.status,
+        issue.priority ?? 2,
+        issue.issue_type || 'task',
+        issue.assignee || null,
+        issue.updated_at,
+        issue.closed_at || null,
+        issue.close_reason || '',
+        issue.external_ref || null,
+        now,
+        issue.id
+      )
+    } else {
+      // Insert
+      this.sql.exec(
+        `INSERT INTO issues (
+          id, title, description, design, acceptance_criteria, notes,
+          status, priority, issue_type, assignee,
+          created_at, updated_at, closed_at, close_reason, external_ref,
+          last_sync_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        issue.id,
+        issue.title,
+        issue.description || '',
+        issue.design || '',
+        issue.acceptance_criteria || '',
+        issue.notes || '',
+        issue.status,
+        issue.priority ?? 2,
+        issue.issue_type || 'task',
+        issue.assignee || null,
+        issue.created_at,
+        issue.updated_at,
+        issue.closed_at || null,
+        issue.close_reason || '',
+        issue.external_ref || null,
+        now
+      )
+    }
+
+    // Sync labels
+    this.sql.exec('DELETE FROM labels WHERE issue_id = ?', issue.id)
+    for (const label of issue.labels || []) {
+      this.sql.exec(
+        'INSERT INTO labels (issue_id, label) VALUES (?, ?)',
+        issue.id,
+        label
+      )
+    }
+
+    // Sync dependencies
+    this.sql.exec('DELETE FROM dependencies WHERE issue_id = ?', issue.id)
+    for (const dep of issue.dependencies || []) {
+      this.sql.exec(
+        `INSERT INTO dependencies (issue_id, depends_on_id, type, created_at, created_by)
+         VALUES (?, ?, ?, ?, ?)`,
+        dep.issue_id,
+        dep.depends_on_id,
+        dep.type,
+        dep.created_at,
+        dep.created_by
+      )
+    }
+  }
+
+  private getIssue(id: string): Issue | null {
+    const rows = this.sql.exec('SELECT * FROM issues WHERE id = ?', id).toArray()
+    return (rows[0] as Issue) || null
+  }
+
+  private getIssueByGitHubNumber(number: number): Issue | null {
+    const rows = this.sql
+      .exec('SELECT * FROM issues WHERE github_number = ?', number)
+      .toArray()
+    return (rows[0] as Issue) || null
+  }
+
+  // ===========================================================================
+  // Sync: beads JSONL → DO
+  // ===========================================================================
+
+  async importFromJsonl(jsonl: string): Promise<{ created: number; updated: number }> {
+    const lines = jsonl.trim().split('\n').filter((line) => line.trim())
+    const issues: BeadsIssue[] = lines.map((line) => JSON.parse(line))
+
+    let created = 0
+    let updated = 0
+
+    // Get current issue IDs to track deletions
+    const currentIds = new Set(
+      this.sql
+        .exec('SELECT id FROM issues')
+        .toArray()
+        .map((row: any) => row.id as string)
+    )
+
+    for (const issue of issues) {
+      const existing = this.getIssue(issue.id)
+      this.upsertIssue(issue)
+      if (existing) {
+        updated++
+      } else {
+        created++
+      }
+      currentIds.delete(issue.id)
+    }
+
+    // Delete issues that are no longer in JSONL
+    for (const id of currentIds) {
+      this.sql.exec('DELETE FROM issues WHERE id = ?', id)
+    }
+
+    this.logSync('beads', 'import', { created, updated, deleted: currentIds.size })
+
+    return { created, updated }
+  }
+
+  // ===========================================================================
+  // Sync: DO → beads JSONL
+  // ===========================================================================
+
+  exportToJsonl(): string {
+    const issues = this.sql.exec('SELECT * FROM issues ORDER BY id').toArray() as Issue[]
+    const deps = this.sql.exec('SELECT * FROM dependencies').toArray() as Dependency[]
+    const labels = this.sql.exec('SELECT * FROM labels').toArray() as Label[]
+
+    const lines: string[] = []
+
+    for (const issue of issues) {
+      const issueLabels = labels
+        .filter((l) => l.issue_id === issue.id)
+        .map((l) => l.label)
+      const issueDeps = deps.filter((d) => d.issue_id === issue.id)
+
+      const beadsIssue: BeadsIssue = {
+        id: issue.id,
+        title: issue.title,
+        description: issue.description || undefined,
+        design: issue.design || undefined,
+        acceptance_criteria: issue.acceptance_criteria || undefined,
+        notes: issue.notes || undefined,
+        status: issue.status,
+        priority: issue.priority,
+        issue_type: issue.issue_type,
+        assignee: issue.assignee || undefined,
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        closed_at: issue.closed_at || undefined,
+        close_reason: issue.close_reason || undefined,
+        external_ref: issue.external_ref || undefined,
+        labels: issueLabels.length > 0 ? issueLabels : undefined,
+        dependencies: issueDeps.length > 0 ? issueDeps : undefined,
+      }
+
+      // Remove undefined fields for cleaner output
+      const cleaned = JSON.parse(JSON.stringify(beadsIssue))
+      lines.push(JSON.stringify(cleaned))
+    }
+
+    return lines.join('\n')
+  }
+
+  async commitBeadsJsonl(): Promise<void> {
+    const jsonl = this.exportToJsonl()
+    await this.commitFile(
+      '.beads/issues.jsonl',
+      jsonl,
+      'sync: update issues.jsonl from RepoDO'
+    )
+    this.logSync('beads', 'export', { issueCount: jsonl.split('\n').length })
+  }
+
+  // ===========================================================================
+  // Sync: GitHub Issue → DO
+  // ===========================================================================
+
+  async onGitHubIssue(payload: {
+    action: string
+    issue: {
+      id: number
+      number: number
+      title: string
+      body: string | null
+      state: 'open' | 'closed'
+      labels: Array<{ name: string }>
+      assignee: { login: string } | null
+      created_at: string
+      updated_at: string
+      closed_at: string | null
+    }
+  }): Promise<void> {
+    const { action, issue: ghIssue } = payload
+    const now = new Date().toISOString()
+
+    // Find existing issue by GitHub number
+    let existing = this.getIssueByGitHubNumber(ghIssue.number)
+
+    // Generate beads-style ID if new
+    const id = existing?.id || `gh-${ghIssue.number}`
+
+    const issue: BeadsIssue = {
+      id,
+      title: ghIssue.title,
+      description: ghIssue.body || '',
+      status: ghIssue.state === 'closed' ? 'closed' : 'open',
+      priority: 2, // Default priority
+      issue_type: 'task', // Default type
+      assignee: ghIssue.assignee?.login,
+      created_at: ghIssue.created_at,
+      updated_at: ghIssue.updated_at,
+      closed_at: ghIssue.closed_at || undefined,
+      labels: ghIssue.labels.map((l) => l.name),
+    }
+
+    this.upsertIssue(issue)
+
+    // Store GitHub metadata
+    this.sql.exec(
+      'UPDATE issues SET github_number = ?, github_id = ?, last_sync_at = ? WHERE id = ?',
+      ghIssue.number,
+      ghIssue.id,
+      now,
+      id
+    )
+
+    this.logSync('github', action, { issueId: id, githubNumber: ghIssue.number })
+
+    // Commit back to beads
+    await this.commitBeadsJsonl()
+  }
+
+  // ===========================================================================
+  // Sync: DO → GitHub Issue
+  // ===========================================================================
+
+  async createGitHubIssue(issueId: string): Promise<number> {
+    await this.initRepoContext()
+    if (!this.repoFullName || !this.installationId) {
+      throw new Error('Repo context not initialized')
+    }
+
+    const issue = this.getIssue(issueId)
+    if (!issue) {
+      throw new Error(`Issue not found: ${issueId}`)
+    }
+
+    const token = await this.getInstallationToken(this.installationId)
+
+    const labels = this.sql
+      .exec('SELECT label FROM labels WHERE issue_id = ?', issueId)
+      .toArray()
+      .map((row: any) => row.label as string)
+
+    const response = await fetch(
+      `https://api.github.com/repos/${this.repoFullName}/issues`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          title: issue.title,
+          body: issue.description || '',
+          labels,
+          assignees: issue.assignee ? [issue.assignee] : [],
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to create GitHub issue: ${response.status} ${error}`)
+    }
+
+    const ghIssue = (await response.json()) as { id: number; number: number }
+
+    // Update local issue with GitHub metadata
+    this.sql.exec(
+      'UPDATE issues SET github_number = ?, github_id = ?, last_sync_at = ? WHERE id = ?',
+      ghIssue.number,
+      ghIssue.id,
+      new Date().toISOString(),
+      issueId
+    )
+
+    this.logSync('github', 'create', { issueId, githubNumber: ghIssue.number })
+
+    return ghIssue.number
+  }
+
+  async updateGitHubIssue(issueId: string): Promise<void> {
+    await this.initRepoContext()
+    if (!this.repoFullName || !this.installationId) {
+      throw new Error('Repo context not initialized')
+    }
+
+    const issue = this.getIssue(issueId)
+    if (!issue || !issue.github_number) {
+      throw new Error(`Issue not found or no GitHub number: ${issueId}`)
+    }
+
+    const token = await this.getInstallationToken(this.installationId)
+
+    const labels = this.sql
+      .exec('SELECT label FROM labels WHERE issue_id = ?', issueId)
+      .toArray()
+      .map((row: any) => row.label as string)
+
+    const response = await fetch(
+      `https://api.github.com/repos/${this.repoFullName}/issues/${issue.github_number}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          title: issue.title,
+          body: issue.description || '',
+          state: issue.status === 'closed' ? 'closed' : 'open',
+          labels,
+          assignees: issue.assignee ? [issue.assignee] : [],
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to update GitHub issue: ${response.status} ${error}`)
+    }
+
+    this.sql.exec(
+      'UPDATE issues SET last_sync_at = ? WHERE id = ?',
+      new Date().toISOString(),
+      issueId
+    )
+
+    this.logSync('github', 'update', { issueId, githubNumber: issue.github_number })
+  }
+
+  // ===========================================================================
+  // Sync: beads push webhook handler
+  // ===========================================================================
+
+  async onBeadsPush(payload: {
+    commit: string
+    files: string[]
+    repoFullName: string
+    installationId: number
+  }): Promise<void> {
+    const { commit, files, repoFullName, installationId } = payload
+
+    // Set context if not already set
+    await this.setRepoContext(repoFullName, installationId)
+
+    // Only process if issues.jsonl changed
+    if (!files.some((f) => f.includes('issues.jsonl'))) {
       return
     }
 
-    const repo = repoResult.docs[0]
-    console.log('[RepoDO] Found repo in Payload', { repoId: repo.id })
+    // Fetch and import JSONL
+    const jsonl = await this.fetchGitHubFile('.beads/issues.jsonl', commit)
+    const result = await this.importFromJsonl(jsonl)
 
-    // Sync each issue
+    console.log('[RepoDO] Imported beads JSONL', result)
+
+    // Sync new issues to GitHub
+    const issues = this.sql
+      .exec('SELECT id, github_number FROM issues WHERE github_number IS NULL')
+      .toArray() as Array<{ id: string; github_number: number | null }>
+
     for (const issue of issues) {
       try {
-        // Find existing issue in Payload
-        const where: any = {
-          repo: { equals: repo.id },
-        }
-
-        if (issue.githubId) {
-          where.githubId = { equals: issue.githubId }
-        } else if (issue.beadsId) {
-          where.localId = { equals: issue.beadsId }
-        } else {
-          // Skip issues without identifiers
-          continue
-        }
-
-        const existingResult = await env.PAYLOAD.find({
-          collection: 'issues',
-          where,
-          limit: 1,
-        })
-
-        const issueData = {
-          repo: repo.id,
-          localId: issue.beadsId || issue.githubId?.toString() || 'unknown',
-          title: issue.title,
-          body: issue.body || '',
-          state: issue.state,
-          status: issue.status || issue.state,
-          priority: issue.priority ?? 2,
-          type: issue.type || 'task',
-          labels: issue.labels || [],
-          assignees: issue.assignees || [],
-          githubNumber: issue.githubNumber,
-          githubId: issue.githubId,
-        }
-
-        if (existingResult.docs && existingResult.docs.length > 0) {
-          // Update existing issue
-          const existing = existingResult.docs[0]
-          console.log('[RepoDO] Updating issue in Payload', { id: existing.id, title: issue.title })
-
-          await env.PAYLOAD.update({
-            collection: 'issues',
-            id: existing.id,
-            data: issueData,
-          })
-        } else {
-          // Create new issue
-          console.log('[RepoDO] Creating issue in Payload', { title: issue.title })
-
-          await env.PAYLOAD.create({
-            collection: 'issues',
-            data: issueData,
-          })
-        }
+        await this.createGitHubIssue(issue.id)
       } catch (error) {
-        console.error('[RepoDO] Failed to sync issue to Payload:', error, { issue })
+        console.error(`[RepoDO] Failed to create GitHub issue for ${issue.id}:`, error)
       }
     }
-
-    console.log('[RepoDO] Payload sync complete')
   }
 
-  private ensureInitialized() {
-    if (this.initialized) return
+  // ===========================================================================
+  // Query endpoints for MCP tools
+  // ===========================================================================
 
-    this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS issues (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        github_id INTEGER UNIQUE,
-        github_number INTEGER,
-        beads_id TEXT UNIQUE,
-        title TEXT NOT NULL,
-        body TEXT,
-        state TEXT NOT NULL,
-        labels TEXT,
-        assignees TEXT,
-        priority INTEGER,
-        type TEXT,
-        file_path TEXT,
-        file_hash TEXT,
-        github_updated_at TEXT,
-        beads_updated_at TEXT,
-        file_updated_at TEXT,
-        last_sync_at TEXT,
-        sync_source TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
+  listIssues(filters?: {
+    status?: string
+    priority?: number
+    issue_type?: string
+    assignee?: string
+  }): Issue[] {
+    let query = 'SELECT * FROM issues WHERE 1=1'
+    const params: any[] = []
 
-      CREATE TABLE IF NOT EXISTS milestones (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        github_id INTEGER UNIQUE,
-        github_number INTEGER,
-        beads_id TEXT UNIQUE,
-        title TEXT NOT NULL,
-        description TEXT,
-        state TEXT NOT NULL,
-        due_on TEXT,
-        file_path TEXT,
-        file_hash TEXT,
-        github_updated_at TEXT,
-        beads_updated_at TEXT,
-        file_updated_at TEXT,
-        last_sync_at TEXT,
-        sync_source TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-      );
+    if (filters?.status) {
+      query += ' AND status = ?'
+      params.push(filters.status)
+    }
+    if (filters?.priority !== undefined) {
+      query += ' AND priority = ?'
+      params.push(filters.priority)
+    }
+    if (filters?.issue_type) {
+      query += ' AND issue_type = ?'
+      params.push(filters.issue_type)
+    }
+    if (filters?.assignee) {
+      query += ' AND assignee = ?'
+      params.push(filters.assignee)
+    }
 
-      CREATE TABLE IF NOT EXISTS sync_log (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        entity_type TEXT NOT NULL,
-        entity_id INTEGER NOT NULL,
-        action TEXT NOT NULL,
-        source TEXT NOT NULL,
-        target TEXT NOT NULL,
-        changes TEXT,
-        status TEXT NOT NULL,
-        error TEXT,
-        created_at TEXT NOT NULL
-      );
-    `)
+    query += ' ORDER BY priority ASC, updated_at DESC'
 
-    this.initialized = true
+    return this.sql.exec(query, ...params).toArray() as Issue[]
   }
+
+  listReady(): Issue[] {
+    // Issues that are open and have no blocking dependencies
+    return this.sql
+      .exec(
+        `SELECT i.* FROM issues i
+         WHERE i.status = 'open'
+         AND i.id NOT IN (
+           SELECT d.issue_id FROM dependencies d
+           JOIN issues blocker ON d.depends_on_id = blocker.id
+           WHERE d.type = 'blocks' AND blocker.status != 'closed'
+         )
+         ORDER BY i.priority ASC, i.updated_at DESC`
+      )
+      .toArray() as Issue[]
+  }
+
+  listBlocked(): Array<Issue & { blockers: string[] }> {
+    const blocked = this.sql
+      .exec(
+        `SELECT i.*, GROUP_CONCAT(d.depends_on_id) as blocker_ids
+         FROM issues i
+         JOIN dependencies d ON i.id = d.issue_id
+         JOIN issues blocker ON d.depends_on_id = blocker.id
+         WHERE d.type = 'blocks' AND blocker.status != 'closed'
+         GROUP BY i.id`
+      )
+      .toArray() as Array<Issue & { blocker_ids: string }>
+
+    return blocked.map((issue) => ({
+      ...issue,
+      blockers: issue.blocker_ids.split(','),
+    }))
+  }
+
+  search(query: string): Issue[] {
+    const pattern = `%${query}%`
+    return this.sql
+      .exec(
+        `SELECT * FROM issues
+         WHERE title LIKE ? OR description LIKE ?
+         ORDER BY updated_at DESC
+         LIMIT 50`,
+        pattern,
+        pattern
+      )
+      .toArray() as Issue[]
+  }
+
+  // ===========================================================================
+  // Logging
+  // ===========================================================================
+
+  private logSync(source: string, action: string, details: any): void {
+    this.sql.exec(
+      'INSERT INTO sync_log (source, action, details, created_at) VALUES (?, ?, ?, ?)',
+      source,
+      action,
+      JSON.stringify(details),
+      new Date().toISOString()
+    )
+  }
+
+  // ===========================================================================
+  // HTTP API
+  // ===========================================================================
 
   async fetch(request: Request): Promise<Response> {
     this.ensureInitialized()
-    await this.initSyncActor()
 
     const url = new URL(request.url)
     const path = url.pathname
 
     try {
-      // Issue endpoints
+      // Issue list
       if (path === '/issues' && request.method === 'GET') {
-        return this.listIssues()
+        const status = url.searchParams.get('status') || undefined
+        const priority = url.searchParams.get('priority')
+        const issueType = url.searchParams.get('type') || undefined
+        const assignee = url.searchParams.get('assignee') || undefined
+
+        const issues = this.listIssues({
+          status,
+          priority: priority ? parseInt(priority, 10) : undefined,
+          issue_type: issueType,
+          assignee,
+        })
+        return Response.json(issues)
       }
 
-      if (path.match(/^\/issues\/\d+$/) && request.method === 'GET') {
-        const id = path.split('/')[2]
-        return this.getIssue(id)
+      // Ready issues
+      if (path === '/issues/ready' && request.method === 'GET') {
+        return Response.json(this.listReady())
       }
 
-      if (path === '/issues/sync' && request.method === 'POST') {
-        return this.syncIssues(request)
+      // Blocked issues
+      if (path === '/issues/blocked' && request.method === 'GET') {
+        return Response.json(this.listBlocked())
       }
 
-      // Milestone endpoints
-      if (path === '/milestones' && request.method === 'GET') {
-        return this.listMilestones()
+      // Search
+      if (path === '/issues/search' && request.method === 'GET') {
+        const q = url.searchParams.get('q') || ''
+        return Response.json(this.search(q))
       }
 
-      if (path.match(/^\/milestones\/\d+$/) && request.method === 'GET') {
-        const id = path.split('/')[2]
-        return this.getMilestone(id)
+      // Single issue
+      if (path.startsWith('/issues/') && request.method === 'GET') {
+        const id = path.slice('/issues/'.length)
+        const issue = this.getIssue(id)
+        if (!issue) {
+          return new Response('Not Found', { status: 404 })
+        }
+
+        // Include labels and dependencies
+        const labels = this.sql
+          .exec('SELECT label FROM labels WHERE issue_id = ?', id)
+          .toArray()
+          .map((r: any) => r.label)
+        const deps = this.sql
+          .exec('SELECT * FROM dependencies WHERE issue_id = ?', id)
+          .toArray()
+        const dependents = this.sql
+          .exec('SELECT * FROM dependencies WHERE depends_on_id = ?', id)
+          .toArray()
+
+        return Response.json({ ...issue, labels, dependencies: deps, dependents })
       }
 
-      if (path === '/milestones/sync' && request.method === 'POST') {
-        return this.syncMilestones(request)
+      // GitHub webhook handler
+      if (path === '/webhook/github' && request.method === 'POST') {
+        const payload = await request.json()
+        await this.onGitHubIssue(payload)
+        return Response.json({ ok: true })
       }
 
-      // Push sync (file changes from GitHub)
-      if (path === '/sync/push' && request.method === 'POST') {
-        return this.syncPush(request)
+      // Beads push webhook handler
+      if (path === '/webhook/beads' && request.method === 'POST') {
+        const payload = (await request.json()) as {
+          commit: string
+          files: string[]
+          repoFullName: string
+          installationId: number
+        }
+        await this.onBeadsPush(payload)
+        return Response.json({ ok: true })
       }
 
-      // Status and sync state
+      // Export JSONL
+      if (path === '/export' && request.method === 'GET') {
+        const jsonl = this.exportToJsonl()
+        return new Response(jsonl, {
+          headers: { 'Content-Type': 'application/x-ndjson' },
+        })
+      }
+
+      // Import JSONL
+      if (path === '/import' && request.method === 'POST') {
+        const jsonl = await request.text()
+        const result = await this.importFromJsonl(jsonl)
+        return Response.json(result)
+      }
+
+      // Status
       if (path === '/status' && request.method === 'GET') {
-        return this.getStatus()
+        await this.initRepoContext()
+        const issueCount = this.sql
+          .exec('SELECT COUNT(*) as count FROM issues')
+          .toArray()[0] as { count: number }
+        const recentLogs = this.sql
+          .exec('SELECT * FROM sync_log ORDER BY created_at DESC LIMIT 10')
+          .toArray()
+
+        return Response.json({
+          repoFullName: this.repoFullName,
+          installationId: this.installationId,
+          issueCount: issueCount.count,
+          recentSyncs: recentLogs,
+        })
       }
 
-      if (path === '/sync/reset' && request.method === 'POST') {
-        return this.resetSyncState()
+      // Set context
+      if (path === '/context' && request.method === 'POST') {
+        const { repoFullName, installationId } = (await request.json()) as {
+          repoFullName: string
+          installationId: number
+        }
+        await this.setRepoContext(repoFullName, installationId)
+        return Response.json({ ok: true })
       }
 
       return new Response('Not Found', { status: 404 })
     } catch (error) {
+      console.error('[RepoDO] Error:', error)
       return new Response(JSON.stringify({ error: String(error) }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },
       })
     }
-  }
-
-  private getIssue(id: string): Response {
-    const issues = this.sql.exec('SELECT * FROM issues WHERE id = ? OR github_number = ?', id, id).toArray()
-    if (issues.length === 0) {
-      return new Response('Not Found', { status: 404 })
-    }
-    return Response.json(issues[0])
-  }
-
-  private getMilestone(id: string): Response {
-    const milestones = this.sql.exec('SELECT * FROM milestones WHERE id = ? OR github_number = ?', id, id).toArray()
-    if (milestones.length === 0) {
-      return new Response('Not Found', { status: 404 })
-    }
-    return Response.json(milestones[0])
-  }
-
-  private resetSyncState(): Response {
-    if (this.syncActor) {
-      this.syncActor.send({ type: 'RESET' })
-    }
-    return Response.json({ status: 'reset' })
-  }
-
-  private listIssues(): Response {
-    const issues = this.sql.exec('SELECT * FROM issues').toArray()
-    return Response.json(issues)
-  }
-
-  private async syncIssuesInternal(source: SyncSource, issues: Array<{
-    githubId?: number
-    beadsId?: string
-    title: string
-    body?: string
-    state: string
-    labels?: string[]
-    assignees?: string[]
-    priority?: number
-    type?: string
-    filePath?: string
-    updatedAt?: string
-  }>): Promise<Array<{ action: string; id?: number }>> {
-    const now = new Date().toISOString()
-    const results: Array<{ action: string; id?: number }> = []
-
-    for (const issue of issues) {
-      const updatedAt = issue.updatedAt || now
-
-      // Find existing issue
-      let existing: Issue | null = null
-
-      if (issue.githubId) {
-        const rows = this.sql.exec(
-          'SELECT * FROM issues WHERE github_id = ?',
-          issue.githubId
-        ).toArray() as unknown as Issue[]
-        existing = rows[0] || null
-      } else if (issue.beadsId) {
-        const rows = this.sql.exec(
-          'SELECT * FROM issues WHERE beads_id = ?',
-          issue.beadsId
-        ).toArray() as unknown as Issue[]
-        existing = rows[0] || null
-      }
-
-      if (existing) {
-        // Last-write-wins
-        const existingUpdated = existing.github_updated_at || existing.beads_updated_at || existing.file_updated_at
-        if (!existingUpdated || updatedAt > existingUpdated) {
-          const updateField = source === 'github' ? 'github_updated_at' :
-                             source === 'beads' ? 'beads_updated_at' : 'file_updated_at'
-
-          this.sql.exec(`
-            UPDATE issues SET
-              title = ?,
-              body = ?,
-              state = ?,
-              labels = ?,
-              assignees = ?,
-              priority = ?,
-              type = ?,
-              ${updateField} = ?,
-              last_sync_at = ?,
-              sync_source = ?,
-              updated_at = ?
-            WHERE id = ?
-          `,
-            issue.title,
-            issue.body || null,
-            issue.state,
-            issue.labels ? JSON.stringify(issue.labels) : null,
-            issue.assignees ? JSON.stringify(issue.assignees) : null,
-            issue.priority ?? null,
-            issue.type || null,
-            updatedAt,
-            now,
-            source,
-            now,
-            existing.id
-          )
-          results.push({ action: 'updated', id: existing.id })
-        } else {
-          results.push({ action: 'skipped', id: existing.id })
-        }
-      } else {
-        const updateField = source === 'github' ? 'github_updated_at' :
-                           source === 'beads' ? 'beads_updated_at' : 'file_updated_at'
-
-        this.sql.exec(`
-          INSERT INTO issues (
-            github_id, beads_id, title, body, state, labels, assignees,
-            priority, type, file_path, ${updateField}, last_sync_at, sync_source, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-          issue.githubId ?? null,
-          issue.beadsId ?? null,
-          issue.title,
-          issue.body || null,
-          issue.state,
-          issue.labels ? JSON.stringify(issue.labels) : null,
-          issue.assignees ? JSON.stringify(issue.assignees) : null,
-          issue.priority ?? null,
-          issue.type || null,
-          issue.filePath || null,
-          updatedAt,
-          now,
-          source,
-          now,
-          now
-        )
-        results.push({ action: 'created' })
-      }
-    }
-
-    return results
-  }
-
-  private async syncIssues(request: Request): Promise<Response> {
-    const body = await request.json() as {
-      source: 'github' | 'beads' | 'file' | 'mcp'
-      issues: Array<{
-        githubId?: number
-        beadsId?: string
-        title: string
-        body?: string
-        state: string
-        labels?: string[]
-        assignees?: string[]
-        priority?: number
-        type?: string
-        filePath?: string
-        updatedAt?: string
-      }>
-    }
-
-    // Queue the sync event through the state machine
-    await this.enqueueSyncEvent(body.source, { issues: body.issues })
-
-    // Get current state
-    const state = this.syncActor?.getSnapshot()
-
-    return Response.json({
-      queued: true,
-      syncState: state?.value || 'unknown',
-      pendingEvents: state?.context.pendingEvents.length || 0,
-    })
-  }
-
-  private listMilestones(): Response {
-    const milestones = this.sql.exec('SELECT * FROM milestones').toArray()
-    return Response.json(milestones)
-  }
-
-  private async syncMilestones(request: Request): Promise<Response> {
-    const body = await request.json() as {
-      source: 'github' | 'beads' | 'file' | 'mcp'
-      milestones: Array<{
-        githubId?: number
-        githubNumber?: number
-        beadsId?: string
-        title: string
-        description?: string
-        state: string
-        dueOn?: string
-        filePath?: string
-        updatedAt?: string
-      }>
-    }
-
-    const now = new Date().toISOString()
-    const results: Array<{ action: string; id?: number }> = []
-
-    for (const milestone of body.milestones) {
-      const updatedAt = milestone.updatedAt || now
-
-      // Find existing milestone
-      let existing: any = null
-
-      if (milestone.githubId) {
-        const rows = this.sql.exec(
-          'SELECT * FROM milestones WHERE github_id = ?',
-          milestone.githubId
-        ).toArray()
-        existing = rows[0] || null
-      } else if (milestone.beadsId) {
-        const rows = this.sql.exec(
-          'SELECT * FROM milestones WHERE beads_id = ?',
-          milestone.beadsId
-        ).toArray()
-        existing = rows[0] || null
-      }
-
-      if (existing) {
-        // Last-write-wins
-        const existingUpdated = existing.github_updated_at || existing.beads_updated_at || existing.file_updated_at
-        if (!existingUpdated || updatedAt > existingUpdated) {
-          const updateField = body.source === 'github' ? 'github_updated_at' :
-                             body.source === 'beads' ? 'beads_updated_at' : 'file_updated_at'
-
-          this.sql.exec(`
-            UPDATE milestones SET
-              title = ?,
-              description = ?,
-              state = ?,
-              due_on = ?,
-              ${updateField} = ?,
-              last_sync_at = ?,
-              sync_source = ?,
-              updated_at = ?
-            WHERE id = ?
-          `,
-            milestone.title,
-            milestone.description || null,
-            milestone.state,
-            milestone.dueOn || null,
-            updatedAt,
-            now,
-            body.source,
-            now,
-            existing.id
-          )
-          results.push({ action: 'updated', id: existing.id })
-        } else {
-          results.push({ action: 'skipped', id: existing.id })
-        }
-      } else {
-        const updateField = body.source === 'github' ? 'github_updated_at' :
-                           body.source === 'beads' ? 'beads_updated_at' : 'file_updated_at'
-
-        this.sql.exec(`
-          INSERT INTO milestones (
-            github_id, github_number, beads_id, title, description, state, due_on,
-            file_path, ${updateField}, last_sync_at, sync_source, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `,
-          milestone.githubId ?? null,
-          milestone.githubNumber ?? null,
-          milestone.beadsId ?? null,
-          milestone.title,
-          milestone.description || null,
-          milestone.state,
-          milestone.dueOn || null,
-          milestone.filePath || null,
-          updatedAt,
-          now,
-          body.source,
-          now,
-          now
-        )
-        results.push({ action: 'created' })
-      }
-    }
-
-    // Log the sync
-    this.sql.exec(`
-      INSERT INTO sync_log (entity_type, entity_id, action, source, target, changes, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, 'milestone', 0, 'sync', body.source, 'local', JSON.stringify({ count: results.length }), 'success', now)
-
-    return Response.json({ synced: results })
-  }
-
-  private async syncPush(request: Request): Promise<Response> {
-    const body = await request.json() as {
-      ref: string
-      before: string
-      after: string
-      files: string[]
-      installationId?: number
-      repoFullName?: string
-    }
-
-    // Initialize repo context if provided
-    if (body.repoFullName && body.installationId) {
-      await this.setRepoContext(body.repoFullName, body.installationId)
-    }
-
-    const now = new Date().toISOString()
-
-    // Log the push event
-    this.sql.exec(`
-      INSERT INTO sync_log (entity_type, entity_id, action, source, target, changes, status, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `, 'push', body.after, 'push', 'github', 'local', JSON.stringify({
-      ref: body.ref,
-      files: body.files,
-      before: body.before,
-      after: body.after,
-    }), 'pending', now)
-
-    // Categorize files for processing
-    const beadsFiles = body.files.filter(f => f.startsWith('.beads/'))
-    const todoFiles = body.files.filter(f => f.startsWith('.todo/') || f === 'TODO.md' || f === 'TODO.mdx')
-    const roadmapFiles = body.files.filter(f => f.startsWith('.roadmap/') || f === 'ROADMAP.md' || f === 'ROADMAP.mdx')
-
-    // Queue sync events for each category
-    if (beadsFiles.length > 0) {
-      await this.enqueueSyncEvent('beads', {
-        files: beadsFiles,
-        commit: body.after,
-        installationId: body.installationId,
-      })
-    }
-
-    if (todoFiles.length > 0) {
-      await this.enqueueSyncEvent('file', {
-        type: 'todo',
-        files: todoFiles,
-        commit: body.after,
-        installationId: body.installationId,
-      })
-    }
-
-    if (roadmapFiles.length > 0) {
-      await this.enqueueSyncEvent('file', {
-        type: 'roadmap',
-        files: roadmapFiles,
-        commit: body.after,
-        installationId: body.installationId,
-      })
-    }
-
-    // Get current sync state
-    const state = this.syncActor?.getSnapshot()
-
-    return Response.json({
-      queued: true,
-      files: {
-        beads: beadsFiles.length,
-        todo: todoFiles.length,
-        roadmap: roadmapFiles.length,
-      },
-      syncState: state?.value || 'unknown',
-      pendingEvents: state?.context.pendingEvents.length || 0,
-    })
-  }
-
-  private getStatus(): Response {
-    const issueCount = this.sql.exec('SELECT COUNT(*) as count FROM issues').toArray()[0] as { count: number }
-    const milestoneCount = this.sql.exec('SELECT COUNT(*) as count FROM milestones').toArray()[0] as { count: number }
-    const recentLogs = this.sql.exec('SELECT * FROM sync_log ORDER BY created_at DESC LIMIT 10').toArray()
-
-    // Get sync state machine status
-    const state = this.syncActor?.getSnapshot()
-    const syncStatus = state ? {
-      state: state.value,
-      pendingEvents: state.context.pendingEvents.length,
-      currentEvent: state.context.currentEvent,
-      lastSyncAt: state.context.lastSyncAt,
-      errorCount: state.context.errorCount,
-      lastError: state.context.lastError,
-    } : null
-
-    return Response.json({
-      issues: issueCount.count,
-      milestones: milestoneCount.count,
-      recentSyncs: recentLogs,
-      syncStatus,
-    })
   }
 }
