@@ -214,7 +214,7 @@ mcp.get('/callback', async (c) => {
 
     if (existingUsers.docs?.length === 0) {
       // Create new user
-      const newUser = await c.env.PAYLOAD.create({
+      const newUser = await (c.env.PAYLOAD.create as any)({
         collection: 'users',
         data: {
           workosUserId: user.id,
@@ -224,7 +224,7 @@ mcp.get('/callback', async (c) => {
           emailVerified: user.emailVerified,
         },
       })
-      userId = newUser.id
+      userId = String(newUser.id)
     }
 
     // Generate authorization code for the MCP client

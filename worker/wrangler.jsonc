@@ -45,19 +45,28 @@
     }
   ],
 
-  // Service Bindings - Payload RPC (uncomment when admin-todo-mdx is deployed)
-  // "services": [
-  //   {
-  //     "binding": "PAYLOAD",
-  //     "service": "admin-todo-mdx",
-  //     "entrypoint": "PayloadRPC"
-  //   }
-  // ]
+  // Service Bindings - Payload RPC
+  "services": [
+    {
+      "binding": "PAYLOAD",
+      "service": "admin-todo-mdx",
+      "entrypoint": "PayloadRPC"
+    }
+  ],
+
+  // KV namespace for OAuth state
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "replace-with-kv-namespace-id"
+    }
+  ],
 
   // Environment variables (set via wrangler secret)
   // GitHub App: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
   // WorkOS AuthKit: WORKOS_API_KEY, WORKOS_CLIENT_ID, WORKOS_CLIENT_SECRET
-  // Claude Code: CLAUDE_CODE_OAUTH_TOKEN
-  // Future - Linear: LINEAR_API_KEY, LINEAR_WEBHOOK_SECRET
+  // OAuth: OAUTH_DO_CLIENT_ID, OAUTH_DO_ISSUER
+  // Linear: LINEAR_CLIENT_ID, LINEAR_CLIENT_SECRET, LINEAR_WEBHOOK_SECRET
+  // AI: ANTHROPIC_API_KEY
   // Future - Slack: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET
 }

@@ -137,9 +137,7 @@ export const LinearIntegrations: CollectionConfig = {
       type: 'text',
       admin: {
         description: 'Webhook secret for signature verification',
-        components: {
-          Field: () => null, // Hide from UI (sensitive)
-        },
+        hidden: true, // Hide from UI (sensitive)
       },
     },
     {
