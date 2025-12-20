@@ -11,7 +11,7 @@ export default defineConfig({
   clean: true,
   target: 'esnext',
   sourcemap: true,
-  external: ['react', 'react-dom', 'next'],
+  external: ['react', 'react-dom', 'next', '@xterm/xterm/css/xterm.css'],
   esbuildOptions(options) {
     options.jsx = 'automatic'
   },
