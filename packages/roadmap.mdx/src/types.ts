@@ -2,6 +2,17 @@
  * Core types for roadmap.mdx
  */
 
+// Component types
+export type ComponentProps = Record<string, unknown>
+
+export type ComponentRenderer = (props: ComponentProps) => Promise<string> | string
+
+export interface Component {
+  name: string
+  render: ComponentRenderer
+  description?: string
+}
+
 export interface RoadmapConfig {
   /** GitHub owner/org name */
   owner?: string

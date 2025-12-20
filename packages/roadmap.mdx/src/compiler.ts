@@ -7,6 +7,9 @@ import { readFile, writeFile, readdir, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { existsSync } from 'node:fs'
 import type { Milestone, Epic, RoadmapConfig } from './types.js'
+import { getComponent, setData } from './components/index.js'
+import { toMarkdown } from '@mdxld/markdown'
+import { parseRoadmapFile, calculateProgress } from './parser.js'
 
 /** Frontmatter regex */
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
@@ -64,6 +67,100 @@ async function loadBeadsEpics(): Promise<Epic[]> {
   }
 }
 
+/** Load milestones from .roadmap/*.md files */
+async function loadFileMilestones(roadmapDir: string): Promise<Milestone[]> {
+  if (!existsSync(roadmapDir)) return []
+
+  const files = await readdir(roadmapDir)
+  const milestones: Milestone[] = []
+
+  for (const file of files) {
+    if (!file.endsWith('.md')) continue
+
+    const content = await readFile(join(roadmapDir, file), 'utf-8')
+    const parsed = parseRoadmapFile(content)
+    const progress = calculateProgress(content)
+
+    if (parsed.milestone.title) {
+      const now = new Date().toISOString()
+      milestones.push({
+        id: parsed.milestone.id || file.replace('.md', ''),
+        githubId: parsed.milestone.githubId,
+        githubNumber: parsed.milestone.githubNumber,
+        beadsId: parsed.milestone.beadsId,
+        title: parsed.milestone.title,
+        description: parsed.milestone.description,
+        state: parsed.milestone.state || 'open',
+        dueOn: parsed.milestone.dueOn,
+        progress,
+        createdAt: now,
+        updatedAt: now,
+      })
+    }
+  }
+
+  return milestones
+}
+
+/** Load milestones from GitHub API (requires GITHUB_TOKEN) */
+async function loadGitHubMilestones(config: RoadmapConfig): Promise<Milestone[]> {
+  const { owner, repo } = config
+  if (!owner || !repo) return []
+
+  const token = process.env.GITHUB_TOKEN
+  if (!token) return []
+
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/milestones?state=all`,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github.v3+json',
+          'User-Agent': 'roadmap.mdx',
+        },
+      }
+    )
+
+    if (!response.ok) return []
+
+    const data = await response.json() as Array<{
+      id: number
+      number: number
+      title: string
+      description: string | null
+      state: 'open' | 'closed'
+      due_on: string | null
+      open_issues: number
+      closed_issues: number
+      created_at: string
+      updated_at: string
+    }>
+
+    return data.map(m => {
+      const total = m.open_issues + m.closed_issues
+      return {
+        id: `github-${m.number}`,
+        githubId: m.id,
+        githubNumber: m.number,
+        title: m.title,
+        description: m.description || undefined,
+        state: m.state,
+        dueOn: m.due_on || undefined,
+        progress: {
+          open: m.open_issues,
+          closed: m.closed_issues,
+          percent: total > 0 ? Math.round((m.closed_issues / total) * 100) : 0,
+        },
+        createdAt: m.created_at,
+        updatedAt: m.updated_at,
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
 /** Compile ROADMAP.mdx to ROADMAP.md */
 export async function compile(options: {
   input?: string
@@ -96,17 +193,41 @@ export async function compile(options: {
     content = template.slice(match[0].length)
   }
 
-  // Merge config
+  // Merge config from frontmatter
   const finalConfig: RoadmapConfig = {
     ...config,
     beads: frontmatter.beads as boolean ?? config.beads ?? true,
+    owner: frontmatter.owner as string ?? config.owner,
+    repo: frontmatter.repo as string ?? config.repo,
   }
 
-  // Load data
-  const epics = finalConfig.beads ? await loadBeadsEpics() : []
+  // Load data from multiple sources
+  const [epics, fileMilestones, githubMilestones] = await Promise.all([
+    finalConfig.beads ? loadBeadsEpics() : [],
+    loadFileMilestones(roadmapDir),
+    loadGitHubMilestones(finalConfig),
+  ])
+
+  // Merge milestones (file takes precedence, then GitHub)
+  const milestoneMap = new Map<string, Milestone>()
+  for (const m of githubMilestones) {
+    milestoneMap.set(m.id, m)
+    if (m.githubNumber) milestoneMap.set(`github-${m.githubNumber}`, m)
+  }
+  for (const m of fileMilestones) {
+    milestoneMap.set(m.id, m)
+    if (m.githubNumber) milestoneMap.set(`github-${m.githubNumber}`, m)
+  }
+  const milestones = Array.from(milestoneMap.values())
+
+  // Issues are loaded from beads if available
+  const issues: Array<{ id: string; title: string; state: string; milestoneId?: string }> = []
+
+  // Set data for components
+  setData({ milestones, epics, issues })
 
   // Hydrate template
-  const result = hydrateTemplate(content, [], epics, frontmatter)
+  const result = await hydrateTemplate(content, frontmatter)
 
   // Write output
   await writeFile(output, result)
@@ -114,13 +235,11 @@ export async function compile(options: {
   return result
 }
 
-/** Hydrate template with milestone/epic data */
-function hydrateTemplate(
+/** Hydrate template with component data */
+async function hydrateTemplate(
   template: string,
-  milestones: Milestone[],
-  epics: Epic[],
   frontmatter: Record<string, unknown>
-): string {
+): Promise<string> {
   let result = template
 
   // Replace {variable} placeholders
@@ -131,81 +250,63 @@ function hydrateTemplate(
     return `{${key}}`
   })
 
-  // Replace component tags
-  result = result.replace(/<Milestones\s*\/>/g, () => {
-    return renderMilestoneList(milestones)
-  })
+  // Find and render all components: <ComponentName /> or <Component.Sub />
+  const componentRegex = /<([A-Z][a-zA-Z0-9]*(?:\.[A-Z][a-zA-Z0-9]*)?)\s*([^>]*?)\s*\/>/g
 
-  result = result.replace(/<Milestones\.Open\s*\/>/g, () => {
-    const open = milestones.filter(m => m.state === 'open')
-    return renderMilestoneList(open)
-  })
+  const matches: Array<{ match: string; name: string; propsStr: string }> = []
+  let m: RegExpExecArray | null
+  while ((m = componentRegex.exec(result)) !== null) {
+    matches.push({
+      match: m[0],
+      name: m[1],
+      propsStr: m[2],
+    })
+  }
 
-  result = result.replace(/<Epics\s*\/>/g, () => {
-    return renderEpicList(epics)
-  })
-
-  result = result.replace(/<Epics\.Active\s*\/>/g, () => {
-    const active = epics.filter(e => e.status !== 'closed')
-    return renderEpicList(active)
-  })
-
-  result = result.replace(/<Stats\s*\/>/g, () => {
-    return renderStats(milestones, epics)
-  })
+  // Process in reverse to preserve indices
+  for (const { match: fullMatch, name, propsStr } of matches.reverse()) {
+    const component = getComponent(name)
+    if (component) {
+      const props = parseProps(propsStr, frontmatter)
+      const rendered = await Promise.resolve(component.render(props))
+      result = result.replace(fullMatch, rendered)
+    }
+  }
 
   return result
 }
 
-/** Render milestone list */
-function renderMilestoneList(milestones: Milestone[]): string {
-  if (milestones.length === 0) {
-    return '_No milestones_\n'
-  }
+/** Parse component props from string */
+function parseProps(
+  propsStr: string,
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  const props: Record<string, unknown> = {}
 
-  const lines: string[] = []
+  if (!propsStr.trim()) return props
 
-  for (const m of milestones) {
-    const dueDate = m.dueOn ? ` (due ${m.dueOn})` : ''
-    const progress = `${m.progress.percent}%`
-    lines.push(`### ${m.title}${dueDate}`)
-    lines.push('')
-    lines.push(`Progress: ${progress} (${m.progress.closed}/${m.progress.open + m.progress.closed} issues)`)
-    if (m.description) {
-      lines.push('')
-      lines.push(m.description)
+  // Match prop="value" or prop={expression}
+  const propRegex = /(\w+)=(?:"([^"]*)"|{([^}]*)})/g
+  let match: RegExpExecArray | null
+
+  while ((match = propRegex.exec(propsStr)) !== null) {
+    const [, name, stringValue, exprValue] = match
+
+    if (stringValue !== undefined) {
+      props[name] = stringValue
+    } else if (exprValue !== undefined) {
+      const trimmed = exprValue.trim()
+      if (/^\d+$/.test(trimmed)) {
+        props[name] = parseInt(trimmed, 10)
+      } else if (trimmed in data) {
+        props[name] = data[trimmed]
+      } else {
+        props[name] = trimmed
+      }
     }
-    lines.push('')
   }
 
-  return lines.join('\n')
-}
-
-/** Render epic list */
-function renderEpicList(epics: Epic[]): string {
-  if (epics.length === 0) {
-    return '_No epics_\n'
-  }
-
-  const lines: string[] = []
-
-  for (const e of epics) {
-    const status = e.status === 'closed' ? '✓' : e.status === 'in_progress' ? '→' : '○'
-    const progress = `${e.progress.percent}%`
-    lines.push(`- ${status} **${e.title}** - ${progress} (${e.progress.completed}/${e.progress.total})`)
-  }
-
-  lines.push('')
-  return lines.join('\n')
-}
-
-/** Render stats */
-function renderStats(milestones: Milestone[], epics: Epic[]): string {
-  const openMilestones = milestones.filter(m => m.state === 'open').length
-  const activeEpics = epics.filter(e => e.status !== 'closed').length
-  const completedEpics = epics.filter(e => e.status === 'closed').length
-
-  return `**${openMilestones} open milestones** · **${activeEpics} active epics** · ${completedEpics} completed epics\n`
+  return props
 }
 
 /** Default ROADMAP.mdx template */
@@ -226,7 +327,7 @@ title: Roadmap
 <Milestones.Open />
 `
 
-/** Render roadmap data to markdown */
+/** Render roadmap data to markdown using toMarkdown conventions */
 export function render(data: {
   milestones?: Milestone[]
   epics?: Epic[]
@@ -235,41 +336,119 @@ export function render(data: {
 }): string {
   const { milestones = [], epics = [], issues = [], title = 'Roadmap' } = data
 
-  const lines: string[] = [`# ${title}`, '']
-
-  // Stats
-  const openMilestones = milestones.filter(m => m.state === 'open').length
-  const activeEpics = epics.filter(e => e.status !== 'closed').length
-  const openIssues = issues.filter(i => i.state === 'open').length
   const closedIssues = issues.filter(i => i.state === 'closed').length
-
-  lines.push(`${closedIssues}/${issues.length} complete · ${openMilestones} milestones · ${activeEpics} epics`, '')
-
-  // Milestones with issues
-  for (const m of milestones) {
-    const mIssues = issues.filter(i => i.milestoneId === m.id)
-    const closed = mIssues.filter(i => i.state === 'closed').length
-    const pct = mIssues.length ? Math.round((closed / mIssues.length) * 100) : 0
-
-    lines.push(`## ${m.title} ${m.state === 'closed' ? '✓' : `(${pct}%)`}`)
-    if (m.dueOn) lines.push(`Due: ${m.dueOn}`)
-    lines.push('')
-
-    for (const issue of mIssues) {
-      lines.push(`- [${issue.state === 'closed' ? 'x' : ' '}] ${issue.title}`)
-    }
-    lines.push('')
-  }
-
-  // Backlog (unassigned)
+  const openMilestones = milestones.filter(m => m.state === 'open').length
   const backlog = issues.filter(i => !i.milestoneId)
-  if (backlog.length) {
-    lines.push('## Backlog', '')
-    for (const issue of backlog) {
-      lines.push(`- [${issue.state === 'closed' ? 'x' : ' '}] ${issue.title}`)
+
+  const sections = milestones.map(m => {
+    const mIssues = issues.filter(i => i.milestoneId === m.id)
+    const mClosed = mIssues.filter(i => i.state === 'closed').length
+    const pct = mIssues.length ? Math.round((mClosed / mIssues.length) * 100) : 0
+    const issueList = mIssues.length > 0
+      ? mIssues.map(i => `[${i.state === 'closed' ? 'x' : ' '}] ${i.title}`).join('\n- ')
+      : '_No issues_'
+
+    return {
+      name: m.state === 'closed' ? `${m.title} ✓` : `${m.title} (${pct}%)`,
+      content: (m.dueOn ? `Due: ${m.dueOn}\n\n` : '') + (mIssues.length > 0 ? `- ${issueList}` : issueList),
     }
-    lines.push('')
+  })
+
+  if (backlog.length > 0) {
+    sections.push({
+      name: 'Backlog',
+      content: '- ' + backlog.map(i => `[${i.state === 'closed' ? 'x' : ' '}] ${i.title}`).join('\n- '),
+    })
   }
 
-  return lines.join('\n')
+  return toMarkdown({
+    name: title,
+    description: `${closedIssues}/${issues.length} complete · ${openMilestones} milestones`,
+    sections,
+  })
+}
+
+/** Slugify a string for use in filenames */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50)
+}
+
+/** Generate .roadmap/*.md files from milestones */
+export async function generateRoadmapFiles(options: {
+  roadmapDir?: string
+  milestones?: Milestone[]
+} = {}): Promise<string[]> {
+  const {
+    roadmapDir = '.roadmap',
+    milestones = [],
+  } = options
+
+  // Ensure directory exists
+  if (!existsSync(roadmapDir)) {
+    await mkdir(roadmapDir, { recursive: true })
+  }
+
+  const created: string[] = []
+
+  for (const milestone of milestones) {
+    const filename = `${slugify(milestone.title)}.md`
+    const filepath = join(roadmapDir, filename)
+
+    // Generate content
+    const content = `---
+id: ${milestone.id}
+title: "${milestone.title}"
+state: ${milestone.state}
+${milestone.githubNumber ? `github_number: ${milestone.githubNumber}` : ''}
+${milestone.beadsId ? `beads_id: ${milestone.beadsId}` : ''}
+${milestone.dueOn ? `due_on: ${milestone.dueOn}` : ''}
+---
+
+# ${milestone.title}
+
+${milestone.description || ''}
+`
+
+    await writeFile(filepath, content.replace(/\n{3,}/g, '\n\n'))
+    created.push(filepath)
+  }
+
+  return created
+}
+
+/** Render roadmap from beads data for MCP/API use */
+export async function renderRoadmap(): Promise<string> {
+  const epics = await loadBeadsEpics()
+
+  if (epics.length === 0) {
+    return '# Roadmap\n\n_No epics found_\n'
+  }
+
+  const activeEpics = epics.filter(e => e.status !== 'closed')
+  const completedEpics = epics.filter(e => e.status === 'closed')
+
+  let markdown = '# Roadmap\n\n'
+
+  if (activeEpics.length > 0) {
+    markdown += '## Active Epics\n\n'
+    for (const epic of activeEpics) {
+      const status = epic.status === 'in_progress' ? '→' : '○'
+      markdown += `- ${status} **${epic.title}** - ${epic.progress.percent}% (${epic.progress.completed}/${epic.progress.total})\n`
+    }
+    markdown += '\n'
+  }
+
+  if (completedEpics.length > 0) {
+    markdown += '## Completed\n\n'
+    for (const epic of completedEpics) {
+      markdown += `- ✓ **${epic.title}**\n`
+    }
+    markdown += '\n'
+  }
+
+  return markdown
 }
