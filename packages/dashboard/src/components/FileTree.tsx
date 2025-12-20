@@ -1,3 +1,5 @@
+'use client'
+
 import * as React from 'react'
 import { clsx } from 'clsx'
 import { File, Folder, FolderOpen, ChevronRight, ChevronDown, Loader2 } from 'lucide-react'

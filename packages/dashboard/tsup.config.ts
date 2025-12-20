@@ -12,6 +12,9 @@ export default defineConfig({
   target: 'esnext',
   sourcemap: true,
   external: ['react', 'react-dom', 'next', '@xterm/xterm/css/xterm.css'],
+  banner: {
+    js: '"use client";',
+  },
   esbuildOptions(options) {
     options.jsx = 'automatic'
   },
