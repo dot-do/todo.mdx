@@ -20,6 +20,47 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		version: "0.1.0",
 	});
 
+	/**
+	 * Helper to get repos the authenticated user has access to.
+	 * Uses two-step query since nested relationship queries aren't supported.
+	 */
+	private async getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
+		// Step 1: Find the Payload user by WorkOS ID
+		const userResult = await env.PAYLOAD.find({
+			collection: "users",
+			where: { workosUserId: { equals: workosUserId } },
+			limit: 1,
+		});
+
+		if (!userResult.docs?.length) {
+			return [];
+		}
+
+		const payloadUserId = userResult.docs[0].id;
+
+		// Step 2: Find installations the user has access to
+		const installationsResult = await env.PAYLOAD.find({
+			collection: "installations",
+			where: { users: { contains: payloadUserId } },
+			limit: 100,
+		});
+
+		if (!installationsResult.docs?.length) {
+			return [];
+		}
+
+		const installationIds = installationsResult.docs.map((i: any) => i.id);
+
+		// Step 3: Find repos for those installations
+		const reposResult = await env.PAYLOAD.find({
+			collection: "repos",
+			where: { installation: { in: installationIds } },
+			limit: 100,
+		});
+
+		return reposResult.docs || [];
+	}
+
 	async init() {
 		// Search: hybrid keyword + vector search across all issues
 		this.server.tool(
@@ -39,20 +80,24 @@ Examples:
 			async ({ query, limit }) => {
 				try {
 					const env = this.env as Env;
-					const userId = this.props?.user?.id;
+					const workosUserId = this.props?.user?.id;
 					const queryLower = query.toLowerCase();
+
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
+
+					const repos = await this.getUserRepos(env, workosUserId);
 
 					const [keywordResults, vectorResults] = await Promise.all([
 						// Keyword search
 						(async () => {
 							const results: Array<{ id: string; title: string; repo: string; state: string }> = [];
-							const reposResult = await env.PAYLOAD.find({
-								collection: "repos",
-								where: { "installation.users.workosUserId": { equals: userId } },
-								limit: 100,
-							});
 
-							for (const repo of (reposResult.docs || []) as any[]) {
+							for (const repo of repos) {
 								const doId = env.REPO.idFromName(repo.fullName);
 								const stub = env.REPO.get(doId);
 								const issuesResponse = await stub.fetch(new Request("http://do/issues"));
@@ -150,20 +195,20 @@ Examples:
 			async ({ repo, issue }) => {
 				try {
 					const env = this.env as Env;
-					const userId = this.props?.user?.id;
+					const workosUserId = this.props?.user?.id;
 
-					const result = await env.PAYLOAD.find({
-						collection: "repos",
-						where: {
-							and: [
-								{ fullName: { equals: repo } },
-								{ "installation.users.workosUserId": { equals: userId } },
-							],
-						},
-						limit: 1,
-					});
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
 
-					if (!result.docs?.length) {
+					// Verify access using the helper
+					const userRepos = await this.getUserRepos(env, workosUserId);
+					const hasAccess = userRepos.some((r: any) => r.fullName === repo);
+
+					if (!hasAccess) {
 						return {
 							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
 							isError: true,
@@ -217,18 +262,21 @@ Example output:
 			async () => {
 				try {
 					const env = this.env as Env;
-					const userId = this.props?.user?.id;
+					const workosUserId = this.props?.user?.id;
 
-					const reposResult = await env.PAYLOAD.find({
-						collection: "repos",
-						where: { "installation.users.workosUserId": { equals: userId } },
-						limit: 100,
-					});
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
+
+					const repos = await this.getUserRepos(env, workosUserId);
 
 					const allIssues: any[] = [];
 					const allMilestones: any[] = [];
 
-					for (const repo of (reposResult.docs || []) as any[]) {
+					for (const repo of repos) {
 						const doId = env.REPO.idFromName(repo.fullName);
 						const stub = env.REPO.get(doId);
 
@@ -330,29 +378,33 @@ Examples:
 			async ({ repo, code }) => {
 				try {
 					const env = this.env as Env;
-					const userId = this.props?.user?.id;
+					const workosUserId = this.props?.user?.id;
 
-					// Verify access
-					const result = await env.PAYLOAD.find({
-						collection: "repos",
-						where: {
-							and: [
-								{ fullName: { equals: repo } },
-								{ "installation.users.workosUserId": { equals: userId } },
-							],
-						},
-						limit: 1,
-					});
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
 
-					if (!result.docs?.length) {
+					// Verify access and get repo details
+					const userRepos = await this.getUserRepos(env, workosUserId);
+					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
+
+					if (!repoDoc) {
 						return {
 							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
 							isError: true,
 						};
 					}
 
-					const repoDoc = result.docs[0] as any;
-					const installationId = repoDoc.installation?.installationId;
+					// Get installation ID - need to fetch the installation relationship
+					const installationResult = await env.PAYLOAD.findByID({
+						collection: "installations",
+						id: repoDoc.installation,
+					});
+
+					const installationId = (installationResult as any)?.installationId;
 
 					if (!installationId) {
 						return {
