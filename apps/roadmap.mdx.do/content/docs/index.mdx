@@ -1,0 +1,69 @@
+---
+title: Introduction
+description: Get started with roadmap.mdx - MDX-powered roadmap rendering with live data
+---
+
+## What is roadmap.mdx?
+
+**roadmap.mdx** is a package that lets you define roadmaps in MDX and render them to markdown with live data from your issue tracking system.
+
+Instead of maintaining static roadmap files that get out of date, you write MDX components that pull real-time data:
+
+```mdx
+## Q1 2025 Roadmap
+
+<Roadmap.Quarter quarter="2025-Q1">
+  <Roadmap.Epic epic="EPIC-123" />
+  <Roadmap.Epic epic="EPIC-456" />
+</Roadmap.Quarter>
+```
+
+This renders to markdown showing current progress, blockers, and completion status.
+
+## Key Features
+
+- **Live Data**: Roadmaps stay current with your issue tracker
+- **MDX Components**: Write roadmaps as code with type safety
+- **Multiple Formats**: Render to markdown, HTML, or custom formats
+- **Issue Integration**: Works with GitHub Issues, beads, and other trackers
+
+## Architecture
+
+roadmap.mdx integrates with the todo.mdx ecosystem:
+
+- **MDX Source**: Define roadmaps in `ROADMAP.mdx`
+- **Compiler**: Renders MDX to markdown at build time or on demand
+- **Data Sources**: Pulls from beads, GitHub Issues, or Payload CMS
+- **Output**: Static markdown files or API responses
+
+## Getting Started
+
+Install the package:
+
+```bash
+pnpm add roadmap.mdx
+```
+
+Create a `ROADMAP.mdx` file:
+
+```mdx
+# 2025 Product Roadmap
+
+<Roadmap.Year year="2025">
+  <Roadmap.Quarter quarter="Q1">
+    <Roadmap.Epic epic="EPIC-123" />
+  </Roadmap.Quarter>
+</Roadmap.Year>
+```
+
+Compile to markdown:
+
+```bash
+roadmap compile ROADMAP.mdx -o ROADMAP.md
+```
+
+## Next Steps
+
+- [Components](/docs/components) - Learn about available MDX components
+- [Configuration](/docs/configuration) - Configure data sources and output
+- [API Reference](/docs/api) - Full API documentation

@@ -1,0 +1,102 @@
+---
+title: Components
+description: Available MDX components for rendering live data
+---
+
+## Issues Components
+
+### `<Issues.Ready />`
+
+Shows tasks that have no blockers and are ready to work on.
+
+```mdx
+<Issues.Ready limit={3} priority={1} />
+```
+
+**Props:**
+- `limit` (number) - Maximum number of issues to show
+- `priority` (number) - Filter by priority level (1-5)
+- `assignee` (string) - Filter by assignee
+
+### `<Issues.InProgress />`
+
+Shows tasks currently being worked on.
+
+```mdx
+<Issues.InProgress />
+```
+
+**Props:**
+- `assignee` (string) - Filter by assignee
+
+### `<Issues.Blocked />`
+
+Shows blocked tasks with information about what's blocking them.
+
+```mdx
+<Issues.Blocked />
+```
+
+### `<Issues.List />`
+
+Shows all issues with optional filters.
+
+```mdx
+<Issues.List status="open" priority={1} type="feature" />
+```
+
+**Props:**
+- `status` (string) - Filter by status: `open`, `in_progress`, `blocked`, `closed`
+- `priority` (number) - Filter by priority level
+- `type` (string) - Filter by type: `bug`, `feature`, `task`, `epic`, `chore`
+- `assignee` (string) - Filter by assignee
+- `limit` (number) - Maximum number of issues to show
+
+## Roadmap Components
+
+### `<Roadmap.Epics />`
+
+Shows high-level epics and their progress.
+
+```mdx
+<Roadmap.Epics />
+```
+
+### `<Roadmap.Timeline />`
+
+Shows a timeline view of planned work.
+
+```mdx
+<Roadmap.Timeline />
+```
+
+## Stats Components
+
+### `<Stats.Summary />`
+
+Shows project statistics.
+
+```mdx
+<Stats.Summary />
+```
+
+Renders:
+- Total issues
+- Open issues
+- In progress
+- Blocked
+- Completed
+- Average lead time
+
+## Custom Rendering
+
+You can customize how components render by passing a `format` prop:
+
+```mdx
+<Issues.Ready format="table" />
+```
+
+Available formats:
+- `list` (default) - Renders as markdown list
+- `table` - Renders as markdown table
+- `json` - Outputs JSON for programmatic use

@@ -1,0 +1,54 @@
+---
+title: Introduction
+description: Get started with readme.mdx - MDX components for beautiful README files
+---
+
+## What is readme.mdx?
+
+**readme.mdx** is a collection of MDX components that turn your README into a living document. Write once in MDX, render to markdown with live data - perfect for both humans and AI agents.
+
+The core insight: README files should be dynamic. With readme.mdx, your documentation stays in sync with your actual codebase, issues, and project state.
+
+## Features
+
+- **Live Data**: Components that render real-time information from your project
+- **Markdown Output**: Generates clean markdown that works everywhere
+- **AI-Friendly**: Perfect for AI agents that need current project context
+- **Type-Safe**: Full TypeScript support
+- **Extensible**: Easy to create custom components
+
+## Quick Start
+
+```bash
+npm install readme.mdx
+```
+
+Create a `README.mdx` file:
+
+```mdx
+# My Project
+
+<Issues.Ready limit={3} />
+
+## Stats
+<Project.Stats />
+```
+
+Compile to markdown:
+
+```bash
+npx readme.mdx compile README.mdx
+```
+
+## Use Cases
+
+- **Project Documentation**: Keep README in sync with actual project state
+- **AI Context**: Provide AI agents with current task lists
+- **Team Coordination**: Show what's ready to work on
+- **Onboarding**: Dynamic documentation that's always up-to-date
+
+## Next Steps
+
+- Learn about [Available Components](/docs/components)
+- Explore [Configuration Options](/docs/configuration)
+- See [Examples](/docs/examples)

@@ -87,3 +87,22 @@ export {
   type IssueHandler,
   type ScheduleHandler,
 } from './compiler'
+
+// Daemon - Workflow daemon for watching and executing workflows
+export {
+  WorkflowDaemon,
+  startDaemon,
+  runDaemonUntilInterrupted,
+  type DaemonConfig,
+} from './daemon'
+
+// Cloudflare Workflows integration
+export {
+  durableTransport,
+  prApprovalEvent,
+  issueReadyEvent,
+  epicCompletedEvent,
+  type WorkflowStep,
+  type WorkflowEvent,
+  type DurableTransportConfig,
+} from './cloudflare-workflows'

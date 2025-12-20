@@ -1,0 +1,185 @@
+---
+title: Integration Guide
+description: Integrating todo.mdx with your workflow
+---
+
+# Integration Guide
+
+Learn how to integrate todo.mdx into your development workflow.
+
+## With beads
+
+todo.mdx works seamlessly with [beads](https://github.com/dot-do/beads) - a git-based issue tracker.
+
+### Setup
+
+```bash
+# Initialize beads in your project
+bd init
+
+# Create some issues
+bd create --title="Build feature X"
+bd create --title="Fix bug Y"
+
+# Create TODO.mdx
+cat > TODO.mdx << 'EOF'
+# TODO
+
+## Ready to Work
+<Issues.Ready limit={5} />
+
+## In Progress
+<Issues.Status status="in_progress" />
+EOF
+
+# Compile to markdown
+npx todo-mdx compile TODO.mdx
+```
+
+### Sync with GitHub
+
+```bash
+# Sync beads with GitHub Issues
+bd sync
+```
+
+## With GitHub Actions
+
+Keep your documentation automatically updated:
+
+```yaml
+name: Update TODO
+on:
+  issues:
+    types: [opened, edited, closed, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  update-todo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install -g todo.mdx
+
+      - name: Compile TODO.mdx
+        run: todo-mdx compile TODO.mdx
+
+      - name: Commit changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add TODO.md
+          git commit -m "docs: update TODO.md" || exit 0
+          git push
+```
+
+## With Claude Code
+
+Add to your `CLAUDE.md`:
+
+```markdown
+## Current Work
+
+See TODO.md for current sprint priorities. This file is automatically
+generated from TODO.mdx and reflects the current state of our issue tracker.
+
+Key issues ready to work on:
+
+<Issues.Ready limit={3} />
+```
+
+Then compile before starting work:
+
+```bash
+npx todo-mdx compile CLAUDE.md
+```
+
+## With Cursor
+
+Update your `.cursorrules`:
+
+```markdown
+# Project Context
+
+Current sprint priorities are in TODO.md (generated from TODO.mdx).
+Always check TODO.md before starting new work.
+
+When you complete a task:
+1. Close the issue in beads: `bd close <issue-id>`
+2. Recompile: `npx todo-mdx compile TODO.mdx`
+3. Commit the updated TODO.md
+```
+
+## With Payload CMS
+
+Integrate with the Payload dashboard:
+
+```typescript
+// In your Payload config
+import { todoMdxPlugin } from '@todo.mdx/payload'
+
+export default buildConfig({
+  plugins: [
+    todoMdxPlugin({
+      issueTracker: 'beads',
+      autoCompile: true,
+      watchFiles: ['TODO.mdx', 'ROADMAP.mdx'],
+    }),
+  ],
+})
+```
+
+## With Cloudflare Workers
+
+Deploy the todo.mdx API:
+
+```typescript
+import { TodoMdxAPI } from 'todo.mdx/worker'
+
+export default {
+  async fetch(request: Request, env: Env) {
+    const api = new TodoMdxAPI({
+      beadsPath: '.beads',
+      githubToken: env.GITHUB_TOKEN,
+    })
+
+    return api.handle(request)
+  },
+}
+```
+
+## API Endpoints
+
+The worker provides these endpoints:
+
+- `GET /api/issues` - List all issues
+- `GET /api/issues/:id` - Get specific issue
+- `POST /api/compile` - Compile MDX to markdown
+- `POST /api/sync` - Sync with GitHub
+
+## Webhooks
+
+Configure GitHub webhooks to trigger updates:
+
+```typescript
+// webhook handler
+export async function onIssueUpdate(payload: IssuePayload) {
+  // Update local beads database
+  await beads.update(payload)
+
+  // Recompile documentation
+  await compile('TODO.mdx')
+
+  // Commit and push
+  await git.commit('docs: update TODO.md')
+  await git.push()
+}
+```

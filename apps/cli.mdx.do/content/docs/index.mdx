@@ -1,0 +1,66 @@
+---
+title: Introduction
+description: Getting started with cli.mdx - Build beautiful CLIs with MDX components
+---
+
+# cli.mdx
+
+**Build beautiful CLIs with MDX components powered by Bun and React.**
+
+cli.mdx is a framework for creating interactive command-line interfaces using the same MDX components you use for documentation. Write your CLI once in MDX, and render it beautifully in the terminal.
+
+## Features
+
+- **MDX Components** - Use React components in your CLI
+- **Type-Safe** - Full TypeScript support
+- **Fast** - Powered by Bun runtime
+- **Beautiful** - Rich terminal rendering with colors and layout
+- **Reusable** - Share components between docs and CLI
+
+## Installation
+
+```bash
+bun add cli.mdx
+```
+
+## Quick Start
+
+Create a `cli.mdx` file:
+
+```mdx
+import { Command, Flag, Arg } from 'cli.mdx'
+
+<Command name="hello" description="Say hello">
+  <Arg name="name" description="Your name" required />
+  <Flag name="--greeting" alias="-g" description="Custom greeting" />
+</Command>
+
+export function run({ name, greeting = 'Hello' }) {
+  return `${greeting}, ${name}!`
+}
+```
+
+Run it:
+
+```bash
+bun cli.mdx hello World
+# Output: Hello, World!
+
+bun cli.mdx hello World --greeting "Howdy"
+# Output: Howdy, World!
+```
+
+## Why cli.mdx?
+
+Traditional CLI frameworks require you to define your interface in code, then write separate documentation. With cli.mdx:
+
+1. **Write once** - Your MDX components define both the interface AND documentation
+2. **Stay in sync** - Docs can never be out of sync with your CLI
+3. **Rich formatting** - Use the full power of MDX for help text and output
+4. **Type safety** - TypeScript ensures your CLI is correct
+
+## Next Steps
+
+- [Components](/docs/components) - Learn about available CLI components
+- [Rendering](/docs/rendering) - Understand how MDX renders in the terminal
+- [Examples](/docs/examples) - See real-world CLI examples

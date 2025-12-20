@@ -26,9 +26,21 @@ bindings = [
 tag = "v1"
 new_sqlite_classes = ["RepoDO", "ProjectDO"]
 
+# Cloudflare Workflows
+[[workflows]]
+binding = "DEVELOP_WORKFLOW"
+name = "develop-workflow"
+class_name = "DevelopWorkflow"
+
 # Dynamic Worker Loader for code execution
 [[worker_loaders]]
 binding = "LOADER"
+
+# Service Bindings - Payload RPC
+[[services]]
+binding = "PAYLOAD"
+service = "payload-rpc"
+entrypoint = "PayloadRPC"
 
 # Environment variables (set via wrangler secret)
 # GitHub App

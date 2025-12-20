@@ -1,0 +1,9 @@
+{
+  "name": "readme-mdx-do",
+  "compatibility_date": "2024-11-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".open-next/worker",
+  "observability": {
+    "enabled": true
+  }
+}

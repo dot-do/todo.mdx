@@ -1,0 +1,122 @@
+---
+title: CLI Usage
+description: Command-line interface for todo.mdx
+---
+
+# CLI Usage
+
+The `todo-mdx` CLI compiles MDX files to markdown with live data.
+
+## Installation
+
+```bash
+npm install -g todo.mdx
+```
+
+Or use via npx:
+
+```bash
+npx todo-mdx compile TODO.mdx
+```
+
+## Commands
+
+### compile
+
+Compile MDX files to markdown.
+
+```bash
+todo-mdx compile <input> [output]
+```
+
+**Arguments:**
+- `input` - Path to MDX file (e.g., `TODO.mdx`)
+- `output` - Output path (optional, defaults to same name with `.md` extension)
+
+**Examples:**
+
+```bash
+# Compile TODO.mdx to TODO.md
+todo-mdx compile TODO.mdx
+
+# Compile to custom output
+todo-mdx compile TODO.mdx ./docs/TODO.md
+
+# Compile multiple files
+todo-mdx compile TODO.mdx ROADMAP.mdx
+```
+
+### watch
+
+Watch files for changes and recompile.
+
+```bash
+todo-mdx watch <pattern>
+```
+
+**Examples:**
+
+```bash
+# Watch single file
+todo-mdx watch TODO.mdx
+
+# Watch all MDX files
+todo-mdx watch "**/*.mdx"
+```
+
+### init
+
+Initialize todo.mdx in a new project.
+
+```bash
+todo-mdx init
+```
+
+This will:
+1. Initialize beads issue tracker
+2. Create example `TODO.mdx` file
+3. Set up configuration
+
+## Configuration
+
+Create a `todo.mdx.config.ts` file:
+
+```typescript
+export default {
+  // Input/output patterns
+  input: ['TODO.mdx', 'ROADMAP.mdx'],
+  output: './',
+
+  // Issue tracker configuration
+  tracker: {
+    type: 'beads',
+    path: '.beads',
+  },
+
+  // Component defaults
+  defaults: {
+    limit: 10,
+  },
+}
+```
+
+## Integration with CI/CD
+
+Add to your CI workflow to keep documentation up-to-date:
+
+```yaml
+name: Update Documentation
+on:
+  push:
+    branches: [main]
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: npm install -g todo.mdx
+      - run: todo-mdx compile TODO.mdx
+      - run: git commit -am "docs: update TODO.md"
+      - run: git push
+```

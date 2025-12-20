@@ -1,0 +1,22 @@
+---
+name: auto-assign
+description: Automatically assign ready issues to claude agent
+enabled: true
+---
+
+# Auto Assign Workflow
+
+This workflow automatically assigns issues to the claude agent when they become ready to work.
+
+```typescript
+// When an issue becomes ready (unblocked)
+on.issue.ready(async (issue) => {
+  // Update issue to in_progress and assign to claude
+  await issues.update(issue.id, {
+    status: 'in_progress',
+    assignee: 'claude',
+  })
+
+  console.log(`Assigned ${issue.id} to claude`)
+})
+```

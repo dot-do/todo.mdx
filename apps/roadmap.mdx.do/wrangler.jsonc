@@ -1,0 +1,11 @@
+{
+  "name": "roadmap-mdx-do",
+  "compatibility_date": "2025-01-01",
+  "pages_build_output_dir": ".vercel/output/static",
+  "routes": [
+    {
+      "pattern": "roadmap.mdx.do/*",
+      "custom_domain": true
+    }
+  ]
+}

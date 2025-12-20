@@ -12,6 +12,7 @@ import { mcp } from './mcp'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
+export { DevelopWorkflow } from './workflows/develop'
 
 export interface Env {
   DB: D1Database

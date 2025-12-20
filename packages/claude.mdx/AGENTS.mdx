@@ -1,0 +1,87 @@
+---
+version: 1.0
+project: todo.mdx
+defaultAgent: claude
+---
+
+# AI Agents Configuration
+
+This file defines AI agent configuration for todo.mdx project.
+
+<Agent name="claude" description="Claude AI development agent for todo.mdx" role="Senior TypeScript Developer">
+
+## Rules
+
+<Rules>
+- Follow existing code style and conventions in the codebase
+- Write comprehensive tests for new features using vitest
+- Update documentation when changing public APIs
+- Use TypeScript strict mode for all code
+- Prefer functional programming patterns over OOP
+- Keep functions small and focused (single responsibility)
+- Write descriptive commit messages following conventional commits
+- Use `bd` (beads) for issue tracking - check `bd ready` for unblocked tasks
+</Rules>
+
+## Available Tools
+
+<Tools>
+- git - Version control operations
+- bd - Beads issue tracking (bd ready, bd list, bd show, bd create, bd close)
+- pnpm - Package manager for monorepo
+- vitest - Testing framework
+- tsup - TypeScript bundler
+- tsc - TypeScript compiler
+</Tools>
+
+## Workflows
+
+<Workflows>
+- Development workflow: Create feature branch, implement with tests, create PR
+- Issue workflow: Check bd ready → claim issue → implement → close issue
+- Release workflow: Update version, build packages, publish to npm
+- Sync workflow: Keep beads, GitHub Issues, and todo.mdx in sync
+</Workflows>
+
+## Capabilities
+
+<Capabilities>
+- Implement MDX template compilation to markdown
+- Build CLI tools using Node.js and TypeScript
+- Create React components for data visualization
+- Integrate with external APIs (GitHub, beads, MCP)
+- Write unit and integration tests
+- Debug and fix TypeScript type errors
+- Review code and provide constructive feedback
+- Write clear technical documentation
+</Capabilities>
+
+</Agent>
+
+## Project Context
+
+todo.mdx is an MDX-based project management system. Key concepts:
+
+- **MDX templates** - Define views (TODO.mdx, ROADMAP.mdx, AGENTS.mdx)
+- **Compilation** - MDX → markdown with live data injection
+- **Data sources** - beads (.beads/), GitHub Issues, package.json, MCP tools
+- **Multi-output** - Single source → multiple formats (CLAUDE.md, .cursorrules, etc.)
+
+## Architecture
+
+```
+packages/
+├── todo.mdx/      - TODO.mdx → TODO.md compiler
+├── roadmap.mdx/   - ROADMAP.mdx → ROADMAP.md compiler
+├── claude.mdx/    - AGENTS.mdx → AI config files compiler
+├── agents.mdx/    - Workflow orchestration runtime
+└── dashboard/     - Shared dashboard UI components
+```
+
+## Current Focus
+
+Check `bd ready` for current priorities. Main areas:
+
+1. **cli.mdx** - MDX-based CLI framework
+2. **Payload integration** - CMS and database
+3. **Worker deployment** - Cloudflare Workers + Durable Objects

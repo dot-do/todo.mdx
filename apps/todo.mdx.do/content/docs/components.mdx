@@ -1,0 +1,94 @@
+---
+title: Components Reference
+description: Available MDX components in todo.mdx
+---
+
+# Components Reference
+
+todo.mdx provides several MDX components that render live data from your issue tracker.
+
+## Issues.Ready
+
+Shows tasks that have no blockers and are ready to work on.
+
+```mdx
+<Issues.Ready limit={5} />
+```
+
+**Props:**
+- `limit` (number) - Maximum number of issues to display
+- `priority` (number) - Filter by priority level
+- `assignee` (string) - Filter by assignee
+
+## Issues.Status
+
+Shows issues filtered by status.
+
+```mdx
+<Issues.Status status="in_progress" />
+```
+
+**Props:**
+- `status` ("open" | "in_progress" | "blocked" | "closed") - Status to filter by
+- `limit` (number) - Maximum number of issues to display
+
+## Issues.Priority
+
+Shows issues filtered by priority.
+
+```mdx
+<Issues.Priority priority={1} />
+```
+
+**Props:**
+- `priority` (number) - Priority level (1 = highest)
+- `limit` (number) - Maximum number of issues to display
+
+## Issues.List
+
+General purpose issue list with multiple filters.
+
+```mdx
+<Issues.List
+  status="open"
+  priority={1}
+  assignee="@me"
+  limit={10}
+/>
+```
+
+**Props:**
+- `status` (string) - Filter by status
+- `priority` (number) - Filter by priority
+- `assignee` (string) - Filter by assignee
+- `limit` (number) - Maximum number of issues to display
+
+## Stats.Overview
+
+Shows project statistics.
+
+```mdx
+<Stats.Overview />
+```
+
+Displays:
+- Total issues
+- Open issues
+- In progress
+- Blocked
+- Closed
+- Average lead time
+
+## Output Format
+
+All components render to markdown format:
+
+```markdown
+- [ ] **issue-id** [P1]: Issue title - Description
+```
+
+This format is:
+- Human-readable
+- AI-friendly
+- Compatible with GitHub Issues
+- Parseable by automation tools

@@ -17,7 +17,18 @@
     "./cloud": {
       "types": "./dist/cloud.d.ts",
       "import": "./dist/cloud.js"
+    },
+    "./auth": {
+      "types": "./dist/auth.d.ts",
+      "import": "./dist/auth.js"
+    },
+    "./cloudflare-workflows": {
+      "types": "./dist/cloudflare-workflows.d.ts",
+      "import": "./dist/cloudflare-workflows.js"
     }
+  },
+  "bin": {
+    "agents.mdx": "./dist/cli.js"
   },
   "files": [
     "dist"
@@ -26,7 +37,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest"
+    "test": "vitest",
+    "cli": "node dist/cli.js"
   },
   "keywords": [
     "agents",

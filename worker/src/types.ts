@@ -2,6 +2,8 @@
  * Worker environment types
  */
 
+import type { PayloadRPC } from '../../apps/admin/src/rpc'
+
 export interface Env {
   // Bindings
   DB: D1Database
@@ -10,6 +12,10 @@ export interface Env {
   AI: any
   LOADER: any
   OAUTH_KV: KVNamespace
+  PAYLOAD: Service<PayloadRPC>
+
+  // Cloudflare Workflows
+  DEVELOP_WORKFLOW: WorkflowNamespace
 
   // GitHub App (webhooks only)
   GITHUB_APP_ID: string
@@ -26,6 +32,21 @@ export interface Env {
 
   // AI
   ANTHROPIC_API_KEY?: string
+}
+
+// Cloudflare Workflows types
+export interface WorkflowNamespace {
+  create<T = any>(options: { id: string; params: T }): Promise<WorkflowInstance<T>>
+  get<T = any>(id: string): Promise<WorkflowInstance<T>>
+}
+
+export interface WorkflowInstance<T = any> {
+  id: string
+  status: 'running' | 'complete' | 'failed' | 'paused'
+  params: T
+  pause(): Promise<void>
+  resume(): Promise<void>
+  terminate(): Promise<void>
 }
 
 export interface Issue {

@@ -1,0 +1,93 @@
+---
+title: Introduction
+description: Getting started with todo.mdx
+---
+
+# todo.mdx
+
+**MDX components that render live data to markdown — realtime context for humans AND AI.**
+
+## What is todo.mdx?
+
+The core insight: README, TODO, ROADMAP, and AI instructions (CLAUDE.md, .cursorrules) are all views of the same data. Define once in MDX, render everywhere.
+
+## Quick Example
+
+Write this in your `TODO.mdx`:
+
+```mdx
+## Ready to Work
+<Issues.Ready limit={3} />
+```
+
+It renders to markdown showing the next 3 unblocked tasks:
+
+```markdown
+## Ready to Work
+- [ ] **todo-4fh** [P1]: Create cli.mdx package - MDX-based CLI framework
+- [ ] **todo-8mg** [P1]: Export Payload via Workers RPC
+- [ ] **todo-3y0** [P1]: Add shadcn dashboard to Payload app
+```
+
+This is how AI agents know what to work on next.
+
+## Features
+
+- **Live Data Rendering** - MDX components that query your issue tracker
+- **Multiple Outputs** - Same source renders to markdown, HTML, and more
+- **AI-Friendly** - Perfect for Claude Code, Cursor, and other AI agents
+- **Git-Based** - Uses beads for local-first issue tracking
+- **Type-Safe** - Full TypeScript support
+
+## Installation
+
+```bash
+npm install todo.mdx
+```
+
+## Getting Started
+
+1. Initialize beads in your project:
+```bash
+bd init
+```
+
+2. Create a `TODO.mdx` file:
+```mdx
+# TODO
+
+## Ready to Work
+<Issues.Ready limit={5} />
+
+## In Progress
+<Issues.Status status="in_progress" />
+```
+
+3. Compile to markdown:
+```bash
+npx todo-mdx compile TODO.mdx
+```
+
+This generates `TODO.md` with live data from your issue tracker.
+
+## Use Cases
+
+- **Documentation** - README, CONTRIBUTING, ROADMAP that stay up-to-date
+- **AI Instructions** - CLAUDE.md with current sprint context
+- **Project Management** - TODO lists that reflect actual work status
+- **Status Reports** - Generate reports from issue data
+
+## Architecture
+
+todo.mdx integrates with:
+
+- **beads** - Local-first issue tracking
+- **GitHub Issues** - Two-way sync
+- **Payload CMS** - Web dashboard
+- **Cloudflare Workers** - API and webhooks
+
+## Next Steps
+
+- [Components Reference](/docs/components)
+- [CLI Usage](/docs/cli)
+- [Integration Guide](/docs/integration)

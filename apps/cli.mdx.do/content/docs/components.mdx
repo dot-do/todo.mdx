@@ -1,0 +1,86 @@
+---
+title: Components
+description: MDX components available for building CLIs
+---
+
+# CLI Components
+
+cli.mdx provides a set of MDX components for building command-line interfaces.
+
+## Command
+
+The root component for defining a command.
+
+```mdx
+<Command name="build" description="Build your project">
+  {/* Arguments and flags */}
+</Command>
+```
+
+### Props
+
+- `name` (string, required) - Command name
+- `description` (string) - Command description shown in help
+- `alias` (string) - Short alias for the command
+
+## Arg
+
+Define a positional argument.
+
+```mdx
+<Arg name="file" description="File to process" required />
+```
+
+### Props
+
+- `name` (string, required) - Argument name
+- `description` (string) - Shown in help text
+- `required` (boolean) - Whether argument is required
+- `default` (any) - Default value if not provided
+
+## Flag
+
+Define a named flag/option.
+
+```mdx
+<Flag name="--output" alias="-o" description="Output file" />
+```
+
+### Props
+
+- `name` (string, required) - Flag name (e.g., `--output`)
+- `alias` (string) - Short alias (e.g., `-o`)
+- `description` (string) - Shown in help text
+- `type` ('string' | 'boolean' | 'number') - Value type
+- `default` (any) - Default value
+
+## Example
+
+```mdx
+import { Command, Arg, Flag } from 'cli.mdx'
+
+<Command name="deploy" description="Deploy your application">
+  <Arg name="environment" description="Target environment" required />
+  <Flag name="--dry-run" alias="-d" type="boolean" description="Run without making changes" />
+  <Flag name="--region" alias="-r" description="Deployment region" default="us-east-1" />
+</Command>
+
+export function run({ environment, dryRun, region }) {
+  if (dryRun) {
+    return `Would deploy to ${environment} in ${region}`
+  }
+
+  // Actual deployment logic
+  return `Deployed to ${environment} in ${region}`
+}
+```
+
+Usage:
+
+```bash
+bun cli.mdx deploy production --dry-run
+# Output: Would deploy to production in us-east-1
+
+bun cli.mdx deploy staging -r us-west-2
+# Output: Deployed to staging in us-west-2
+```
