@@ -664,7 +664,8 @@ mcp.post('/tools/call', requireToken, async (c) => {
           WHERE ui.user_id = ?
         `).bind(userId).all()
 
-        const roadmap: any = { repos: [], summary: { total: 0, open: 0, closed: 0 } }
+        let md = '# Roadmap\n\n'
+        let totalOpen = 0, totalClosed = 0
 
         for (const repo of reposResult.results as any[]) {
           const doId = c.env.REPO.idFromName(repo.full_name)
@@ -680,28 +681,42 @@ mcp.post('/tools/call', requireToken, async (c) => {
 
           const open = issues.filter(i => i.state === 'open').length
           const closed = issues.filter(i => i.state === 'closed').length
+          totalOpen += open
+          totalClosed += closed
 
-          roadmap.repos.push({
-            repo: repo.full_name,
-            issues: { open, closed, total: issues.length },
-            milestones: milestones.map(m => ({
-              title: m.title,
-              state: m.state,
-              dueOn: m.dueOn,
-              progress: {
-                open: issues.filter(i => i.milestoneId === m.id && i.state === 'open').length,
-                closed: issues.filter(i => i.milestoneId === m.id && i.state === 'closed').length,
-              },
-            })),
-          })
+          md += `## ${repo.full_name}\n\n`
 
-          roadmap.summary.total += issues.length
-          roadmap.summary.open += open
-          roadmap.summary.closed += closed
+          for (const m of milestones) {
+            const mIssues = issues.filter(i => i.milestoneId === m.id)
+            const mOpen = mIssues.filter(i => i.state === 'open').length
+            const mClosed = mIssues.filter(i => i.state === 'closed').length
+            const pct = mIssues.length ? Math.round((mClosed / mIssues.length) * 100) : 0
+
+            md += `### ${m.title} ${m.state === 'closed' ? '✓' : `(${pct}%)`}\n`
+            if (m.dueOn) md += `Due: ${m.dueOn}\n`
+            md += '\n'
+
+            for (const issue of mIssues) {
+              md += `- [${issue.state === 'closed' ? 'x' : ' '}] ${issue.title}\n`
+            }
+            md += '\n'
+          }
+
+          // Unassigned issues
+          const unassigned = issues.filter(i => !i.milestoneId)
+          if (unassigned.length) {
+            md += `### Backlog\n\n`
+            for (const issue of unassigned) {
+              md += `- [${issue.state === 'closed' ? 'x' : ' '}] ${issue.title}\n`
+            }
+            md += '\n'
+          }
         }
 
+        md += `---\n**Total:** ${totalClosed}/${totalOpen + totalClosed} complete\n`
+
         return c.json({
-          content: [{ type: 'text', text: JSON.stringify(roadmap, null, 2) }],
+          content: [{ type: 'text', text: md }],
         })
       } catch (error: any) {
         return c.json({
