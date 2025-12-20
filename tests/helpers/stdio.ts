@@ -3,10 +3,40 @@
  *
  * Helpers for testing the sandbox stdio WebSocket API.
  * Uses the binary protocol from @todo.mdx/sandbox.
+ * Authentication via oauth.do (WorkOS tokens).
  */
 
+import { ensureLoggedIn, isAuthenticated } from 'oauth.do/node'
+
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
-const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
+
+// Cached token from oauth.do
+let cachedToken: string | null = null
+
+/**
+ * Get authentication token via oauth.do
+ * Uses cached token if available, otherwise triggers login flow
+ */
+async function getAuthToken(): Promise<string | null> {
+  if (cachedToken) return cachedToken
+
+  try {
+    // Check if already authenticated
+    if (await isAuthenticated()) {
+      const auth = await ensureLoggedIn()
+      cachedToken = auth.token ?? null
+      return cachedToken
+    }
+
+    // Trigger login flow (will prompt user in terminal)
+    const auth = await ensureLoggedIn()
+    cachedToken = auth.token ?? null
+    return cachedToken
+  } catch (err) {
+    console.error('oauth.do authentication failed:', err)
+    return null
+  }
+}
 
 // Stream IDs for binary protocol
 export const STREAM_STDOUT = 0x01
@@ -68,11 +98,16 @@ export async function createSession(options?: {
   wsUrl: string
   expiresIn: number
 }> {
+  const token = await getAuthToken()
+  if (!token) {
+    throw new Error('Authentication required - run `oauth.do login` first')
+  }
+
   const response = await fetch(`${WORKER_BASE_URL}/api/stdio/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${WORKER_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(options || {}),
   })
@@ -98,9 +133,14 @@ export async function getSessionStatus(sandboxId: string): Promise<{
   }
   wsUrl: string
 }> {
+  const token = await getAuthToken()
+  if (!token) {
+    throw new Error('Authentication required - run `oauth.do login` first')
+  }
+
   const response = await fetch(`${WORKER_BASE_URL}/api/stdio/${sandboxId}/status`, {
     headers: {
-      Authorization: `Bearer ${WORKER_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${token}`,
     },
   })
 
@@ -116,10 +156,15 @@ export async function getSessionStatus(sandboxId: string): Promise<{
  * Delete a sandbox session
  */
 export async function deleteSession(sandboxId: string): Promise<void> {
+  const token = await getAuthToken()
+  if (!token) {
+    throw new Error('Authentication required - run `oauth.do login` first')
+  }
+
   const response = await fetch(`${WORKER_BASE_URL}/api/stdio/${sandboxId}`, {
     method: 'DELETE',
     headers: {
-      Authorization: `Bearer ${WORKER_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${token}`,
     },
   })
 
@@ -158,7 +203,10 @@ export async function runCommand(
     token?: string
   }
 ): Promise<SessionOutput> {
-  const token = options?.token || WORKER_ACCESS_TOKEN
+  const token = options?.token || (await getAuthToken())
+  if (!token) {
+    throw new Error('Authentication required - run `oauth.do login` first')
+  }
   const timeout = options?.timeout || 30000
 
   // Build WebSocket URL
@@ -242,9 +290,14 @@ export async function runCommand(
 
 /**
  * Check if sandbox credentials are available
+ * Returns true if oauth.do has a valid token
  */
-export function hasSandboxCredentials(): boolean {
-  return !!WORKER_ACCESS_TOKEN
+export async function hasSandboxCredentials(): Promise<boolean> {
+  try {
+    return await isAuthenticated()
+  } catch {
+    return false
+  }
 }
 
 /**

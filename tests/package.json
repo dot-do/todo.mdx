@@ -11,5 +11,8 @@
     "@octokit/core": "^7.0.6",
     "execa": "^9.0.0",
     "vitest": "^2.0.0"
+  },
+  "dependencies": {
+    "oauth.do": "^0.1.15"
   }
 }

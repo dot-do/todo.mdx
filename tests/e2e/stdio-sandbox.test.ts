@@ -10,10 +10,10 @@
  *
  * Requires:
  * - WORKER_BASE_URL (default: http://localhost:8787)
- * - WORKER_ACCESS_TOKEN
+ * - oauth.do authentication (run `oauth.do login` first)
  */
 
-import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import {
   createSession,
   getSessionStatus,
@@ -27,14 +27,17 @@ import {
   unpack,
 } from '../helpers/stdio'
 
-const describeWithSandbox = hasSandboxCredentials() ? describe : describe.skip
-
 // Track created sessions for cleanup
 const createdSessions: string[] = []
 
-beforeAll(() => {
-  if (!hasSandboxCredentials()) {
-    console.log('Skipping stdio sandbox tests - missing WORKER_ACCESS_TOKEN')
+// Check auth status before tests
+let hasCredentials = false
+
+beforeAll(async () => {
+  hasCredentials = await hasSandboxCredentials()
+  if (!hasCredentials) {
+    console.log('Skipping stdio sandbox tests - not authenticated')
+    console.log('Run `oauth.do login` to authenticate')
     console.log(`Worker URL: ${getWorkerBaseUrl()}`)
   }
 })
@@ -78,7 +81,11 @@ describe('protocol helpers', () => {
   })
 })
 
-describeWithSandbox('session management', () => {
+describe('session management', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('can create a sandbox session', async () => {
     const session = await createSession()
 
@@ -118,7 +125,11 @@ describeWithSandbox('session management', () => {
   })
 })
 
-describeWithSandbox('command execution', () => {
+describe('command execution', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('can run echo command', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
@@ -172,7 +183,11 @@ describeWithSandbox('command execution', () => {
   })
 })
 
-describeWithSandbox('stdin handling', () => {
+describe('stdin handling', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('can send stdin to command', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
@@ -197,7 +212,11 @@ describeWithSandbox('stdin handling', () => {
   })
 })
 
-describeWithSandbox('bash integration', () => {
+describe('bash integration', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('can run bash one-liner', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
@@ -239,7 +258,11 @@ describeWithSandbox('bash integration', () => {
   })
 })
 
-describeWithSandbox('git operations', () => {
+describe('git operations', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('git is available', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
@@ -266,7 +289,11 @@ describeWithSandbox('git operations', () => {
   }, 60000)
 })
 
-describeWithSandbox('node/bun availability', () => {
+describe('node/bun availability', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('node is available', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
@@ -301,7 +328,11 @@ describeWithSandbox('node/bun availability', () => {
   })
 })
 
-describeWithSandbox('claude code availability', () => {
+describe('claude code availability', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test.skip('claude-code CLI is installed', async () => {
     // Skip if ANTHROPIC_API_KEY not set
     if (!process.env.ANTHROPIC_API_KEY) {
@@ -319,7 +350,11 @@ describeWithSandbox('claude code availability', () => {
   })
 })
 
-describeWithSandbox('timeout handling', () => {
+describe('timeout handling', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('command times out after specified duration', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
@@ -330,7 +365,11 @@ describeWithSandbox('timeout handling', () => {
   }, 5000)
 })
 
-describeWithSandbox('concurrent sessions', () => {
+describe('concurrent sessions', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
   test('can run multiple sessions concurrently', async () => {
     const session1 = await createSession()
     const session2 = await createSession()
