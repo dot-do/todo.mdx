@@ -18,7 +18,8 @@ interface SearchResult {
 }
 
 /**
- * Perform hybrid search combining vector and keyword matching
+ * Perform hybrid search: keyword + vector in parallel
+ * Keyword matches come first, then vector results sorted by score
  */
 async function hybridSearch(
   env: Env,
@@ -26,105 +27,123 @@ async function hybridSearch(
   limit: number,
   type?: string
 ): Promise<SearchResult[]> {
-  const resultsMap = new Map<string, SearchResult>()
-  const queryLower = query.toLowerCase()
+  // Run keyword and vector search in parallel
+  const [keywordResults, vectorResults] = await Promise.all([
+    // Keyword search via Payload
+    (async (): Promise<SearchResult[]> => {
+      const results: SearchResult[] = []
+      try {
+        // Search issues
+        if (!type || type === 'all' || type === 'issue') {
+          const issuesResult = await env.PAYLOAD.find({
+            collection: 'issues',
+            where: {
+              or: [
+                { title: { contains: query } },
+                { body: { contains: query } },
+              ],
+            },
+            limit: limit,
+          })
 
-  // 1. Vector search (semantic) - gracefully handle if Vectorize is empty/unavailable
-  try {
-    const embeddingResult = await env.AI.run('@cf/baai/bge-m3', {
-      text: [query],
-    }) as { data: number[][] }
+          for (const issue of (issuesResult.docs || []) as any[]) {
+            results.push({
+              id: `issue:${issue.repo?.fullName || 'unknown'}:${issue.githubNumber || issue.id}`,
+              title: issue.title,
+              type: 'issue',
+              repo: issue.repo?.fullName,
+              status: issue.state || issue.status,
+              url: issue.htmlUrl || `https://github.com/${issue.repo?.fullName}/issues/${issue.githubNumber}`,
+            })
+          }
+        }
 
-    const queryEmbedding = embeddingResult.data[0]
+        // Search milestones
+        if (!type || type === 'all' || type === 'milestone') {
+          const milestonesResult = await env.PAYLOAD.find({
+            collection: 'milestones',
+            where: {
+              or: [
+                { title: { contains: query } },
+                { description: { contains: query } },
+              ],
+            },
+            limit: limit,
+          })
 
-    const vectorResults = await env.VECTORIZE.query(queryEmbedding, {
-      topK: Math.min(limit, 50),
-      filter: type && type !== 'all' ? { type } : undefined,
-      returnMetadata: 'all',
-    })
+          for (const milestone of (milestonesResult.docs || []) as any[]) {
+            results.push({
+              id: `milestone:${milestone.repo?.fullName || 'unknown'}:${milestone.githubNumber || milestone.id}`,
+              title: milestone.title,
+              type: 'milestone',
+              repo: milestone.repo?.fullName,
+              status: milestone.state,
+              url: milestone.htmlUrl,
+            })
+          }
+        }
+      } catch (e) {
+        console.log('Keyword search error:', e)
+      }
+      return results
+    })(),
 
-    for (const match of vectorResults.matches) {
-      if (!resultsMap.has(match.id)) {
-        resultsMap.set(match.id, {
-          id: match.id,
-          score: match.score,
-          title: match.metadata?.title as string | undefined,
-          type: match.metadata?.type as string | undefined,
-          repo: match.metadata?.repo as string | undefined,
-          status: match.metadata?.status as string | undefined,
-          url: match.metadata?.url as string | undefined,
+    // Vector search via Vectorize
+    (async (): Promise<SearchResult[]> => {
+      const results: SearchResult[] = []
+      try {
+        const embeddingResult = await env.AI.run('@cf/baai/bge-m3', {
+          text: [query],
+        }) as { data: number[][] }
+
+        const queryEmbedding = embeddingResult.data[0]
+
+        const vectorResult = await env.VECTORIZE.query(queryEmbedding, {
+          topK: Math.min(limit, 50),
+          filter: type && type !== 'all' ? { type } : undefined,
+          returnMetadata: 'all',
         })
-      }
-    }
-  } catch (vectorError) {
-    console.log('Vector search unavailable, using keyword search only:', vectorError)
-  }
 
-  // 2. Keyword search via Payload (for issues not yet in Vectorize)
-  try {
-    // Search issues collection
-    if (!type || type === 'all' || type === 'issue') {
-      const issuesResult = await env.PAYLOAD.find({
-        collection: 'issues',
-        where: {
-          or: [
-            { title: { contains: query } },
-            { body: { contains: query } },
-          ],
-        },
-        limit: limit,
-      })
-
-      for (const issue of (issuesResult.docs || []) as any[]) {
-        const issueId = `issue:${issue.repo?.fullName || 'unknown'}:${issue.githubNumber || issue.id}`
-        if (!resultsMap.has(issueId)) {
-          resultsMap.set(issueId, {
-            id: issueId,
-            title: issue.title,
-            type: 'issue',
-            repo: issue.repo?.fullName,
-            status: issue.state || issue.status,
-            url: issue.htmlUrl || `https://github.com/${issue.repo?.fullName}/issues/${issue.githubNumber}`,
+        for (const match of vectorResult.matches) {
+          results.push({
+            id: match.id,
+            score: match.score,
+            title: match.metadata?.title as string | undefined,
+            type: match.metadata?.type as string | undefined,
+            repo: match.metadata?.repo as string | undefined,
+            status: match.metadata?.status as string | undefined,
+            url: match.metadata?.url as string | undefined,
           })
         }
+      } catch (e) {
+        console.log('Vector search error:', e)
       }
-    }
+      return results
+    })(),
+  ])
 
-    // Search milestones collection
-    if (!type || type === 'all' || type === 'milestone') {
-      const milestonesResult = await env.PAYLOAD.find({
-        collection: 'milestones',
-        where: {
-          or: [
-            { title: { contains: query } },
-            { description: { contains: query } },
-          ],
-        },
-        limit: limit,
-      })
+  // Combine: keyword results first, then vector results (deduplicated)
+  const seenIds = new Set<string>()
+  const results: SearchResult[] = []
 
-      for (const milestone of (milestonesResult.docs || []) as any[]) {
-        const milestoneId = `milestone:${milestone.repo?.fullName || 'unknown'}:${milestone.githubNumber || milestone.id}`
-        if (!resultsMap.has(milestoneId)) {
-          resultsMap.set(milestoneId, {
-            id: milestoneId,
-            title: milestone.title,
-            type: 'milestone',
-            repo: milestone.repo?.fullName,
-            status: milestone.state,
-            url: milestone.htmlUrl,
-          })
-        }
-      }
+  // Add keyword results first (exact matches)
+  for (const r of keywordResults) {
+    if (!seenIds.has(r.id) && results.length < limit) {
+      seenIds.add(r.id)
+      results.push(r)
     }
-  } catch (keywordError) {
-    console.log('Keyword search error:', keywordError)
   }
 
-  // Sort by score (vector results first) and limit
-  return Array.from(resultsMap.values())
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, limit)
+  // Add vector results sorted by score (semantic matches)
+  const sortedVectorResults = vectorResults.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  for (const r of sortedVectorResults) {
+    if (!seenIds.has(r.id) && results.length < limit) {
+      seenIds.add(r.id)
+      results.push(r)
+    }
+  }
+
+  return results
 }
 
 /**

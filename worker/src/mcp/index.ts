@@ -191,7 +191,8 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 			},
 		);
 
-		// Hybrid search: combines Vectorize semantic search with keyword matching
+		// Hybrid search: runs keyword + vector search in parallel
+		// Keyword matches come first, then vector results sorted by score
 		this.server.tool(
 			"search",
 			"Search across all your issues and projects",
@@ -206,83 +207,99 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 					const userId = this.props?.user?.id;
 					const queryLower = query.toLowerCase();
 
-					// Results map to deduplicate by ID
-					const resultsMap = new Map<string, { id: string; title: string; url: string; score?: number }>();
-
-					// 1. Vector search (semantic) - try/catch in case Vectorize is empty or fails
-					try {
-						const embeddingResult = await env.AI.run("@cf/baai/bge-m3", {
-							text: [query],
-						}) as { data: number[][] };
-
-						const queryEmbedding = embeddingResult.data[0];
-
-						const vectorResults = await env.VECTORIZE.query(queryEmbedding, {
-							topK: Math.min(limit, 50),
-							filter: type !== "all" ? { type } : undefined,
-							returnMetadata: "all",
-						});
-
-						// Add vector results with scores
-						for (const match of vectorResults.matches) {
-							if (!resultsMap.has(match.id)) {
-								resultsMap.set(match.id, {
-									id: match.id,
-									title: `[${match.metadata?.status || "unknown"}] ${match.metadata?.title || "Untitled"}`,
-									url: match.metadata?.url as string || "",
-									score: match.score,
+					// Run keyword and vector search in parallel
+					const [keywordResults, vectorResults] = await Promise.all([
+						// Keyword search
+						(async () => {
+							const results: Array<{ id: string; title: string; url: string }> = [];
+							try {
+								const reposResult = await env.PAYLOAD.find({
+									collection: "repos",
+									where: {
+										"installation.users.workosUserId": { equals: userId },
+									},
+									limit: 100,
 								});
+
+								for (const repo of (reposResult.docs || []) as any[]) {
+									const doId = env.REPO.idFromName(repo.fullName);
+									const stub = env.REPO.get(doId);
+
+									const issuesResponse = await stub.fetch(new Request("http://do/issues"));
+									const issues = await issuesResponse.json() as any[];
+
+									for (const issue of issues) {
+										const matchesQuery =
+											issue.title?.toLowerCase().includes(queryLower) ||
+											issue.body?.toLowerCase().includes(queryLower) ||
+											issue.labels?.some((l: string) => l.toLowerCase().includes(queryLower));
+
+										if (matchesQuery) {
+											results.push({
+												id: `issue:${repo.fullName}:${issue.githubNumber || issue.id}`,
+												title: `[${issue.state}] ${issue.title}`,
+												url: `https://github.com/${repo.fullName}/issues/${issue.githubNumber || issue.id}`,
+											});
+										}
+									}
+								}
+							} catch (e) {
+								console.log("Keyword search error:", e);
 							}
+							return results;
+						})(),
+
+						// Vector search
+						(async () => {
+							const results: Array<{ id: string; title: string; url: string; score: number }> = [];
+							try {
+								const embeddingResult = await env.AI.run("@cf/baai/bge-m3", {
+									text: [query],
+								}) as { data: number[][] };
+
+								const queryEmbedding = embeddingResult.data[0];
+
+								const vectorResult = await env.VECTORIZE.query(queryEmbedding, {
+									topK: Math.min(limit, 50),
+									filter: type !== "all" ? { type } : undefined,
+									returnMetadata: "all",
+								});
+
+								for (const match of vectorResult.matches) {
+									results.push({
+										id: match.id,
+										title: `[${match.metadata?.status || "unknown"}] ${match.metadata?.title || "Untitled"}`,
+										url: match.metadata?.url as string || "",
+										score: match.score,
+									});
+								}
+							} catch (e) {
+								console.log("Vector search error:", e);
+							}
+							return results;
+						})(),
+					]);
+
+					// Combine: keyword results first, then vector results (deduplicated)
+					const seenIds = new Set<string>();
+					const results: Array<{ id: string; title: string; url: string; score?: number }> = [];
+
+					// Add keyword results first (exact matches)
+					for (const r of keywordResults) {
+						if (!seenIds.has(r.id) && results.length < limit) {
+							seenIds.add(r.id);
+							results.push(r);
 						}
-					} catch (vectorError) {
-						console.log("Vector search unavailable, falling back to keyword only:", vectorError);
 					}
 
-					// 2. Keyword search (exact matching) - always run for completeness
-					const reposResult = await env.PAYLOAD.find({
-						collection: "repos",
-						where: {
-							"installation.users.workosUserId": { equals: userId },
-						},
-						limit: 100,
-					});
-
-					for (const repo of (reposResult.docs || []) as any[]) {
-						if (resultsMap.size >= limit) break;
-
-						const doId = env.REPO.idFromName(repo.fullName);
-						const stub = env.REPO.get(doId);
-
-						const issuesResponse = await stub.fetch(new Request("http://do/issues"));
-						const issues = await issuesResponse.json() as any[];
-
-						for (const issue of issues) {
-							if (resultsMap.size >= limit) break;
-
-							const issueId = `issue:${repo.fullName}:${issue.githubNumber || issue.id}`;
-
-							// Skip if already in results from vector search
-							if (resultsMap.has(issueId)) continue;
-
-							const matchesQuery =
-								issue.title?.toLowerCase().includes(queryLower) ||
-								issue.body?.toLowerCase().includes(queryLower) ||
-								issue.labels?.some((l: string) => l.toLowerCase().includes(queryLower));
-
-							if (matchesQuery) {
-								resultsMap.set(issueId, {
-									id: issueId,
-									title: `[${issue.state}] ${issue.title}`,
-									url: `https://github.com/${repo.fullName}/issues/${issue.githubNumber || issue.id}`,
-								});
-							}
+					// Add vector results sorted by score (semantic matches)
+					const sortedVectorResults = vectorResults.sort((a, b) => b.score - a.score);
+					for (const r of sortedVectorResults) {
+						if (!seenIds.has(r.id) && results.length < limit) {
+							seenIds.add(r.id);
+							results.push(r);
 						}
 					}
-
-					// Convert to array and sort by score (vector results first)
-					const results = Array.from(resultsMap.values())
-						.sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-						.slice(0, limit);
 
 					return {
 						content: [{ type: "text", text: JSON.stringify(results) }],
