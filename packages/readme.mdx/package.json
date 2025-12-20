@@ -1,5 +1,5 @@
 {
-  "name": "readme.mdx",
+  "name": "@todo.mdx/readme.mdx",
   "version": "0.1.0",
   "description": "MDX components that compile to README.md with live data from package.json, GitHub, and npm",
   "type": "module",

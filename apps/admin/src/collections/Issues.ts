@@ -183,6 +183,59 @@ export const Issues: CollectionConfig = {
         description: 'Reason for closing the issue',
       },
     },
+    // Linear integration data
+    {
+      name: 'linearData',
+      type: 'group',
+      admin: {
+        description: 'Linear integration metadata',
+      },
+      fields: [
+        {
+          name: 'id',
+          type: 'text',
+          index: true,
+          admin: {
+            description: 'Linear issue ID',
+          },
+        },
+        {
+          name: 'identifier',
+          type: 'text',
+          admin: {
+            description: 'Linear issue identifier (e.g., TODO-123)',
+          },
+        },
+        {
+          name: 'stateId',
+          type: 'text',
+          admin: {
+            description: 'Linear state ID',
+          },
+        },
+        {
+          name: 'stateName',
+          type: 'text',
+          admin: {
+            description: 'Linear state name',
+          },
+        },
+        {
+          name: 'cycleId',
+          type: 'text',
+          admin: {
+            description: 'Linear cycle ID',
+          },
+        },
+        {
+          name: 'projectId',
+          type: 'text',
+          admin: {
+            description: 'Linear project ID',
+          },
+        },
+      ],
+    },
   ],
   timestamps: true,
 }

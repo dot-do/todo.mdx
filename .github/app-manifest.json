@@ -1,0 +1,25 @@
+{
+  "name": "todo.mdx",
+  "url": "https://todo.mdx.do",
+  "hook_attributes": {
+    "url": "https://api.todo.mdx.do/github/webhook"
+  },
+  "redirect_url": "https://api.todo.mdx.do/github/callback",
+  "description": "Sync TODO.md, ROADMAP.md, and beads issues with GitHub",
+  "public": false,
+  "default_permissions": {
+    "issues": "write",
+    "metadata": "read",
+    "pull_requests": "write",
+    "contents": "write",
+    "organization_projects": "write",
+    "repository_projects": "write"
+  },
+  "default_events": [
+    "issues",
+    "milestone",
+    "push",
+    "projects_v2",
+    "projects_v2_item"
+  ]
+}

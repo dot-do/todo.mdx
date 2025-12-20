@@ -1,5 +1,5 @@
 {
-  "name": "cli.mdx",
+  "name": "@todo.mdx/cli.mdx",
   "version": "0.1.0",
   "description": "MDX-based CLI framework for Bun with dual rendering to terminal and markdown",
   "type": "module",

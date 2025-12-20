@@ -7,8 +7,17 @@
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import type { Env } from '../index'
-import { createAuth } from '../auth'
+import type { Env } from '../types'
+import { authMiddleware, type AuthContext, getAuthorizationUrl, exchangeCodeForUser } from '../auth'
+import {
+  storeAuthCode,
+  getAuthCode,
+  deleteAuthCode,
+  storeAccessToken,
+  getAccessToken,
+  deleteAccessToken,
+  cleanupExpiredTokens,
+} from './token-store'
 
 /** Render roadmap data to markdown (mirrors roadmap.mdx/render) */
 function renderRoadmap(data: {
@@ -65,7 +74,7 @@ mcp.use('/*', cors({
 
 // Authorization metadata (RFC 8414)
 mcp.get('/.well-known/oauth-authorization-server', (c) => {
-  const baseUrl = c.env.BETTER_AUTH_URL || 'https://todo.mdx.do'
+  const baseUrl = c.env.OAUTH_DO_ISSUER || 'https://oauth.do'
 
   return c.json({
     issuer: baseUrl,
@@ -80,26 +89,8 @@ mcp.get('/.well-known/oauth-authorization-server', (c) => {
   })
 })
 
-// Store for authorization codes (in production, use D1)
-const authCodes = new Map<string, {
-  userId: string
-  clientId: string
-  redirectUri: string
-  codeChallenge?: string
-  codeChallengeMethod?: string
-  scope: string
-  expiresAt: number
-}>()
-
-// Store for access tokens
-const accessTokens = new Map<string, {
-  userId: string
-  clientId: string
-  scope: string
-  expiresAt: number
-}>()
-
 // Authorization endpoint (OAuth 2.1 with PKCE)
+// Redirects to WorkOS AuthKit for user authentication
 mcp.get('/authorize', async (c) => {
   const clientId = c.req.query('client_id')
   const redirectUri = c.req.query('redirect_uri')
@@ -119,46 +110,164 @@ mcp.get('/authorize', async (c) => {
     return c.json({ error: 'invalid_request', error_description: 'PKCE required' }, 400)
   }
 
-  // Check if user is authenticated
-  const auth = createAuth({
-    DB: c.env.DB,
-    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
-    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
-  })
+  // Store OAuth request parameters in D1 for retrieval after WorkOS callback
+  const oauthStateId = crypto.randomUUID()
+  await c.env.DB
+    .prepare(
+      `INSERT INTO mcp_oauth_state (
+        state_id, client_id, redirect_uri, scope, client_state,
+        code_challenge, code_challenge_method, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      oauthStateId,
+      clientId,
+      redirectUri,
+      scope,
+      state ?? null,
+      codeChallenge,
+      codeChallengeMethod,
+      Date.now() + 10 * 60 * 1000 // 10 minutes
+    )
+    .run()
 
-  const session = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  })
+  // Build callback URL for this worker
+  const baseUrl = c.env.OAUTH_DO_ISSUER || new URL(c.req.url).origin
+  const callbackUri = `${baseUrl}/mcp/callback`
 
-  if (!session) {
-    // Redirect to login with return URL
-    const returnUrl = encodeURIComponent(c.req.url)
-    return c.redirect(`/api/auth/signin/github?callbackURL=${returnUrl}`)
+  // Redirect to WorkOS AuthKit
+  const workosAuthUrl = getAuthorizationUrl(
+    c.env as any,
+    callbackUri,
+    oauthStateId
+  )
+
+  return c.redirect(workosAuthUrl)
+})
+
+// Callback endpoint - handles WorkOS AuthKit callback
+mcp.get('/callback', async (c) => {
+  const code = c.req.query('code')
+  const stateId = c.req.query('state')
+  const error = c.req.query('error')
+  const errorDescription = c.req.query('error_description')
+
+  // Handle authorization errors from WorkOS
+  if (error) {
+    return c.json({
+      error,
+      error_description: errorDescription || 'Authorization failed',
+    }, 400)
   }
 
-  // Generate authorization code
-  const code = crypto.randomUUID()
-
-  authCodes.set(code, {
-    userId: session.user.id,
-    clientId,
-    redirectUri,
-    codeChallenge,
-    codeChallengeMethod,
-    scope,
-    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
-  })
-
-  // Redirect back with code
-  const redirect = new URL(redirectUri)
-  redirect.searchParams.set('code', code)
-  if (state) {
-    redirect.searchParams.set('state', state)
+  if (!code || !stateId) {
+    return c.json({ error: 'invalid_request', error_description: 'Missing code or state' }, 400)
   }
 
-  return c.redirect(redirect.toString())
+  // Retrieve OAuth state from D1
+  const oauthState = await c.env.DB
+    .prepare(
+      `SELECT client_id, redirect_uri, scope, client_state,
+              code_challenge, code_challenge_method, expires_at
+       FROM mcp_oauth_state
+       WHERE state_id = ?`
+    )
+    .bind(stateId)
+    .first<{
+      client_id: string
+      redirect_uri: string
+      scope: string
+      client_state: string | null
+      code_challenge: string
+      code_challenge_method: string
+      expires_at: number
+    }>()
+
+  if (!oauthState) {
+    return c.json({ error: 'invalid_request', error_description: 'Invalid or expired state' }, 400)
+  }
+
+  // Check if state has expired
+  if (oauthState.expires_at < Date.now()) {
+    // Clean up expired state
+    await c.env.DB
+      .prepare(`DELETE FROM mcp_oauth_state WHERE state_id = ?`)
+      .bind(stateId)
+      .run()
+    return c.json({ error: 'invalid_request', error_description: 'State expired' }, 400)
+  }
+
+  try {
+    // Exchange WorkOS code for user information
+    const user = await exchangeCodeForUser(c.env as any, code)
+
+    // Create or update user in Payload
+    const existingUsers = await c.env.PAYLOAD.find({
+      collection: 'users',
+      where: {
+        workosUserId: { equals: user.id },
+      },
+      limit: 1,
+    })
+
+    let userId = user.id
+
+    if (existingUsers.docs?.length === 0) {
+      // Create new user
+      const newUser = await c.env.PAYLOAD.create({
+        collection: 'users',
+        data: {
+          workosUserId: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          emailVerified: user.emailVerified,
+        },
+      })
+      userId = newUser.id
+    }
+
+    // Generate authorization code for the MCP client
+    const authCode = crypto.randomUUID()
+
+    await storeAuthCode(c.env.DB, authCode, {
+      userId: user.id,
+      clientId: oauthState.client_id,
+      redirectUri: oauthState.redirect_uri,
+      codeChallenge: oauthState.code_challenge,
+      codeChallengeMethod: oauthState.code_challenge_method,
+      scope: oauthState.scope,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+    })
+
+    // Clean up used OAuth state
+    await c.env.DB
+      .prepare(`DELETE FROM mcp_oauth_state WHERE state_id = ?`)
+      .bind(stateId)
+      .run()
+
+    // Redirect back to the client's redirect URI with the authorization code
+    const redirectUrl = new URL(oauthState.redirect_uri)
+    redirectUrl.searchParams.set('code', authCode)
+    if (oauthState.client_state) {
+      redirectUrl.searchParams.set('state', oauthState.client_state)
+    }
+
+    return c.redirect(redirectUrl.toString())
+  } catch (error: any) {
+    console.error('WorkOS callback error:', error)
+
+    // Clean up OAuth state
+    await c.env.DB
+      .prepare(`DELETE FROM mcp_oauth_state WHERE state_id = ?`)
+      .bind(stateId)
+      .run()
+
+    return c.json({
+      error: 'server_error',
+      error_description: error.message || 'Failed to authenticate with WorkOS',
+    }, 500)
+  }
 })
 
 // Token endpoint
@@ -172,14 +281,14 @@ mcp.post('/token', async (c) => {
 
   if (grantType === 'authorization_code') {
     // Validate authorization code
-    const authCode = authCodes.get(code)
+    const authCode = await getAuthCode(c.env.DB, code)
 
     if (!authCode) {
       return c.json({ error: 'invalid_grant' }, 400)
     }
 
     if (authCode.expiresAt < Date.now()) {
-      authCodes.delete(code)
+      await deleteAuthCode(c.env.DB, code)
       return c.json({ error: 'invalid_grant', error_description: 'Code expired' }, 400)
     }
 
@@ -203,14 +312,14 @@ mcp.post('/token', async (c) => {
     }
 
     // Delete used code
-    authCodes.delete(code)
+    await deleteAuthCode(c.env.DB, code)
 
     // Generate access token
     const accessToken = crypto.randomUUID()
     const refreshToken = crypto.randomUUID()
     const expiresIn = 3600 // 1 hour
 
-    accessTokens.set(accessToken, {
+    await storeAccessToken(c.env.DB, accessToken, {
       userId: authCode.userId,
       clientId: authCode.clientId,
       scope: authCode.scope,
@@ -235,10 +344,23 @@ mcp.post('/revoke', async (c) => {
   const token = body.token as string
 
   if (token) {
-    accessTokens.delete(token)
+    await deleteAccessToken(c.env.DB, token)
   }
 
   return c.json({})
+})
+
+// Cleanup expired tokens (can be called periodically via cron trigger)
+mcp.post('/cleanup', async (c) => {
+  const stats = await cleanupExpiredTokens(c.env.DB)
+  return c.json({
+    message: 'Cleanup complete',
+    deleted: {
+      authCodes: stats.authCodes,
+      accessTokens: stats.accessTokens,
+      oauthState: stats.oauthState,
+    },
+  })
 })
 
 // ============================================
@@ -254,10 +376,10 @@ const requireToken = async (c: any, next: () => Promise<void>) => {
   }
 
   const token = authHeader.slice(7)
-  const tokenData = accessTokens.get(token)
+  const tokenData = await getAccessToken(c.env.DB, token)
 
   if (!tokenData || tokenData.expiresAt < Date.now()) {
-    accessTokens.delete(token)
+    await deleteAccessToken(c.env.DB, token)
     return c.json({ error: 'invalid_token' }, 401)
   }
 
@@ -433,16 +555,19 @@ mcp.post('/tools/call', requireToken, async (c) => {
 
   // Verify user has access to the repo
   if (args.repo) {
-    const [owner, repoName] = args.repo.split('/')
+    // Check if user has installation access via Payload RPC
+    const result = await c.env.PAYLOAD.find({
+      collection: 'repos',
+      where: {
+        and: [
+          { fullName: { equals: args.repo } },
+          { 'installation.users.workosUserId': { equals: userId } },
+        ],
+      },
+      limit: 1,
+    })
 
-    // Check if user has installation access
-    const result = await c.env.DB.prepare(`
-      SELECT r.* FROM repos r
-      JOIN user_installations ui ON ui.installation_id = r.installation_id
-      WHERE ui.user_id = ? AND r.full_name = ?
-    `).bind(userId, args.repo).first()
-
-    if (!result) {
+    if (!result.docs?.length) {
       return c.json({
         content: [{ type: 'text', text: 'Access denied: You do not have access to this repository' }],
         isError: true,
@@ -511,21 +636,23 @@ mcp.post('/tools/call', requireToken, async (c) => {
       const query = args.query.toLowerCase()
 
       try {
-        // Get all repos the user has access to
-        const reposResult = await c.env.DB.prepare(`
-          SELECT r.full_name FROM repos r
-          JOIN user_installations ui ON ui.installation_id = r.installation_id
-          WHERE ui.user_id = ?
-        `).bind(userId).all()
+        // Get all repos the user has access to via Payload RPC
+        const reposResult = await c.env.PAYLOAD.find({
+          collection: 'repos',
+          where: {
+            'installation.users.workosUserId': { equals: userId },
+          },
+          limit: 100,
+        })
 
         const results: Array<{ id: string; title: string; url: string }> = []
         const limit = 50
 
         // Search each repo
-        for (const repo of reposResult.results as any[]) {
+        for (const repo of (reposResult.docs || []) as any[]) {
           if (results.length >= limit) break
 
-          const doId = c.env.REPO.idFromName(repo.full_name)
+          const doId = c.env.REPO.idFromName(repo.fullName)
           const stub = c.env.REPO.get(doId)
 
           // Search issues
@@ -543,9 +670,9 @@ mcp.post('/tools/call', requireToken, async (c) => {
             if (matchesQuery) {
               // ID format: issue:owner/repo:number
               results.push({
-                id: `issue:${repo.full_name}:${issue.githubNumber || issue.id}`,
+                id: `issue:${repo.fullName}:${issue.githubNumber || issue.id}`,
                 title: `[${issue.state}] ${issue.title}`,
-                url: `https://github.com/${repo.full_name}/issues/${issue.githubNumber || issue.id}`,
+                url: `https://github.com/${repo.fullName}/issues/${issue.githubNumber || issue.id}`,
               })
             }
           }
@@ -564,9 +691,9 @@ mcp.post('/tools/call', requireToken, async (c) => {
             if (matchesQuery) {
               // ID format: milestone:owner/repo:number
               results.push({
-                id: `milestone:${repo.full_name}:${milestone.githubNumber || milestone.id}`,
+                id: `milestone:${repo.fullName}:${milestone.githubNumber || milestone.id}`,
                 title: `[Milestone] ${milestone.title}`,
-                url: `https://github.com/${repo.full_name}/milestone/${milestone.githubNumber || milestone.id}`,
+                url: `https://github.com/${repo.fullName}/milestone/${milestone.githubNumber || milestone.id}`,
               })
             }
           }
@@ -602,14 +729,19 @@ mcp.post('/tools/call', requireToken, async (c) => {
         const repo = parts[1] // 'owner/repo'
         const number = parts[2] // issue/milestone number
 
-        // Verify access
-        const accessResult = await c.env.DB.prepare(`
-          SELECT r.* FROM repos r
-          JOIN user_installations ui ON ui.installation_id = r.installation_id
-          WHERE ui.user_id = ? AND r.full_name = ?
-        `).bind(userId, repo).first()
+        // Verify access via Payload RPC
+        const accessResult = await c.env.PAYLOAD.find({
+          collection: 'repos',
+          where: {
+            and: [
+              { fullName: { equals: repo } },
+              { 'installation.users.workosUserId': { equals: userId } },
+            ],
+          },
+          limit: 1,
+        })
 
-        if (!accessResult) {
+        if (!accessResult.docs?.length) {
           return c.json({
             content: [{ type: 'text', text: 'Access denied' }],
             isError: true,
@@ -694,17 +826,20 @@ mcp.post('/tools/call', requireToken, async (c) => {
 
     case 'roadmap': {
       try {
-        const reposResult = await c.env.DB.prepare(`
-          SELECT r.* FROM repos r
-          JOIN user_installations ui ON ui.installation_id = r.installation_id
-          WHERE ui.user_id = ?
-        `).bind(userId).all()
+        // Get repos via Payload RPC
+        const reposResult = await c.env.PAYLOAD.find({
+          collection: 'repos',
+          where: {
+            'installation.users.workosUserId': { equals: userId },
+          },
+          limit: 100,
+        })
 
         const allIssues: any[] = []
         const allMilestones: any[] = []
 
-        for (const repo of reposResult.results as any[]) {
-          const doId = c.env.REPO.idFromName(repo.full_name)
+        for (const repo of (reposResult.docs || []) as any[]) {
+          const doId = c.env.REPO.idFromName(repo.fullName)
           const stub = c.env.REPO.get(doId)
 
           const [issuesRes, milestonesRes] = await Promise.all([
@@ -715,8 +850,8 @@ mcp.post('/tools/call', requireToken, async (c) => {
           const issues = await issuesRes.json() as any[]
           const milestones = await milestonesRes.json() as any[]
 
-          allIssues.push(...issues.map(i => ({ ...i, repo: repo.full_name })))
-          allMilestones.push(...milestones.map(m => ({ ...m, repo: repo.full_name })))
+          allIssues.push(...issues.map(i => ({ ...i, repo: repo.fullName })))
+          allMilestones.push(...milestones.map(m => ({ ...m, repo: repo.fullName })))
         }
 
         // Render using roadmap.mdx format
@@ -737,19 +872,21 @@ mcp.post('/tools/call', requireToken, async (c) => {
       const code = args.code
 
       try {
-        // Pre-load all data for the user
-        const reposResult = await c.env.DB.prepare(`
-          SELECT r.* FROM repos r
-          JOIN user_installations ui ON ui.installation_id = r.installation_id
-          WHERE ui.user_id = ?
-        `).bind(userId).all()
+        // Pre-load all data for the user via Payload RPC
+        const reposResult = await c.env.PAYLOAD.find({
+          collection: 'repos',
+          where: {
+            'installation.users.workosUserId': { equals: userId },
+          },
+          limit: 100,
+        })
 
         const repos: any[] = []
         const allIssues: any[] = []
         const allMilestones: any[] = []
 
-        for (const repo of reposResult.results as any[]) {
-          const doId = c.env.REPO.idFromName(repo.full_name)
+        for (const repo of (reposResult.docs || []) as any[]) {
+          const doId = c.env.REPO.idFromName(repo.fullName)
           const stub = c.env.REPO.get(doId)
 
           const [issuesRes, milestonesRes] = await Promise.all([
@@ -761,12 +898,12 @@ mcp.post('/tools/call', requireToken, async (c) => {
           const milestones = await milestonesRes.json() as any[]
 
           // Enrich issues with repo info
-          const enrichedIssues = issues.map(i => ({ ...i, repo: repo.full_name }))
-          const enrichedMilestones = milestones.map(m => ({ ...m, repo: repo.full_name, issues: issues.filter(i => i.milestoneId === m.id) }))
+          const enrichedIssues = issues.map(i => ({ ...i, repo: repo.fullName }))
+          const enrichedMilestones = milestones.map(m => ({ ...m, repo: repo.fullName, issues: issues.filter(i => i.milestoneId === m.id) }))
 
           repos.push({
             name: repo.name,
-            fullName: repo.full_name,
+            fullName: repo.fullName,
             issues: enrichedIssues,
             milestones: enrichedMilestones,
           })
@@ -811,16 +948,19 @@ ${code}
 mcp.get('/resources', requireToken, async (c) => {
   const userId = c.get('userId')
 
-  const result = await c.env.DB.prepare(`
-    SELECT r.* FROM repos r
-    JOIN user_installations ui ON ui.installation_id = r.installation_id
-    WHERE ui.user_id = ?
-  `).bind(userId).all()
+  // Get repos via Payload RPC
+  const result = await c.env.PAYLOAD.find({
+    collection: 'repos',
+    where: {
+      'installation.users.workosUserId': { equals: userId },
+    },
+    limit: 100,
+  })
 
-  const resources = result.results.map((repo: any) => ({
-    uri: `todo://${repo.full_name}`,
-    name: repo.full_name,
-    description: `Todos from ${repo.full_name}`,
+  const resources = (result.docs || []).map((repo: any) => ({
+    uri: `todo://${repo.fullName}`,
+    name: repo.fullName,
+    description: `Todos from ${repo.fullName}`,
     mimeType: 'application/json',
   }))
 
@@ -838,14 +978,19 @@ mcp.get('/resources/read', requireToken, async (c) => {
 
   const repoName = uri.slice(7) // Remove 'todo://'
 
-  // Verify access
-  const result = await c.env.DB.prepare(`
-    SELECT r.* FROM repos r
-    JOIN user_installations ui ON ui.installation_id = r.installation_id
-    WHERE ui.user_id = ? AND r.full_name = ?
-  `).bind(userId, repoName).first()
+  // Verify access via Payload RPC
+  const result = await c.env.PAYLOAD.find({
+    collection: 'repos',
+    where: {
+      and: [
+        { fullName: { equals: repoName } },
+        { 'installation.users.workosUserId': { equals: userId } },
+      ],
+    },
+    limit: 1,
+  })
 
-  if (!result) {
+  if (!result.docs?.length) {
     return c.json({ error: 'Access denied' }, 403)
   }
 

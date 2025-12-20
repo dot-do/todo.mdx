@@ -1,4 +1,4 @@
-import { docs } from '@/source.config'
+import { source } from '@/source'
 import type { Metadata } from 'next'
 import { DocsPage, DocsBody } from 'fumadocs-ui/page'
 import { notFound } from 'next/navigation'
@@ -7,7 +7,7 @@ export default async function Page(props: {
   params: Promise<{ slug?: string[] }>
 }) {
   const params = await props.params
-  const page = docs.getPage(params.slug)
+  const page = source.getPage(params.slug)
   if (!page) notFound()
 
   const MDX = page.data.body
@@ -23,16 +23,14 @@ export default async function Page(props: {
 }
 
 export async function generateStaticParams() {
-  return docs.getPages().map((page) => ({
-    slug: page.slugs,
-  }))
+  return source.generateParams()
 }
 
 export async function generateMetadata(props: {
   params: Promise<{ slug?: string[] }>
 }): Promise<Metadata> {
   const params = await props.params
-  const page = docs.getPage(params.slug)
+  const page = source.getPage(params.slug)
   if (!page) notFound()
 
   return {

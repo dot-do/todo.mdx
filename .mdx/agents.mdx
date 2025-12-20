@@ -1,0 +1,57 @@
+---
+title: todo.mdx Development Guide
+outputs:
+  - CLAUDE.md
+  - .cursorrules
+  - .github/copilot-instructions.md
+---
+
+# {title}
+
+This is the development guide for todo.mdx.
+
+## Project Structure
+
+```
+.mdx/                    # MDX source files
+├── todo.mdx            → TODO.md
+├── readme.mdx          → README.md
+├── agents.mdx          → CLAUDE.md + .cursorrules
+├── roadmap.mdx         → ROADMAP.md
+└── workflows/          # Autonomous workflow definitions
+
+apps/
+├── admin/              # Payload CMS (admin.mdx.do)
+├── todo.mdx.do/        # Docs site
+└── ...
+
+packages/
+├── todo.mdx/           # Core compiler
+├── roadmap.mdx/        # Roadmap compiler
+├── cli.mdx/            # CLI framework
+└── ...
+
+worker/                 # Cloudflare Worker (API, MCP, webhooks)
+```
+
+## Commands
+
+```bash
+pnpm dev          # Start all packages
+pnpm build        # Build all packages
+pnpm typecheck    # Type check
+```
+
+## Current Status
+
+<Stats />
+
+## Ready to Work
+
+<Issues.Ready limit={5} />
+
+## Key Files
+
+- `packages/todo.mdx/src/compiler.ts` - MDX compilation
+- `worker/src/mcp/index.ts` - MCP server
+- `worker/src/do/repo.ts` - Durable Object sync

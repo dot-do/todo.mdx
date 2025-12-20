@@ -18,7 +18,7 @@
  * 7. Dependent issues unblock automatically
  */
 
-import { Workflow, WorkflowStep, WorkflowEvent } from 'cloudflare:workflows'
+import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers'
 import { createRuntime } from 'agents.mdx'
 import { durableTransport } from 'agents.mdx/cloudflare-workflows'
 import type { Issue, Repo } from 'agents.mdx'
@@ -62,7 +62,7 @@ interface WorkflowEnv {
 // Development Workflow
 // ============================================================================
 
-export class DevelopWorkflow extends Workflow<WorkflowEnv, DevelopWorkflowPayload> {
+export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWorkflowPayload> {
   async run(
     event: WorkflowEvent<DevelopWorkflowPayload>,
     step: WorkflowStep

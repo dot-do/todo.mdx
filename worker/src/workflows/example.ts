@@ -8,7 +8,7 @@
  * 4. Integrating with webhooks
  */
 
-import { Workflow, WorkflowStep, WorkflowEvent } from 'cloudflare:workflows'
+import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers'
 import { createRuntime } from 'agents.mdx'
 import { durableTransport } from 'agents.mdx/cloudflare-workflows'
 import type { Issue, Repo } from 'agents.mdx'
@@ -26,7 +26,7 @@ interface SimpleWorkflowPayload {
 /**
  * Minimal workflow showing the core pattern
  */
-export class SimpleAutoDevWorkflow extends Workflow<any, SimpleWorkflowPayload> {
+export class SimpleAutoDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflowPayload> {
   async run(
     event: WorkflowEvent<SimpleWorkflowPayload>,
     step: WorkflowStep
@@ -74,7 +74,7 @@ export class SimpleAutoDevWorkflow extends Workflow<any, SimpleWorkflowPayload> 
 /**
  * Production-ready workflow with error handling
  */
-export class ProductionDevWorkflow extends Workflow<any, SimpleWorkflowPayload> {
+export class ProductionDevWorkflow extends WorkflowEntrypoint<any, SimpleWorkflowPayload> {
   async run(
     event: WorkflowEvent<SimpleWorkflowPayload>,
     step: WorkflowStep

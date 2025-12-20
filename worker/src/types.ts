@@ -25,10 +25,16 @@ export interface Env {
   // WorkOS (API keys + AuthKit)
   WORKOS_API_KEY: string
   WORKOS_CLIENT_ID: string
+  WORKOS_CLIENT_SECRET: string
 
   // oauth.do (CLI OAuth)
   OAUTH_DO_CLIENT_ID: string
   OAUTH_DO_ISSUER: string
+
+  // Linear Integration
+  LINEAR_CLIENT_ID: string
+  LINEAR_CLIENT_SECRET: string
+  LINEAR_WEBHOOK_SECRET?: string
 
   // AI
   ANTHROPIC_API_KEY?: string

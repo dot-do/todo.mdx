@@ -1,5 +1,5 @@
-import { docs, meta } from '@/.source'
-import { createMDXSource } from 'fumadocs-mdx'
+import { docs, meta } from '@/.source/server'
+import { createMDXSource } from 'fumadocs-mdx/runtime/next'
 import { loader } from 'fumadocs-core/source'
 
 export const source = loader({

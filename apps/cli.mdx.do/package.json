@@ -1,5 +1,5 @@
 {
-  "name": "cli.mdx.do",
+  "name": "@todo.mdx/cli.mdx.do",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,25 +13,25 @@
     "preview": "wrangler dev"
   },
   "dependencies": {
-    "@opennextjs/cloudflare": "^0.2.0",
+    "@opennextjs/cloudflare": "^1.14.0",
     "@todo.mdx/dashboard": "workspace:*",
-    "@workos-inc/authkit-nextjs": "^0.10.0",
-    "fumadocs-core": "^14.2.0",
+    "@workos-inc/authkit-nextjs": "^2.12.0",
+    "fumadocs-core": "^15.8.0",
     "fumadocs-mdx": "^14.2.0",
-    "fumadocs-ui": "^14.2.0",
+    "fumadocs-ui": "^15.8.0",
     "next": "^15.1.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0"
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/react": "^18.3.0",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.20",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@tailwindcss/postcss": "^4.1.18",
     "postcss": "^8.4.49",
-    "tailwindcss": "^3.4.16",
+    "tailwindcss": "^4.1.18",
     "typescript": "^5.7.0",
-    "wrangler": "^3.100.0"
+    "wrangler": "^4.53.0"
   },
   "engines": {
     "node": ">=20.0.0"

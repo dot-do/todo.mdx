@@ -6,11 +6,16 @@
 
 import { DurableObject } from 'cloudflare:workers'
 import { createActor, setup, assign } from 'xstate'
+import { SignJWT, importPKCS8 } from 'jose'
+import type { PayloadRPC } from '../../../apps/admin/src/rpc'
 
 export interface Env {
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
+  PAYLOAD: Service<PayloadRPC>
+  GITHUB_APP_ID: string
+  GITHUB_PRIVATE_KEY: string
 }
 
 // Sync event types
@@ -181,10 +186,137 @@ export class RepoDO extends DurableObject {
   private sql: SqlStorage
   private initialized = false
   private syncActor: ReturnType<typeof createActor<typeof syncMachine>> | null = null
+  private repoFullName: string | null = null
+  private installationId: number | null = null
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     this.sql = ctx.storage.sql
+  }
+
+  /**
+   * Initialize repo context from storage
+   */
+  private async initRepoContext(): Promise<void> {
+    if (this.repoFullName && this.installationId) return
+
+    const stored = await this.ctx.storage.get<{ repoFullName: string; installationId: number }>('repoContext')
+    if (stored) {
+      this.repoFullName = stored.repoFullName
+      this.installationId = stored.installationId
+    }
+  }
+
+  /**
+   * Set repo context (called on first use)
+   */
+  private async setRepoContext(repoFullName: string, installationId: number): Promise<void> {
+    this.repoFullName = repoFullName
+    this.installationId = installationId
+    await this.ctx.storage.put('repoContext', { repoFullName, installationId })
+  }
+
+  /**
+   * Generate GitHub App JWT for authentication
+   */
+  private async generateGitHubAppJWT(): Promise<string> {
+    const now = Math.floor(Date.now() / 1000)
+
+    // Convert PEM private key to crypto key using jose library
+    const privateKeyPEM = (this.env as Env).GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n')
+
+    // Import the private key using jose (handles both PKCS1 and PKCS8 formats)
+    const key = await importPKCS8(privateKeyPEM, 'RS256')
+
+    const jwt = await new SignJWT({})
+      .setProtectedHeader({ alg: 'RS256' })
+      .setIssuedAt(now)
+      .setExpirationTime(now + 600) // 10 minutes
+      .setIssuer((this.env as Env).GITHUB_APP_ID)
+      .sign(key)
+
+    return jwt
+  }
+
+  /**
+   * Get installation access token from GitHub
+   */
+  private async getInstallationToken(installationId: number): Promise<string> {
+    const jwt = await this.generateGitHubAppJWT()
+
+    const response = await fetch(
+      `https://api.github.com/app/installations/${installationId}/access_tokens`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to get installation token: ${response.status} ${error}`)
+    }
+
+    const data = await response.json() as { token: string }
+    return data.token
+  }
+
+  /**
+   * Fetch file contents from GitHub repository
+   */
+  private async fetchGitHubFile(path: string, installationId: number, ref?: string): Promise<string> {
+    await this.initRepoContext()
+    if (!this.repoFullName) {
+      throw new Error('Repo context not initialized')
+    }
+
+    const token = await this.getInstallationToken(installationId)
+    const url = `https://api.github.com/repos/${this.repoFullName}/contents/${path}${ref ? `?ref=${ref}` : ''}`
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    })
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to fetch file ${path}: ${response.status} ${error}`)
+    }
+
+    const data = await response.json() as { content: string; encoding: string }
+    if (data.encoding === 'base64') {
+      return atob(data.content.replace(/\n/g, ''))
+    }
+    return data.content
+  }
+
+  /**
+   * Parse beads issues from JSONL format
+   */
+  private parseBeadsIssues(jsonl: string): Array<{
+    id: string
+    title: string
+    description?: string
+    status: string
+    priority?: number
+    issue_type?: string
+    created_at: string
+    updated_at: string
+    closed_at?: string
+    close_reason?: string
+    assignee?: string
+    labels?: string[]
+    dependencies?: Array<{ issue_id: string; depends_on_id: string; type: string }>
+  }> {
+    const lines = jsonl.trim().split('\n').filter(line => line.trim())
+    return lines.map(line => JSON.parse(line))
   }
 
   private async initSyncActor() {
@@ -259,14 +391,78 @@ export class RepoDO extends DurableObject {
 
   private async processGithubSync(payload: any): Promise<void> {
     // GitHub webhook payload processing
-    const issues = payload.issues || []
-    await this.syncIssuesInternal('github', issues)
+    console.log('[RepoDO] Processing GitHub sync', { payload })
+
+    // Extract GitHub issue data from webhook
+    const githubIssue = payload.issue
+    if (!githubIssue) {
+      console.log('[RepoDO] No issue in GitHub payload')
+      return
+    }
+
+    // Map GitHub issue to our format
+    const issue = {
+      githubId: githubIssue.id,
+      githubNumber: githubIssue.number,
+      title: githubIssue.title,
+      body: githubIssue.body || '',
+      state: githubIssue.state, // 'open' or 'closed'
+      status: githubIssue.state === 'closed' ? 'closed' : 'open',
+      labels: githubIssue.labels?.map((l: any) => l.name) || [],
+      assignees: githubIssue.assignees?.map((a: any) => a.login) || [],
+      updatedAt: githubIssue.updated_at,
+    }
+
+    // Sync to internal storage
+    await this.syncIssuesInternal('github', [issue])
+
+    // Sync to Payload CMS
+    await this.syncToPayload([issue], 'github')
   }
 
   private async processBeadsSync(payload: any): Promise<void> {
-    // Beads sync payload processing
-    const issues = payload.issues || []
-    await this.syncIssuesInternal('beads', issues)
+    // Beads sync payload processing from push webhook
+    console.log('[RepoDO] Processing beads sync', { payload })
+
+    const { files, commit, installationId } = payload
+
+    // Check if .beads/issues.jsonl was changed
+    if (!files.includes('.beads/issues.jsonl')) {
+      console.log('[RepoDO] No .beads/issues.jsonl in changed files')
+      return
+    }
+
+    try {
+      // Fetch the file from GitHub
+      const jsonl = await this.fetchGitHubFile('.beads/issues.jsonl', installationId, commit)
+
+      // Parse the JSONL
+      const beadsIssues = this.parseBeadsIssues(jsonl)
+      console.log('[RepoDO] Parsed beads issues', { count: beadsIssues.length })
+
+      // Map beads issues to our format
+      const issues = beadsIssues.map(beadsIssue => ({
+        beadsId: beadsIssue.id,
+        title: beadsIssue.title,
+        body: beadsIssue.description || '',
+        state: beadsIssue.status === 'closed' ? 'closed' : 'open',
+        status: beadsIssue.status,
+        priority: beadsIssue.priority ?? 2,
+        type: beadsIssue.issue_type || 'task',
+        labels: beadsIssue.labels || [],
+        assignees: beadsIssue.assignee ? [beadsIssue.assignee] : [],
+        updatedAt: beadsIssue.updated_at,
+      }))
+
+      // Sync to internal storage
+      await this.syncIssuesInternal('beads', issues)
+
+      // Sync to Payload CMS
+      await this.syncToPayload(issues, 'beads')
+    } catch (error) {
+      console.error('[RepoDO] Failed to process beads sync:', error)
+      throw error
+    }
   }
 
   private async processFileSync(payload: any): Promise<void> {
@@ -279,6 +475,114 @@ export class RepoDO extends DurableObject {
     // MCP sync payload processing
     const issues = payload.issues || []
     await this.syncIssuesInternal('mcp', issues)
+  }
+
+  /**
+   * Sync issues to Payload CMS via RPC
+   */
+  private async syncToPayload(issues: Array<{
+    githubId?: number
+    githubNumber?: number
+    beadsId?: string
+    title: string
+    body?: string
+    state: string
+    status?: string
+    labels?: string[]
+    assignees?: string[]
+    priority?: number
+    type?: string
+    updatedAt?: string
+  }>, source: SyncSource): Promise<void> {
+    await this.initRepoContext()
+    if (!this.repoFullName) {
+      console.log('[RepoDO] Cannot sync to Payload: repo context not initialized')
+      return
+    }
+
+    const env = this.env as Env
+    console.log('[RepoDO] Syncing to Payload', { count: issues.length, source })
+
+    // First, find the repo in Payload to get its ID
+    const repoResult = await env.PAYLOAD.find({
+      collection: 'repos',
+      where: {
+        fullName: { equals: this.repoFullName },
+      },
+      limit: 1,
+    })
+
+    if (!repoResult.docs || repoResult.docs.length === 0) {
+      console.log('[RepoDO] Repo not found in Payload', { repoFullName: this.repoFullName })
+      return
+    }
+
+    const repo = repoResult.docs[0]
+    console.log('[RepoDO] Found repo in Payload', { repoId: repo.id })
+
+    // Sync each issue
+    for (const issue of issues) {
+      try {
+        // Find existing issue in Payload
+        const where: any = {
+          repo: { equals: repo.id },
+        }
+
+        if (issue.githubId) {
+          where.githubId = { equals: issue.githubId }
+        } else if (issue.beadsId) {
+          where.localId = { equals: issue.beadsId }
+        } else {
+          // Skip issues without identifiers
+          continue
+        }
+
+        const existingResult = await env.PAYLOAD.find({
+          collection: 'issues',
+          where,
+          limit: 1,
+        })
+
+        const issueData = {
+          repo: repo.id,
+          localId: issue.beadsId || issue.githubId?.toString() || 'unknown',
+          title: issue.title,
+          body: issue.body || '',
+          state: issue.state,
+          status: issue.status || issue.state,
+          priority: issue.priority ?? 2,
+          type: issue.type || 'task',
+          labels: issue.labels || [],
+          assignees: issue.assignees || [],
+          githubNumber: issue.githubNumber,
+          githubId: issue.githubId,
+        }
+
+        if (existingResult.docs && existingResult.docs.length > 0) {
+          // Update existing issue
+          const existing = existingResult.docs[0]
+          console.log('[RepoDO] Updating issue in Payload', { id: existing.id, title: issue.title })
+
+          await env.PAYLOAD.update({
+            collection: 'issues',
+            id: existing.id,
+            data: issueData,
+          })
+        } else {
+          // Create new issue
+          console.log('[RepoDO] Creating issue in Payload', { title: issue.title })
+
+          await env.PAYLOAD.create({
+            collection: 'issues',
+            data: issueData,
+          })
+        }
+      } catch (error) {
+        console.error('[RepoDO] Failed to sync issue to Payload:', error, { issue })
+      }
+    }
+
+    console.log('[RepoDO] Payload sync complete')
   }
 
   private ensureInitialized() {
@@ -692,6 +996,12 @@ export class RepoDO extends DurableObject {
       after: string
       files: string[]
       installationId?: number
+      repoFullName?: string
+    }
+
+    // Initialize repo context if provided
+    if (body.repoFullName && body.installationId) {
+      await this.setRepoContext(body.repoFullName, body.installationId)
     }
 
     const now = new Date().toISOString()

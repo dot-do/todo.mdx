@@ -1,0 +1,36 @@
+---
+title: TODO.mdx
+outputs:
+  - README.md
+---
+
+# {title}
+
+**MDX components that render live data to markdown — realtime context for humans AND AI.**
+
+```mdx
+<Stats />           <!-- "12 open, 3 blocked, 5 ready" -->
+<Issues.Ready />    <!-- Live list of unblocked issues -->
+<Roadmap />         <!-- Milestones with progress bars -->
+```
+
+## Project Status
+
+<Stats />
+
+## Quick Links
+
+- [Getting Started](/docs/getting-started)
+- [Architecture](/docs/architecture)
+- [Workflows](/docs/agents-workflows)
+
+## Packages
+
+| Package | Description |
+|---------|-------------|
+| [todo.mdx](./packages/todo.mdx) | TODO.mdx → TODO.md + .todo/*.md |
+| [roadmap.mdx](./packages/roadmap.mdx) | ROADMAP.mdx → ROADMAP.md |
+| [cli.mdx](./packages/cli.mdx) | MDX-based CLI framework |
+| [agents.mdx](./packages/agents.mdx) | AGENTS.mdx → CLAUDE.md + .cursorrules |
+| [claude.mdx](./packages/claude.mdx) | Claude Code dispatch CLI |
+| [readme.mdx](./packages/readme.mdx) | README.mdx → README.md |

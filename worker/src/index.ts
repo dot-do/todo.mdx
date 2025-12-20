@@ -1,79 +1,25 @@
 /**
  * TODO.mdx Worker
  * GitHub App backend for syncing issues, milestones, and projects
- * With Better Auth for user authentication
+ * Using Payload RPC for data access
  */
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { createAuth } from './auth'
 import { voice } from './voice'
 import { mcp } from './mcp'
+import { linear } from './api/linear'
+import { authMiddleware, type AuthContext } from './auth'
+import type { Env } from './types'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
 export { DevelopWorkflow } from './workflows/develop'
 
-export interface Env {
-  DB: D1Database
-  AI: Ai
-  REPO: DurableObjectNamespace
-  PROJECT: DurableObjectNamespace
-  LOADER: WorkerLoader
-  // GitHub App
-  GITHUB_APP_ID: string
-  GITHUB_PRIVATE_KEY: string
-  GITHUB_WEBHOOK_SECRET: string
-  // Better Auth
-  BETTER_AUTH_SECRET: string
-  BETTER_AUTH_URL: string
-  GITHUB_CLIENT_ID: string
-  GITHUB_CLIENT_SECRET: string
-  // Claude API
-  ANTHROPIC_API_KEY: string
-}
+// Re-export Env type for external use
+export type { Env }
 
-// Worker Loader types
-interface WorkerLoader {
-  get(id: string, getCode: () => Promise<WorkerCode>): WorkerStub
-}
-
-interface WorkerCode {
-  compatibilityDate: string
-  compatibilityFlags?: string[]
-  mainModule: string
-  modules: Record<string, string>
-  env?: Record<string, unknown>
-  globalOutbound?: null
-}
-
-interface WorkerStub {
-  getEntrypoint(): WorkerEntrypoint
-}
-
-interface WorkerEntrypoint {
-  fetch(request: Request | string): Promise<Response>
-}
-
-interface User {
-  id: string
-  name: string
-  email: string
-  image?: string
-  githubId?: number
-  githubUsername?: string
-}
-
-interface Session {
-  user: User
-}
-
-type Variables = {
-  user: User
-  session: Session
-}
-
-const app = new Hono<{ Bindings: Env; Variables: Variables }>()
+const app = new Hono<{ Bindings: Env }>()
 
 // CORS for API access
 app.use('/api/*', cors({
@@ -103,40 +49,37 @@ app.route('/api/voice', voice)
 app.route('/mcp', mcp)
 
 // ============================================
-// Better Auth routes
+// Linear Integration API routes
 // ============================================
 
-app.on(['GET', 'POST'], '/api/auth/*', async (c) => {
-  const auth = createAuth({
-    DB: c.env.DB,
-    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
-    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
+app.route('/api/linear', linear)
+app.post('/linear/webhook', linear.fetch)
+
+// ============================================
+// Auth routes (via OAuth 2.1 / WorkOS API keys)
+// ============================================
+
+// Get current user (requires auth)
+app.get('/api/me', authMiddleware, async (c) => {
+  const auth = c.get('auth') as AuthContext
+
+  // Lookup user from Payload based on auth context
+  const users = await c.env.PAYLOAD.find({
+    collection: 'users',
+    where: {
+      or: [
+        { workosUserId: { equals: auth.userId } },
+        { email: { equals: auth.email } },
+      ],
+    },
+    limit: 1,
   })
 
-  return auth.handler(c.req.raw)
-})
-
-// Get current user
-app.get('/api/me', async (c) => {
-  const auth = createAuth({
-    DB: c.env.DB,
-    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
-    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
-  })
-
-  const session = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  })
-
-  if (!session) {
-    return c.json({ user: null }, 401)
+  if (!users.docs?.length) {
+    return c.json({ user: null, auth }, 200)
   }
 
-  return c.json({ user: session.user })
+  return c.json({ user: users.docs[0], auth })
 })
 
 // ============================================
@@ -147,28 +90,37 @@ app.get('/api/me', async (c) => {
 app.get('/github/callback', async (c) => {
   const installationId = c.req.query('installation_id')
   const setupAction = c.req.query('setup_action')
+  const state = c.req.query('state') // Contains user ID from OAuth flow
 
   if (setupAction === 'install' && installationId) {
-    // Get current user session
-    const auth = createAuth({
-      DB: c.env.DB,
-      BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
-      BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
-      GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
-      GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
-    })
+    // If we have state with user ID, link installation to user
+    if (state) {
+      try {
+        const userId = state // The state parameter contains the user ID
 
-    const session = await auth.api.getSession({
-      headers: c.req.raw.headers,
-    })
+        // Find the installation and add the user
+        const installations = await c.env.PAYLOAD.find({
+          collection: 'installations',
+          where: { installationId: { equals: parseInt(installationId) } },
+          limit: 1,
+        })
 
-    if (session?.user) {
-      // Link installation to user
-      const now = new Date().toISOString()
-      await c.env.DB.prepare(`
-        INSERT OR IGNORE INTO user_installations (user_id, installation_id, role, created_at)
-        VALUES (?, ?, 'owner', ?)
-      `).bind(session.user.id, installationId, now).run()
+        if (installations.docs?.length > 0) {
+          const installation = installations.docs[0]
+          const existingUsers = installation.users || []
+          if (!existingUsers.includes(userId)) {
+            await c.env.PAYLOAD.update({
+              collection: 'installations',
+              id: installation.id,
+              data: {
+                users: [...existingUsers, userId],
+              },
+            })
+          }
+        }
+      } catch (error) {
+        console.error('Failed to link installation to user:', error)
+      }
     }
 
     return c.redirect('https://todo.mdx.do/dashboard?installed=true')
@@ -203,6 +155,8 @@ app.post('/github/webhook', async (c) => {
       return handleMilestone(c, payload)
     case 'push':
       return handlePush(c, payload)
+    case 'projects_v2':
+      return handleProject(c, payload)
     case 'projects_v2_item':
       return handleProjectItem(c, payload)
     default:
@@ -212,50 +166,59 @@ app.post('/github/webhook', async (c) => {
 
 // Installation webhook
 async function handleInstallation(c: any, payload: any): Promise<Response> {
-  const now = new Date().toISOString()
-
   if (payload.action === 'created') {
     const installation = payload.installation
 
-    // Store installation
-    await c.env.DB.prepare(`
-      INSERT INTO installations (installation_id, account_type, account_id, account_login, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).bind(
-      installation.id,
-      installation.account.type,
-      installation.account.id,
-      installation.account.login,
-      now,
-      now
-    ).run()
+    // Store installation via Payload RPC
+    const installationDoc = await c.env.PAYLOAD.create({
+      collection: 'installations',
+      data: {
+        installationId: installation.id,
+        accountType: installation.account.type,
+        accountId: installation.account.id,
+        accountLogin: installation.account.login,
+        accountAvatarUrl: installation.account.avatar_url,
+        permissions: installation.permissions,
+        events: installation.events,
+        repositorySelection: installation.repository_selection,
+      },
+    })
 
-    // Create Durable Objects for each repository
+    // Create repos for each repository via Payload RPC
     for (const repo of payload.repositories || []) {
-      const doId = c.env.REPO.idFromName(`${repo.full_name}`)
+      // Create Durable Object for the repo
+      c.env.REPO.idFromName(repo.full_name)
 
-      await c.env.DB.prepare(`
-        INSERT INTO repos (installation_id, repo_id, owner, name, full_name, do_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(
-        installation.id,
-        repo.id,
-        repo.full_name.split('/')[0],
-        repo.name,
-        repo.full_name,
-        doId.toString(),
-        now,
-        now
-      ).run()
+      await c.env.PAYLOAD.create({
+        collection: 'repos',
+        data: {
+          githubId: repo.id,
+          name: repo.name,
+          fullName: repo.full_name,
+          owner: repo.full_name.split('/')[0],
+          private: repo.private || false,
+          installation: installationDoc.id,
+        },
+      })
     }
 
     return c.json({ status: 'installed', repos: payload.repositories?.length || 0 })
   }
 
   if (payload.action === 'deleted') {
-    await c.env.DB.prepare(`
-      DELETE FROM installations WHERE installation_id = ?
-    `).bind(payload.installation.id).run()
+    // Find and delete installation via Payload RPC
+    const installations = await c.env.PAYLOAD.find({
+      collection: 'installations',
+      where: { installationId: { equals: payload.installation.id } },
+      limit: 1,
+    })
+
+    if (installations.docs?.length > 0) {
+      await c.env.PAYLOAD.delete({
+        collection: 'installations',
+        id: installations.docs[0].id,
+      })
+    }
 
     return c.json({ status: 'uninstalled' })
   }
@@ -351,6 +314,40 @@ async function handlePush(c: any, payload: any): Promise<Response> {
   return c.json({ status: 'queued', files: todoFiles })
 }
 
+// GitHub Projects v2 webhook (project-level events)
+async function handleProject(c: any, payload: any): Promise<Response> {
+  const project = payload.projects_v2
+
+  if (!project?.node_id) {
+    return c.json({ status: 'ignored', reason: 'no project node_id' })
+  }
+
+  const doId = c.env.PROJECT.idFromName(project.node_id)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/project/sync', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: payload.action,
+      project: {
+        nodeId: project.node_id,
+        number: project.number,
+        title: project.title,
+        shortDescription: project.short_description,
+        public: project.public,
+        closed: project.closed,
+        owner: payload.organization?.login || payload.sender?.login,
+        createdAt: project.created_at,
+        updatedAt: project.updated_at,
+      },
+    }),
+    headers: { 'Content-Type': 'application/json' },
+  }))
+
+  const result = await response.json()
+  return c.json({ status: 'synced', action: payload.action, result })
+}
+
 // GitHub Projects v2 item webhook
 async function handleProjectItem(c: any, payload: any): Promise<Response> {
   const projectNodeId = payload.projects_v2_item?.project_node_id
@@ -362,11 +359,37 @@ async function handleProjectItem(c: any, payload: any): Promise<Response> {
   const doId = c.env.PROJECT.idFromName(projectNodeId)
   const stub = c.env.PROJECT.get(doId)
 
+  // Extract field values from the payload if present
+  const fieldValues: Record<string, any> = {}
+
+  if (payload.changes?.field_value) {
+    const change = payload.changes.field_value
+    if (change.field_type && change.field_name) {
+      fieldValues[change.field_name] = {
+        type: change.field_type,
+        from: change.from,
+        to: change.to,
+      }
+    }
+  }
+
   const response = await stub.fetch(new Request('http://do/items/sync', {
     method: 'POST',
     body: JSON.stringify({
       action: payload.action,
-      item: payload.projects_v2_item,
+      item: {
+        nodeId: payload.projects_v2_item.node_id,
+        id: payload.projects_v2_item.id,
+        contentNodeId: payload.projects_v2_item.content_node_id,
+        contentType: payload.projects_v2_item.content_type,
+        creator: payload.projects_v2_item.creator?.login,
+        createdAt: payload.projects_v2_item.created_at,
+        updatedAt: payload.projects_v2_item.updated_at,
+        archivedAt: payload.projects_v2_item.archived_at,
+        isArchived: payload.projects_v2_item.is_archived,
+      },
+      fieldValues,
+      changes: payload.changes,
     }),
     headers: { 'Content-Type': 'application/json' },
   }))
@@ -379,70 +402,57 @@ async function handleProjectItem(c: any, payload: any): Promise<Response> {
 // Protected API routes (require auth)
 // ============================================
 
-// Middleware to check auth
-const requireAuth = async (c: any, next: () => Promise<void>) => {
-  const auth = createAuth({
-    DB: c.env.DB,
-    BETTER_AUTH_SECRET: c.env.BETTER_AUTH_SECRET,
-    BETTER_AUTH_URL: c.env.BETTER_AUTH_URL,
-    GITHUB_CLIENT_ID: c.env.GITHUB_CLIENT_ID,
-    GITHUB_CLIENT_SECRET: c.env.GITHUB_CLIENT_SECRET,
-  })
-
-  const session = await auth.api.getSession({
-    headers: c.req.raw.headers,
-  })
-
-  if (!session) {
-    return c.json({ error: 'Unauthorized' }, 401)
-  }
-
-  c.set('user', session.user)
-  c.set('session', session)
-  await next()
-}
-
 // Get user's installations
-app.get('/api/user/installations', requireAuth, async (c) => {
-  const user = c.get('user')
+app.get('/api/user/installations', authMiddleware, async (c) => {
+  const auth = c.get('auth') as AuthContext
 
-  const result = await c.env.DB.prepare(`
-    SELECT i.*, ui.role
-    FROM installations i
-    JOIN user_installations ui ON ui.installation_id = i.installation_id
-    WHERE ui.user_id = ?
-  `).bind(user.id).all()
+  // Get installations where this user is in the users array
+  const result = await c.env.PAYLOAD.find({
+    collection: 'installations',
+    where: {
+      'users.workosUserId': { equals: auth.userId },
+    },
+    depth: 1,
+  })
 
-  return c.json(result.results)
+  return c.json(result.docs || [])
 })
 
 // Get user's repos
-app.get('/api/user/repos', requireAuth, async (c) => {
-  const user = c.get('user')
+app.get('/api/user/repos', authMiddleware, async (c) => {
+  const auth = c.get('auth') as AuthContext
 
-  const result = await c.env.DB.prepare(`
-    SELECT r.*
-    FROM repos r
-    JOIN user_installations ui ON ui.installation_id = r.installation_id
-    WHERE ui.user_id = ?
-  `).bind(user.id).all()
+  // Get repos where user has access via installation
+  const result = await c.env.PAYLOAD.find({
+    collection: 'repos',
+    where: {
+      'installation.users.workosUserId': { equals: auth.userId },
+    },
+    depth: 1,
+  })
 
-  return c.json(result.results)
+  return c.json(result.docs || [])
 })
 
 // API: List all installations (admin)
 app.get('/api/installations', async (c) => {
-  const result = await c.env.DB.prepare('SELECT * FROM installations').all()
-  return c.json(result.results)
+  const result = await c.env.PAYLOAD.find({
+    collection: 'installations',
+    limit: 100,
+  })
+  return c.json(result.docs || [])
 })
 
 // API: List repos for an installation
 app.get('/api/installations/:id/repos', async (c) => {
   const installationId = c.req.param('id')
-  const result = await c.env.DB.prepare(
-    'SELECT * FROM repos WHERE installation_id = ?'
-  ).bind(installationId).all()
-  return c.json(result.results)
+  const result = await c.env.PAYLOAD.find({
+    collection: 'repos',
+    where: {
+      installation: { equals: installationId },
+    },
+  })
+  return c.json(result.docs || [])
 })
 
 // API: Get repo sync status
@@ -459,13 +469,90 @@ app.get('/api/repos/:owner/:name/status', async (c) => {
 })
 
 // API: Trigger manual sync for a repo
-app.post('/api/repos/:owner/:name/sync', requireAuth, async (c) => {
+app.post('/api/repos/:owner/:name/sync', authMiddleware, async (c) => {
   const owner = c.req.param('owner')
   const name = c.req.param('name')
   const fullName = `${owner}/${name}`
 
   // TODO: Fetch all issues, milestones, and files from GitHub and sync
   return c.json({ status: 'queued', repo: fullName })
+})
+
+// ============================================
+// Project API routes
+// ============================================
+
+// API: Get project info and status
+app.get('/api/projects/:nodeId', authMiddleware, async (c) => {
+  const nodeId = c.req.param('nodeId')
+
+  const doId = c.env.PROJECT.idFromName(nodeId)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/status'))
+  return response
+})
+
+// API: Get project items
+app.get('/api/projects/:nodeId/items', authMiddleware, async (c) => {
+  const nodeId = c.req.param('nodeId')
+
+  const doId = c.env.PROJECT.idFromName(nodeId)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/items'))
+  return response
+})
+
+// API: Get project fields
+app.get('/api/projects/:nodeId/fields', authMiddleware, async (c) => {
+  const nodeId = c.req.param('nodeId')
+
+  const doId = c.env.PROJECT.idFromName(nodeId)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/fields'))
+  return response
+})
+
+// API: Trigger manual sync for a project
+app.post('/api/projects/:nodeId/sync', authMiddleware, async (c) => {
+  const nodeId = c.req.param('nodeId')
+
+  const doId = c.env.PROJECT.idFromName(nodeId)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/sync', {
+    method: 'POST',
+  }))
+  return response
+})
+
+// API: Link a repo to a project
+app.post('/api/projects/:nodeId/repos', authMiddleware, async (c) => {
+  const nodeId = c.req.param('nodeId')
+  const body = await c.req.json()
+
+  const doId = c.env.PROJECT.idFromName(nodeId)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/repos', {
+    method: 'POST',
+    body: JSON.stringify(body),
+    headers: { 'Content-Type': 'application/json' },
+  }))
+  return response
+})
+
+// API: Get milestone mappings for a project
+app.get('/api/projects/:nodeId/milestones', authMiddleware, async (c) => {
+  const nodeId = c.req.param('nodeId')
+
+  const doId = c.env.PROJECT.idFromName(nodeId)
+  const stub = c.env.PROJECT.get(doId)
+
+  const response = await stub.fetch(new Request('http://do/milestones'))
+  return response
 })
 
 export default app

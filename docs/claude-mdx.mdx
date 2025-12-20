@@ -1,0 +1,896 @@
+---
+title: claude.mdx
+description: Dispatch Claude Code sessions to work on your TODO items
+---
+
+# claude.mdx
+
+claude.mdx is an AI-assisted development orchestrator that dispatches Claude Code sessions to autonomously work on issues from your beads issue tracker. Point it at your TODO, and Claude Code will pick up tasks and implement them for you.
+
+**Core features:**
+- Work on specific issues with `claude.mdx work todo-123`
+- Auto-pick the next ready issue with `claude.mdx next`
+- Run continuously in daemon mode with `claude.mdx daemon`
+- Monitor active sessions with `claude.mdx status`
+
+## Installation
+
+```bash
+npm install -g @todo.mdx/claude.mdx
+# or
+pnpm add -g @todo.mdx/claude.mdx
+```
+
+### Prerequisites
+
+claude.mdx requires two CLI tools:
+
+1. **beads** - Issue tracking
+```bash
+npm install -g beads-workflows
+bd init  # Initialize in your project
+```
+
+2. **Claude Code** - AI development agent
+```bash
+# Install Claude Code CLI from Anthropic
+# https://docs.anthropic.com/claude/docs/claude-code
+```
+
+## Quick Start
+
+### 1. Initialize beads
+
+```bash
+cd your-project
+bd init
+```
+
+### 2. Create some issues
+
+```bash
+bd create --title="Add authentication" --type=feature
+bd create --title="Fix login bug" --type=bug --priority=1
+bd create --title="Update README" --type=task
+```
+
+### 3. Start working
+
+Pick the next ready issue and let Claude Code work on it:
+
+```bash
+claude.mdx next
+```
+
+Or work on a specific issue:
+
+```bash
+claude.mdx work todo-abc
+```
+
+## Commands
+
+### claude.mdx work
+
+Start a Claude Code session for a specific issue.
+
+```bash
+claude.mdx work <issue-id>
+claude.mdx work todo-abc
+claude.mdx work --issue-id todo-abc
+```
+
+**Options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `-i, --issue-id <id>` | string | Issue ID to work on |
+| `--interactive` | boolean | Interactive mode (pick from list) |
+| `-c, --context <text>` | string | Additional context to provide |
+
+**Behavior:**
+
+1. Fetches the issue from beads
+2. Checks if issue is blocked (warns if true)
+3. Updates issue status to `in_progress`
+4. Renders context including:
+   - Issue title, description, design, acceptance criteria
+   - Dependencies and their status
+   - Project context from CLAUDE.md if available
+5. Spawns Claude Code session with rendered context
+6. Waits for session completion (interactive mode)
+7. Reports exit status
+
+**Example:**
+
+```bash
+$ claude.mdx work todo-4fh
+
+Fetching issue todo-4fh...
+Found: Create cli.mdx package
+Type: feature, Priority: 1, Status: open
+
+Starting Claude Code session...
+Updated issue status to in_progress
+
+Session started for todo-4fh
+Started at: 2025-12-20T10:30:00.000Z
+
+[Claude Code session runs...]
+
+Session completed successfully (exit code: 0)
+```
+
+### claude.mdx next
+
+Pick the next ready issue and start a session. Issues are prioritized by:
+1. Priority (lowest number = highest priority)
+2. Creation date (oldest first)
+
+```bash
+claude.mdx next
+claude.mdx next --priority=1      # Only P1 issues
+claude.mdx next --type=bug        # Only bugs
+claude.mdx next --yes             # Skip confirmation
+```
+
+**Options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `-p, --priority <level>` | number | Priority threshold (1-5) |
+| `-t, --type <type>` | string | Filter by type (bug\|feature\|task\|epic\|chore) |
+| `-y, --yes` | boolean | Auto-start without confirmation |
+
+**Behavior:**
+
+1. Fetches ready issues (no blockers) from beads
+2. Filters by type if specified
+3. Sorts by priority and creation date
+4. Shows the top issue and lists other ready issues
+5. Prompts for confirmation (unless `--yes`)
+6. Updates issue to `in_progress`
+7. Spawns Claude Code session
+8. Waits for completion
+
+**Example:**
+
+```bash
+$ claude.mdx next
+
+Fetching ready issues...
+
+Next issue:
+  todo-4fh: Create cli.mdx package
+  Type: feature, Priority: 1
+  MDX-based CLI framework using Bun and React...
+
+2 other ready issues:
+  todo-8mg: Export Payload via Workers RPC (P1)
+  todo-vm0: Workflow MDX parser (P2)
+
+Press Ctrl+C to cancel, or Enter to start session...
+
+Starting Claude Code session...
+Updated issue status to in_progress
+
+Session started for todo-4fh
+Started at: 2025-12-20T10:30:00.000Z
+
+[Claude Code session runs...]
+
+Session completed successfully (exit code: 0)
+```
+
+### claude.mdx daemon
+
+Run in daemon mode to continuously work on ready issues. The daemon:
+- Polls for ready issues at regular intervals
+- Maintains multiple parallel Claude Code sessions
+- Auto-assigns work as sessions complete
+- Provides periodic status updates
+
+```bash
+claude.mdx daemon
+claude.mdx daemon --max-parallel=3    # Run up to 3 sessions
+claude.mdx daemon --interval=60       # Poll every 60 seconds
+claude.mdx daemon --priority=1        # Only P1 issues
+```
+
+**Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `-m, --max-parallel <count>` | number | 2 | Maximum parallel sessions |
+| `-i, --interval <seconds>` | number | 30 | Polling interval in seconds |
+| `-b, --background` | boolean | false | Run in background |
+| `-p, --priority <level>` | number | - | Priority threshold |
+
+**Behavior:**
+
+1. Checks available session slots
+2. Fetches ready issues (up to available slots)
+3. Filters out issues with running sessions
+4. Sorts by priority and creation date
+5. Spawns sessions for available slots
+6. Prints stats every minute
+7. Sleeps for interval duration
+8. Repeats until stopped (Ctrl+C)
+
+**Example:**
+
+```bash
+$ claude.mdx daemon --max-parallel=3
+
+Starting claude.mdx daemon...
+Max parallel sessions: 3
+Poll interval: 30s
+
+[10:30:15] Starting session for todo-4fh: Create cli.mdx package
+[10:30:16] Starting session for todo-8mg: Export Payload via Workers RPC
+[10:31:15] Stats: 5 ready, 2 in progress, 2 active sessions
+[10:35:42] Session todo-4fh completed (exit code: 0)
+[10:35:45] Starting session for todo-vm0: Workflow MDX parser
+[10:36:15] Stats: 4 ready, 3 in progress, 2 active sessions
+^C
+Shutting down daemon...
+```
+
+### claude.mdx status
+
+Show active Claude Code sessions and beads statistics.
+
+```bash
+claude.mdx status
+claude.mdx status --detailed    # Show full session details
+claude.mdx status --logs        # Show session logs
+```
+
+**Options:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `-d, --detailed` | boolean | Show detailed session information |
+| `-l, --logs` | boolean | Show session logs |
+
+**Example:**
+
+```bash
+$ claude.mdx status
+
+Claude.mdx Status
+
+Active Sessions:
+  Total: 3
+  Running: 2
+  Completed: 1
+  Failed: 0
+  Stopped: 0
+
+Sessions:
+
+  todo-4fh: Create cli.mdx package
+    Status: completed | Duration: 5m 27s
+    Type: feature | Priority: 1
+
+  todo-8mg: Export Payload via Workers RPC
+    Status: running | Duration: 3m 12s
+    Type: feature | Priority: 1
+
+  todo-vm0: Workflow MDX parser
+    Status: running | Duration: 45s
+    Type: task | Priority: 2
+
+Beads Statistics:
+  Total issues: 12
+  Open: 7
+  In progress: 3
+  Blocked: 1
+  Ready to work: 4
+  Closed: 5
+```
+
+## Session Management
+
+### How Sessions Work
+
+A Claude Code session is a spawned process that:
+
+1. **Receives context** - Issue details, dependencies, project context from CLAUDE.md
+2. **Works autonomously** - Claude Code reads files, edits code, runs tests
+3. **Updates status** - Issues are marked as `in_progress` when session starts
+4. **Completes** - Session exits with status code (0 = success)
+
+Sessions are tracked in-memory by issue ID. The session object contains:
+
+```typescript
+interface Session {
+  id: string              // Same as issue ID
+  issue: Issue            // Full issue object
+  process: ChildProcess   // Spawned claude process
+  startedAt: Date        // When session started
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  exitCode?: number      // Exit code when completed
+}
+```
+
+### Context Rendering
+
+Each session receives rendered context based on the issue:
+
+```markdown
+# Task: Create cli.mdx package (todo-4fh)
+
+## Description
+MDX-based CLI framework using Bun and React for interactive terminal UIs
+
+## Design
+Use Ink for React rendering in terminal. Compile MDX to CLI commands.
+Support interactive prompts, progress bars, and live updates.
+
+## Acceptance Criteria
+- [ ] Parse MDX files into CLI command structure
+- [ ] Render React components in terminal
+- [ ] Support commander.js-style API
+- [ ] Include example CLI app
+
+## Dependencies
+- **todo-abc** (closed): Set up monorepo infrastructure
+  Initial project setup and build configuration
+
+## Project Context
+
+[Contents of CLAUDE.md if present]
+
+---
+
+Please work on this task. When complete, update the issue status.
+```
+
+### Resuming Sessions
+
+Sessions run until completion and cannot be resumed across restarts. If you need to:
+
+- **Stop a session** - Press Ctrl+C or kill the process
+- **Continue work** - Run `claude.mdx work <issue-id>` again (starts fresh)
+- **Switch issues** - Sessions are independent, start a new one with `claude.mdx next`
+
+In daemon mode, interrupted sessions are not automatically resumed. Manual intervention is required.
+
+## Beads Integration
+
+claude.mdx is tightly integrated with the beads issue tracker via the `bd` CLI.
+
+### Issue Selection
+
+Issues must be **ready** to be picked by `next` or `daemon`:
+
+1. **Status** - Must be `open` (not `in_progress`, `blocked`, or `closed`)
+2. **Dependencies** - All blocking dependencies must be `closed`
+3. **Priority** - Can filter by priority threshold
+
+**Check ready issues:**
+
+```bash
+bd ready                  # All ready issues
+bd ready --priority=1     # P1 ready issues
+bd ready --limit=10       # Top 10 ready issues
+```
+
+**Example:**
+
+```bash
+$ bd ready
+
+todo-4fh [P1] Create cli.mdx package
+  Status: open
+  Type: feature
+  No blockers
+
+todo-8mg [P1] Export Payload via Workers RPC
+  Status: open
+  Type: feature
+  No blockers
+
+todo-vm0 [P2] Workflow MDX parser
+  Status: open
+  Type: task
+  No blockers
+```
+
+### Status Updates
+
+claude.mdx automatically updates issue status:
+
+- **Before session starts** - `open` → `in_progress`
+- **Manual close** - Use `bd close <issue-id>` after session completes
+- **Future enhancement** - Auto-close on successful completion
+
+**Manual workflow:**
+
+```bash
+# Let Claude work on it
+claude.mdx work todo-4fh
+
+# [Session completes successfully]
+
+# Close the issue manually
+bd close todo-4fh --reason="Implemented by Claude Code"
+
+# Verify closure
+bd show todo-4fh
+```
+
+### Issue Dependencies
+
+Dependencies affect issue readiness:
+
+```bash
+# Create issue with dependency
+bd create --title="Deploy to production" --deps=todo-auth
+
+# Issue is blocked until todo-auth is closed
+bd show todo-deploy
+# Status: blocked
+# Blocked by: todo-auth (Implement authentication)
+
+# Close blocker
+bd close todo-auth
+
+# Now ready to work
+bd ready
+# todo-deploy [P1] Deploy to production
+```
+
+## Configuration
+
+### Environment Variables
+
+claude.mdx respects these environment variables:
+
+```bash
+# Working directory for Claude Code sessions
+CLAUDE_MDX_WORK_DIR=/path/to/project
+
+# Additional Claude Code flags
+CLAUDE_MDX_FLAGS="--verbose --model=opus"
+
+# Max parallel sessions (daemon mode)
+CLAUDE_MDX_MAX_PARALLEL=3
+
+# Poll interval in seconds (daemon mode)
+CLAUDE_MDX_INTERVAL=30
+```
+
+**Example:**
+
+```bash
+export CLAUDE_MDX_MAX_PARALLEL=5
+export CLAUDE_MDX_INTERVAL=60
+claude.mdx daemon
+```
+
+### Config File
+
+Create `.claude-mdx.json` in your project root:
+
+```json
+{
+  "maxParallelSessions": 3,
+  "pollInterval": 30000,
+  "workingDirectory": ".",
+  "claudeFlags": ["--verbose"],
+  "priorityThreshold": 1
+}
+```
+
+**Schema:**
+
+```typescript
+interface OrchestratorConfig {
+  maxParallelSessions?: number    // Default: 2
+  pollInterval?: number           // In milliseconds, default: 30000
+  workingDirectory?: string       // Default: process.cwd()
+  claudeFlags?: string[]          // Additional flags for claude CLI
+  priorityThreshold?: number      // Only work on P{threshold} or higher
+}
+```
+
+## Daemon Mode
+
+### Starting the Daemon
+
+Daemon mode continuously monitors for ready issues and maintains multiple parallel sessions:
+
+```bash
+# Basic daemon
+claude.mdx daemon
+
+# Production daemon with monitoring
+claude.mdx daemon \
+  --max-parallel=5 \
+  --interval=60 \
+  --priority=1 \
+  > daemon.log 2>&1 &
+
+# Save PID for later
+echo $! > daemon.pid
+```
+
+### Monitoring
+
+The daemon prints status updates:
+
+```bash
+# Real-time logs
+tail -f daemon.log
+
+# Stats every minute
+[10:30:15] Stats: 5 ready, 2 in progress, 2 active sessions
+[10:31:15] Stats: 4 ready, 3 in progress, 2 active sessions
+[10:32:15] Stats: 4 ready, 3 in progress, 3 active sessions
+
+# Session lifecycle
+[10:30:15] Starting session for todo-4fh: Create cli.mdx package
+[10:35:42] Session todo-4fh completed (exit code: 0)
+[10:35:45] Starting session for todo-vm0: Workflow MDX parser
+
+# Errors
+[10:40:22] Failed to start session for todo-xyz: Issue is blocked
+```
+
+### Stopping the Daemon
+
+```bash
+# Graceful shutdown (Ctrl+C if running in foreground)
+kill -TERM $(cat daemon.pid)
+
+# Force stop
+kill -9 $(cat daemon.pid)
+```
+
+**Note:** Currently, stopping the daemon does not gracefully stop running sessions. Sessions continue until they complete or are manually killed.
+
+## Programmatic Usage
+
+Use claude.mdx as a library in your own tools:
+
+```typescript
+import {
+  spawnSession,
+  getReadyIssues,
+  updateIssueStatus,
+  closeIssue
+} from '@todo.mdx/claude.mdx'
+
+// Get ready issues
+const issues = await getReadyIssues({ limit: 5 })
+
+// Pick highest priority
+const issue = issues[0]
+
+// Update status
+await updateIssueStatus(issue.id, 'in_progress')
+
+// Spawn session
+const session = await spawnSession(issue, {
+  cwd: process.cwd(),
+  interactive: false
+})
+
+// Wait for completion
+await session.process
+
+// Check result
+if (session.status === 'completed' && session.exitCode === 0) {
+  await closeIssue(issue.id, 'Completed by Claude Code')
+  console.log(`✓ ${issue.id} completed`)
+} else {
+  console.error(`✗ ${issue.id} failed (exit code: ${session.exitCode})`)
+}
+```
+
+### API Reference
+
+**Beads Integration:**
+
+```typescript
+// Get ready issues (no blockers)
+async function getReadyIssues(options?: {
+  priority?: number
+  limit?: number
+}): Promise<Issue[]>
+
+// Get specific issue
+async function getIssue(issueId: string): Promise<Issue>
+
+// List issues with filters
+async function listIssues(options?: {
+  status?: 'open' | 'in_progress' | 'blocked' | 'closed'
+  type?: 'bug' | 'feature' | 'task' | 'epic' | 'chore'
+  priority?: number
+  limit?: number
+}): Promise<Issue[]>
+
+// Update issue status
+async function updateIssueStatus(
+  issueId: string,
+  status: 'open' | 'in_progress' | 'blocked' | 'closed'
+): Promise<void>
+
+// Close issue
+async function closeIssue(
+  issueId: string,
+  reason?: string
+): Promise<void>
+
+// Get statistics
+async function getStats(): Promise<{
+  total: number
+  open: number
+  in_progress: number
+  closed: number
+  blocked: number
+  ready: number
+}>
+```
+
+**Session Management:**
+
+```typescript
+// Spawn Claude Code session
+async function spawnSession(
+  issue: Issue,
+  options?: {
+    cwd?: string
+    flags?: string[]
+    interactive?: boolean
+  }
+): Promise<Session>
+
+// Get session by issue ID
+function getSession(issueId: string): Session | undefined
+
+// Get all sessions
+function getAllSessions(): Session[]
+
+// Get running sessions only
+function getRunningSessions(): Session[]
+
+// Stop a session
+async function stopSession(issueId: string): Promise<void>
+
+// Wait for session to complete
+async function waitForSession(issueId: string): Promise<Session>
+
+// Clear completed sessions from memory
+function clearCompletedSessions(): void
+
+// Render context for an issue
+async function renderContext(
+  issue: Issue,
+  cwd?: string
+): Promise<string>
+```
+
+## Integration
+
+claude.mdx is part of the todo.mdx ecosystem:
+
+### With beads
+
+beads provides the issue tracking layer:
+
+```bash
+# Create and manage issues
+bd create --title="Add feature X"
+bd list --status=open
+bd ready
+
+# claude.mdx consumes beads data
+claude.mdx next
+```
+
+### With todo.mdx
+
+todo.mdx renders beads issues to markdown:
+
+```mdx
+<!-- TODO.mdx -->
+## Ready to Work
+<Issues.Ready limit={5} />
+```
+
+Compiles to:
+
+```markdown
+## Ready to Work
+- [ ] **todo-4fh** [P1]: Create cli.mdx package
+- [ ] **todo-8mg** [P1]: Export Payload via Workers RPC
+```
+
+Claude Code reads this context when working on issues.
+
+### With agents.mdx
+
+agents.mdx orchestrates multi-agent workflows:
+
+```mdx
+<!-- AGENTS.mdx -->
+<Agent name="claude">
+  <Tool name="claude.mdx" />
+  <Workflow>
+    1. Check bd ready
+    2. Pick highest priority issue
+    3. Spawn Claude Code session
+    4. Monitor progress
+    5. Close issue on success
+  </Workflow>
+</Agent>
+```
+
+## Troubleshooting
+
+### Claude CLI not found
+
+```bash
+$ claude.mdx work todo-abc
+Error: Claude CLI not found. Please install Claude Code first.
+```
+
+**Solution:** Install Claude Code from Anthropic's official distribution.
+
+### Beads CLI not found
+
+```bash
+$ claude.mdx next
+Error: beads (bd) CLI not found.
+
+Install beads:
+  npm install -g beads-workflows
+  bd init
+```
+
+**Solution:** Install beads and initialize in your project.
+
+### No ready issues
+
+```bash
+$ claude.mdx next
+Fetching ready issues...
+No ready issues found.
+
+Try:
+  bd list --status=open
+  bd blocked
+```
+
+**Solution:** Check for open issues or blocked dependencies with `bd blocked`.
+
+### Session already running
+
+```bash
+$ claude.mdx work todo-abc
+Error: Session already running for issue todo-abc
+```
+
+**Solution:** Wait for existing session to complete, or stop it first (implementation pending).
+
+### Issue is blocked
+
+```bash
+$ claude.mdx work todo-xyz
+
+Found: Deploy to production
+Type: task, Priority: 1, Status: blocked
+
+Warning: This issue is marked as blocked
+Blockers:
+  - todo-auth: Implement authentication (in_progress)
+```
+
+**Solution:** Complete blocking issues first, or use `--force` flag (implementation pending).
+
+## Examples
+
+### Batch processing
+
+Process all P1 issues:
+
+```bash
+#!/bin/bash
+for issue in $(bd ready --priority=1 --json | jq -r '.[].id'); do
+  claude.mdx work $issue
+
+  # Check exit status
+  if [ $? -eq 0 ]; then
+    bd close $issue --reason="Completed by Claude Code"
+  fi
+done
+```
+
+### Custom workflow
+
+Integrate with your CI/CD:
+
+```typescript
+import { getReadyIssues, spawnSession, closeIssue } from '@todo.mdx/claude.mdx'
+import { exec } from 'child_process'
+
+async function autoImplement() {
+  const issues = await getReadyIssues({ priority: 1, limit: 1 })
+
+  if (issues.length === 0) {
+    console.log('No ready P1 issues')
+    return
+  }
+
+  const issue = issues[0]
+  console.log(`Working on ${issue.id}: ${issue.title}`)
+
+  // Spawn session
+  const session = await spawnSession(issue, { interactive: false })
+
+  // Wait for completion
+  await session.process
+
+  if (session.status === 'completed' && session.exitCode === 0) {
+    // Run tests
+    const testsPass = await runTests()
+
+    if (testsPass) {
+      // Create PR
+      await createPR(issue)
+
+      // Close issue
+      await closeIssue(issue.id, 'Implemented and tested by Claude Code')
+
+      console.log(`✓ ${issue.id} complete - PR created`)
+    } else {
+      console.log(`✗ ${issue.id} tests failed`)
+    }
+  }
+}
+
+function runTests(): Promise<boolean> {
+  return new Promise((resolve) => {
+    exec('npm test', (error) => resolve(!error))
+  })
+}
+```
+
+### Monitoring dashboard
+
+Real-time status monitoring:
+
+```typescript
+import { getRunningSessions, getStats } from '@todo.mdx/claude.mdx'
+
+setInterval(async () => {
+  const sessions = getRunningSessions()
+  const stats = await getStats()
+
+  console.clear()
+  console.log('claude.mdx Dashboard')
+  console.log('===================')
+  console.log()
+  console.log(`Running sessions: ${sessions.length}`)
+  console.log(`Ready issues: ${stats.ready}`)
+  console.log(`In progress: ${stats.in_progress}`)
+  console.log(`Blocked: ${stats.blocked}`)
+  console.log()
+
+  for (const session of sessions) {
+    const duration = Date.now() - session.startedAt.getTime()
+    const minutes = Math.floor(duration / 60000)
+    console.log(`${session.id}: ${session.issue.title} (${minutes}m)`)
+  }
+}, 5000)
+```
+
+## Next Steps
+
+- [beads Documentation](https://github.com/beads-workflows/beads) - Issue tracking
+- [todo.mdx Package](/docs/todo-mdx) - MDX compilation
+- [agents.mdx Workflows](/docs/agents-workflows) - Multi-agent orchestration
+- [Architecture](/docs/architecture) - System overview

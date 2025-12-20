@@ -1,0 +1,1158 @@
+---
+title: roadmap.mdx
+description: MDX components for roadmap and milestone tracking
+---
+
+# roadmap.mdx
+
+**Sync ROADMAP.mdx with GitHub Milestones, Projects, and beads epics.**
+
+roadmap.mdx is the roadmap component of the todo.mdx ecosystem. It provides bidirectional sync between ROADMAP.mdx templates, .roadmap/*.md files, GitHub Milestones, GitHub Projects, and beads epics. Define your roadmap once in MDX, render to markdown, and keep everything in sync.
+
+## Installation
+
+```bash
+npm install @todo.mdx/roadmap.mdx
+# or
+pnpm add @todo.mdx/roadmap.mdx
+# or
+bun add @todo.mdx/roadmap.mdx
+```
+
+## Quick Start
+
+### 1. Initialize
+
+```bash
+npx roadmap.mdx init
+```
+
+This creates `ROADMAP.mdx` with a default template:
+
+```mdx
+---
+title: Roadmap
+beads: true
+filePattern: "[id]-[title].mdx"
+---
+
+# {title}
+
+<Stats />
+
+## Active Epics
+
+<Epics.Active />
+
+## Milestones
+
+<Milestones.Open />
+
+## Completed
+
+<Epics status="closed" />
+```
+
+### 2. Compile to Markdown
+
+```bash
+npx roadmap.mdx
+```
+
+This compiles `ROADMAP.mdx` to `ROADMAP.md`:
+
+```markdown
+# Roadmap
+
+**8/15 complete · 3 milestones · 2 active epics**
+
+## Active Epics
+
+- → **Core Infrastructure** - 60% (3/5)
+- ○ **Developer Experience** - 25% (1/4)
+
+## Milestones
+
+### v1.0 Beta (75%)
+
+Due: 2025-01-15
+
+- [x] Create todo.mdx package
+- [x] Add component registry
+- [ ] Write documentation
+- [ ] Deploy to production
+
+### v0.9 Alpha (100%)
+
+Due: 2024-12-20
+
+- [x] Setup monorepo
+- [x] Create beads integration
+
+## Completed
+
+- ✓ **Project Setup**
+```
+
+### 3. Watch Mode
+
+```bash
+npx roadmap.mdx --watch
+```
+
+## Components
+
+roadmap.mdx provides MDX components that render milestone and epic data from multiple sources (beads, GitHub, .roadmap files).
+
+### Roadmap
+
+Main roadmap component that renders everything: milestones, epics, and backlog.
+
+```mdx
+<Roadmap />
+<Roadmap title="Product Roadmap" />
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `title` | string | "Roadmap" | Roadmap title |
+
+**Output:**
+
+```markdown
+# Product Roadmap
+
+8/15 complete · 3 milestones
+
+## v1.0 Beta (75%)
+
+Due: 2025-01-15
+
+- [x] Feature A
+- [ ] Feature B
+
+## Backlog
+
+- [ ] Feature C
+- [ ] Feature D
+```
+
+### Milestones
+
+Render milestone data with progress tracking.
+
+```mdx
+<!-- All milestones -->
+<Milestones />
+
+<!-- Open milestones only -->
+<Milestones.Open />
+```
+
+**Output:**
+
+```markdown
+## v1.0 Beta (75%)
+
+Due: 2025-01-15
+
+- [x] Create todo.mdx package
+- [ ] Write documentation
+
+## v2.0 Planning (0%)
+
+Due: 2025-03-01
+
+_No issues_
+```
+
+### Epics
+
+Render epic data from beads with progress tracking.
+
+```mdx
+<!-- All epics -->
+<Epics />
+
+<!-- Active epics only (non-closed) -->
+<Epics.Active />
+```
+
+**Output:**
+
+```markdown
+- ✓ **Project Setup** - 100% (5/5)
+- → **Core Infrastructure** - 60% (3/5)
+- ○ **Developer Experience** - 25% (1/4)
+```
+
+**Legend:**
+- ✓ = Closed
+- → = In Progress
+- ○ = Open
+
+### Stats
+
+Render roadmap statistics: completion, milestones, epics.
+
+```mdx
+<Stats />
+```
+
+**Output:**
+
+```markdown
+**8/15 complete · 3 milestones · 2 active epics · 1 completed**
+```
+
+## CLI Commands
+
+### Compile
+
+Compile ROADMAP.mdx to ROADMAP.md:
+
+```bash
+npx roadmap.mdx
+```
+
+**Options:**
+
+```bash
+-o, --output <file>   Output file (default: ROADMAP.md)
+-q, --quiet           Suppress output
+```
+
+**Examples:**
+
+```bash
+# Compile with custom output
+npx roadmap.mdx -o docs/ROADMAP.md
+
+# Quiet mode (no output)
+npx roadmap.mdx --quiet
+```
+
+### Initialize
+
+Create ROADMAP.mdx template:
+
+```bash
+npx roadmap.mdx init
+```
+
+If ROADMAP.mdx already exists, this command will exit without overwriting.
+
+### Watch Mode
+
+Watch for changes and recompile automatically:
+
+```bash
+npx roadmap.mdx --watch
+```
+
+Note: Watch mode is planned but not yet implemented.
+
+## Configuration
+
+### Frontmatter Options
+
+Configure roadmap.mdx behavior in ROADMAP.mdx frontmatter:
+
+```mdx
+---
+# Basic settings
+title: Product Roadmap
+
+# Data sources
+beads: true                # Load epics from beads (default: true)
+owner: acme-corp           # GitHub owner/org
+repo: my-project           # GitHub repo name
+projectNumber: 3           # GitHub Project number for cross-repo sync
+
+# File generation
+filePattern: "[id]-[title].md"  # Pattern for .roadmap/*.md files
+---
+```
+
+**Complete reference:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `title` | string | "Roadmap" | Roadmap title |
+| `beads` | boolean | true | Load epics from beads |
+| `owner` | string | - | GitHub owner/org name |
+| `repo` | string | - | GitHub repo name |
+| `projectNumber` | number | - | GitHub Project number |
+| `filePattern` | string | `[id]-[title].md` | File naming pattern |
+
+**File Pattern Tokens:**
+
+Available tokens for `filePattern`:
+- `[id]` - Milestone ID
+- `[title]` - Slugified milestone title
+- `[state]` - Milestone state (open/closed)
+- `[number]` - GitHub milestone number
+
+Examples:
+- `[id]-[title].md` → `v1-0-beta.md`
+- `[number]-[title].md` → `1-beta-release.md`
+- `milestone-[id].mdx` → `milestone-v1-0.mdx`
+
+### Variable Interpolation
+
+Use frontmatter variables in your template with `{variable}` syntax:
+
+```mdx
+---
+title: Product Roadmap
+version: v1.0
+deadline: 2025-01-15
+---
+
+# {title}
+
+Current version: {version}
+Target deadline: {deadline}
+
+<Milestones.Open />
+```
+
+## GitHub Milestones Sync
+
+roadmap.mdx syncs with GitHub Milestones automatically when you provide `owner` and `repo` in frontmatter.
+
+### Authentication
+
+Set the `GITHUB_TOKEN` environment variable:
+
+```bash
+export GITHUB_TOKEN=ghp_your_token_here
+npx roadmap.mdx
+```
+
+The token needs the following scopes:
+- `repo` - Access repository data
+- `read:org` - Read organization data (for org repos)
+
+### Data Flow
+
+```
+GitHub Milestones ←→ roadmap.mdx ←→ .roadmap/*.md files ←→ beads epics
+```
+
+**Priority order for milestone data:**
+1. `.roadmap/*.md` files (highest priority)
+2. GitHub Milestones
+3. beads epics (lowest priority)
+
+### Milestone Mapping
+
+GitHub milestones are mapped to roadmap.mdx format:
+
+```typescript
+{
+  id: string              // "github-{number}"
+  githubId: number        // GitHub milestone ID
+  githubNumber: number    // Milestone number
+  title: string
+  description: string
+  state: "open" | "closed"
+  dueOn: string          // ISO 8601 date
+  progress: {
+    open: number         // Open issues
+    closed: number       // Closed issues
+    percent: number      // Completion percentage
+  }
+}
+```
+
+### GitHub Projects
+
+For cross-repository roadmaps, use GitHub Projects:
+
+```mdx
+---
+title: Multi-Repo Roadmap
+owner: acme-corp
+projectNumber: 3
+---
+
+# {title}
+
+<Milestones />
+```
+
+This pulls milestones from all repos in the project.
+
+## Epic Integration
+
+roadmap.mdx integrates with beads epics for local roadmap tracking.
+
+### beads Epics
+
+Enable beads integration in frontmatter:
+
+```mdx
+---
+beads: true
+---
+
+<Epics.Active />
+```
+
+This loads epics from `.beads/issues.jsonl` and calculates progress:
+
+```typescript
+{
+  id: string
+  beadsId: string
+  title: string
+  description: string
+  status: "open" | "in_progress" | "closed"
+  children: string[]      // Child issue IDs
+  progress: {
+    total: number         // Total child issues
+    completed: number     // Completed children
+    percent: number       // Completion percentage
+  }
+}
+```
+
+### Creating Epics
+
+Use the beads CLI to create epics:
+
+```bash
+# Create an epic
+bd create --type epic --title "Core Infrastructure"
+
+# Create child issues
+bd create --title "Setup monorepo" --epic todo-abc
+bd create --title "Add CI/CD" --epic todo-abc
+bd create --title "Deploy to production" --epic todo-abc
+```
+
+Then render in ROADMAP.mdx:
+
+```mdx
+<Epics.Active />
+```
+
+Output:
+
+```markdown
+- ○ **Core Infrastructure** - 0% (0/3)
+```
+
+As you complete child issues, the epic progress updates automatically.
+
+## .roadmap Files
+
+Generate individual milestone files in `.roadmap/`:
+
+### File Structure
+
+```markdown
+---
+id: v1-0-beta
+title: "v1.0 Beta"
+state: open
+github_number: 1
+beads_id: epic-abc
+due_on: 2025-01-15
+---
+
+# v1.0 Beta
+
+Complete core features and prepare for beta release.
+
+- [ ] Feature A
+- [x] Feature B
+- [ ] Feature C
+```
+
+### Parsing
+
+roadmap.mdx automatically parses `.roadmap/*.md` files:
+
+```typescript
+import { parseRoadmapFile, calculateProgress } from '@todo.mdx/roadmap.mdx'
+
+const content = await readFile('.roadmap/v1-0-beta.md', 'utf-8')
+const parsed = parseRoadmapFile(content)
+
+console.log(parsed.milestone.title)  // "v1.0 Beta"
+console.log(parsed.milestone.state)  // "open"
+
+const progress = calculateProgress(content)
+console.log(progress)  // { open: 2, closed: 1, percent: 33 }
+```
+
+### Task Extraction
+
+Extract checkbox tasks from milestone files:
+
+```typescript
+import { extractTasks } from '@todo.mdx/roadmap.mdx'
+
+const tasks = extractTasks(content)
+// [
+//   { checked: false, text: "Feature A" },
+//   { checked: true, text: "Feature B" },
+//   { checked: false, text: "Feature C" }
+// ]
+```
+
+## Integration
+
+### With todo.mdx
+
+Use roadmap components in TODO.mdx:
+
+```mdx
+---
+title: Project TODO
+---
+
+# {title}
+
+## Current Sprint
+
+<Issues.Ready limit={5} />
+
+## Roadmap
+
+<Milestones.Open />
+```
+
+### With beads
+
+roadmap.mdx reads beads epics automatically:
+
+```bash
+# Create epic
+bd create --type epic --title "v1.0 Launch"
+
+# Create child issues
+bd create --title "Feature A" --epic todo-xyz
+bd create --title "Feature B" --epic todo-xyz
+
+# Render roadmap
+npx roadmap.mdx
+```
+
+Output in ROADMAP.md:
+
+```markdown
+## Active Epics
+
+- ○ **v1.0 Launch** - 0% (0/2)
+```
+
+### Programmatic API
+
+Use roadmap.mdx programmatically:
+
+```typescript
+import { compile, render, generateRoadmapFiles } from '@todo.mdx/roadmap.mdx'
+
+// Compile ROADMAP.mdx to ROADMAP.md
+const output = await compile({
+  input: 'ROADMAP.mdx',
+  output: 'ROADMAP.md',
+  roadmapDir: '.roadmap',
+  config: {
+    owner: 'acme-corp',
+    repo: 'my-project',
+    beads: true
+  }
+})
+
+// Render roadmap data to markdown
+const markdown = render({
+  milestones: [...],
+  epics: [...],
+  issues: [...],
+  title: 'Product Roadmap'
+})
+
+// Generate .roadmap/*.md files
+const files = await generateRoadmapFiles({
+  roadmapDir: '.roadmap',
+  milestones: [...]
+})
+```
+
+## Custom Components
+
+Register custom components for ROADMAP.mdx:
+
+```typescript
+import { registerComponent } from '@todo.mdx/roadmap.mdx'
+
+// Simple component
+registerComponent('DeadlineWarning', (props) => {
+  const urgent = milestones.filter(m =>
+    new Date(m.dueOn) < new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+  )
+
+  if (urgent.length === 0) return ''
+
+  return `⚠️ ${urgent.length} milestone${urgent.length > 1 ? 's' : ''} due within 7 days\n`
+})
+
+// Use in ROADMAP.mdx
+// <DeadlineWarning />
+```
+
+### Component Props
+
+Components receive props from MDX:
+
+```typescript
+registerComponent('MilestonesByQuarter', (props) => {
+  const quarter = props.quarter as string  // "Q1", "Q2", etc.
+  const year = props.year as number || new Date().getFullYear()
+
+  // Filter milestones by quarter
+  const filtered = milestones.filter(m => {
+    const date = new Date(m.dueOn)
+    return getQuarter(date) === quarter && date.getFullYear() === year
+  })
+
+  return toMarkdown({
+    name: `${quarter} ${year}`,
+    sections: filtered.map(m => ({
+      name: m.title,
+      content: m.description || ''
+    }))
+  })
+})
+```
+
+Use in ROADMAP.mdx:
+
+```mdx
+## Q1 2025
+
+<MilestonesByQuarter quarter="Q1" year={2025} />
+```
+
+### Component Registry
+
+Manage components programmatically:
+
+```typescript
+import {
+  registerComponent,
+  getComponent,
+  listComponents,
+  hasComponent,
+  unregisterComponent
+} from '@todo.mdx/roadmap.mdx'
+
+// Register
+registerComponent('MyComponent', (props) => '...')
+
+// Check if registered
+if (hasComponent('MyComponent')) {
+  const component = getComponent('MyComponent')
+}
+
+// List all components
+const all = listComponents()
+console.log(all.map(c => c.name))
+// ["Roadmap", "Milestones", "Milestones.Open", "Epics", ...]
+
+// Unregister
+unregisterComponent('MyComponent')
+```
+
+## Advanced Usage
+
+### Multi-Repo Roadmaps
+
+Track milestones across multiple repositories using GitHub Projects:
+
+```mdx
+---
+title: Platform Roadmap
+owner: acme-corp
+projectNumber: 1
+---
+
+# {title}
+
+This roadmap tracks work across all platform repositories.
+
+<Stats />
+
+<Milestones.Open />
+```
+
+### Dynamic Milestone Groups
+
+Group milestones by quarter or theme:
+
+```mdx
+---
+title: 2025 Roadmap
+---
+
+# {title}
+
+## Q1 2025 (Jan-Mar)
+
+<Milestones.Open />
+
+## Future (Q2+)
+
+<Milestones state="open" afterDate="2025-04-01" />
+```
+
+Note: Custom filtering like `afterDate` requires implementing custom components.
+
+### Progress Visualization
+
+Create custom progress visualizations:
+
+```typescript
+registerComponent('ProgressBar', (props) => {
+  const milestoneId = props.id as string
+  const milestone = milestones.find(m => m.id === milestoneId)
+
+  if (!milestone) return ''
+
+  const percent = milestone.progress.percent
+  const filled = Math.round(percent / 5)
+  const empty = 20 - filled
+
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${percent}%\n`
+})
+```
+
+Use in ROADMAP.mdx:
+
+```mdx
+### v1.0 Beta
+
+<ProgressBar id="v1-0-beta" />
+```
+
+Output:
+
+```markdown
+### v1.0 Beta
+
+[███████████████░░░░░] 75%
+```
+
+## TypeScript API
+
+### Types
+
+```typescript
+import type {
+  Milestone,
+  Epic,
+  Project,
+  ProjectField,
+  ProjectItem,
+  RoadmapConfig,
+  ParsedRoadmapFile,
+  SyncSource,
+  SyncResult,
+  Component,
+  ComponentProps,
+  ComponentRenderer
+} from '@todo.mdx/roadmap.mdx'
+
+// Milestone
+const milestone: Milestone = {
+  id: 'v1-0',
+  githubId: 123,
+  githubNumber: 1,
+  beadsId: 'epic-abc',
+  title: 'v1.0 Beta',
+  description: 'Beta release',
+  state: 'open',
+  dueOn: '2025-01-15',
+  progress: {
+    open: 5,
+    closed: 10,
+    percent: 67
+  },
+  createdAt: '2024-12-01T00:00:00Z',
+  updatedAt: '2024-12-20T10:30:00Z'
+}
+
+// Epic
+const epic: Epic = {
+  id: 'epic-abc',
+  beadsId: 'epic-abc',
+  title: 'Core Infrastructure',
+  description: 'Build core platform',
+  status: 'in_progress',
+  children: ['todo-1', 'todo-2', 'todo-3'],
+  progress: {
+    total: 3,
+    completed: 1,
+    percent: 33
+  },
+  createdAt: '2024-12-01T00:00:00Z',
+  updatedAt: '2024-12-20T10:30:00Z'
+}
+```
+
+### Compiler API
+
+```typescript
+import { compile } from '@todo.mdx/roadmap.mdx'
+
+// Compile with options
+const markdown = await compile({
+  input: 'ROADMAP.mdx',
+  output: 'ROADMAP.md',
+  roadmapDir: '.roadmap',
+  config: {
+    owner: 'acme-corp',
+    repo: 'my-project',
+    beads: true,
+    filePattern: '[id]-[title].md',
+    projectNumber: 3
+  }
+})
+```
+
+### Parser API
+
+```typescript
+import {
+  parseRoadmapFile,
+  extractTasks,
+  calculateProgress
+} from '@todo.mdx/roadmap.mdx'
+
+// Parse .roadmap file
+const parsed = parseRoadmapFile(content)
+console.log(parsed.frontmatter)  // { id: '...', title: '...', ... }
+console.log(parsed.milestone)    // { id, title, state, ... }
+console.log(parsed.content)      // Body content
+
+// Extract tasks
+const tasks = extractTasks(content)
+console.log(tasks)  // [{ checked: true, text: '...' }, ...]
+
+// Calculate progress
+const progress = calculateProgress(content)
+console.log(progress)  // { open: 5, closed: 3, percent: 37 }
+```
+
+### Render API
+
+```typescript
+import { render, toMarkdown } from '@todo.mdx/roadmap.mdx'
+
+// Render roadmap data
+const markdown = render({
+  milestones: [...],
+  epics: [...],
+  issues: [...],
+  title: 'Roadmap'
+})
+
+// Use toMarkdown directly
+const md = toMarkdown({
+  name: 'Roadmap',
+  description: '8/15 complete · 3 milestones',
+  sections: [
+    {
+      name: 'v1.0 Beta (75%)',
+      content: '- [x] Feature A\n- [ ] Feature B'
+    }
+  ]
+})
+```
+
+## Best Practices
+
+### 1. One Source of Truth
+
+Choose a primary data source and sync from there:
+
+```mdx
+---
+# Primary: beads epics
+beads: true
+
+# Secondary: sync to GitHub
+owner: acme-corp
+repo: my-project
+---
+```
+
+### 2. Descriptive Milestone Files
+
+Keep `.roadmap/*.md` files descriptive:
+
+```markdown
+---
+id: v1-0-beta
+title: "v1.0 Beta Release"
+state: open
+due_on: 2025-01-15
+---
+
+# v1.0 Beta Release
+
+Goal: Launch beta to early adopters
+
+## Key Features
+
+- [ ] User authentication
+- [ ] Payment integration
+- [ ] Mobile app
+
+## Success Criteria
+
+- 100 beta users
+- <1% error rate
+- 95%+ uptime
+```
+
+### 3. Regular Compilation
+
+Run `npx roadmap.mdx` regularly to keep ROADMAP.md in sync:
+
+```bash
+# Add to package.json scripts
+{
+  "scripts": {
+    "roadmap": "roadmap.mdx",
+    "roadmap:watch": "roadmap.mdx --watch"
+  }
+}
+```
+
+Or add a Git pre-commit hook:
+
+```bash
+#!/bin/bash
+# .git/hooks/pre-commit
+npx roadmap.mdx
+git add ROADMAP.md
+```
+
+### 4. Granular Epics
+
+Break large initiatives into granular epics:
+
+```bash
+# Too broad
+bd create --type epic --title "Launch Product"
+
+# Better
+bd create --type epic --title "Core Authentication"
+bd create --type epic --title "Payment Integration"
+bd create --type epic --title "Mobile App MVP"
+```
+
+### 5. Use Milestones for Time-Boxing
+
+Associate epics with time-boxed milestones:
+
+```mdx
+---
+beads: true
+---
+
+## Q1 2025 (Jan-Mar)
+
+<Epics.Active />
+
+<!-- Epic issues should reference milestone in beads -->
+```
+
+## Troubleshooting
+
+### GitHub Token Issues
+
+If GitHub milestones aren't loading:
+
+```bash
+# Check token is set
+echo $GITHUB_TOKEN
+
+# Verify token scopes at https://github.com/settings/tokens
+# Required: repo, read:org
+
+# Test API access
+curl -H "Authorization: Bearer $GITHUB_TOKEN" \
+  https://api.github.com/repos/owner/repo/milestones
+```
+
+### beads Epics Not Loading
+
+If epics aren't appearing:
+
+```bash
+# Verify beads is initialized
+ls .beads/
+
+# Check for epics
+bd list --type epic
+
+# Verify beads: true in frontmatter
+grep "beads:" ROADMAP.mdx
+```
+
+### Component Not Rendering
+
+If a component shows as raw text:
+
+```mdx
+<!-- Wrong: not registered -->
+<MyCustomComponent />
+
+<!-- Right: must be registered first -->
+```
+
+```typescript
+// Register before compiling
+import { registerComponent } from '@todo.mdx/roadmap.mdx'
+
+registerComponent('MyCustomComponent', (props) => {
+  return 'Component output'
+})
+```
+
+### Progress Not Updating
+
+Progress is calculated from checkbox tasks in milestone files:
+
+```markdown
+<!-- Wrong: no checkboxes -->
+Tasks: Feature A, Feature B
+
+<!-- Right: checkbox format -->
+- [ ] Feature A
+- [x] Feature B
+```
+
+## Examples
+
+### Minimal Roadmap
+
+```mdx
+---
+title: Roadmap
+---
+
+# {title}
+
+<Milestones />
+```
+
+### Beads-Only Roadmap
+
+```mdx
+---
+title: Local Roadmap
+beads: true
+---
+
+# {title}
+
+<Epics.Active />
+```
+
+### GitHub-Synced Roadmap
+
+```mdx
+---
+title: Product Roadmap
+owner: acme-corp
+repo: product
+beads: false
+---
+
+# {title}
+
+<Stats />
+
+<Milestones.Open />
+```
+
+### Multi-Repo Project Roadmap
+
+```mdx
+---
+title: Platform Roadmap
+owner: acme-corp
+projectNumber: 1
+---
+
+# {title}
+
+Tracking work across all platform repos.
+
+<Stats />
+
+## Current Sprint
+
+<Milestones.Open />
+
+## Backlog
+
+<Epics status="open" />
+```
+
+### Custom Component Example
+
+```typescript
+import { registerComponent, compile } from '@todo.mdx/roadmap.mdx'
+
+// Register custom timeline component
+registerComponent('Timeline', (props) => {
+  const milestones = getMilestones()  // From context
+  const sorted = milestones
+    .filter(m => m.dueOn)
+    .sort((a, b) => new Date(a.dueOn!) - new Date(b.dueOn!))
+
+  return sorted.map(m => {
+    const date = new Date(m.dueOn!).toLocaleDateString()
+    const status = m.state === 'closed' ? '✓' : `${m.progress.percent}%`
+    return `- **${date}**: ${m.title} (${status})`
+  }).join('\n')
+})
+
+// Compile
+await compile({ input: 'ROADMAP.mdx', output: 'ROADMAP.md' })
+```
+
+Use in ROADMAP.mdx:
+
+```mdx
+## Timeline
+
+<Timeline />
+```
+
+Output:
+
+```markdown
+## Timeline
+
+- **01/15/2025**: v1.0 Beta (75%)
+- **03/01/2025**: v2.0 Planning (0%)
+- **06/01/2025**: v2.0 Launch (0%)
+```
+
+## Next Steps
+
+- [Getting Started](/docs/getting-started) - Quick start guide for todo.mdx
+- [todo.mdx Package](/docs/todo-mdx) - Main package documentation
+- [Architecture](/docs/architecture) - How roadmap.mdx fits into the ecosystem
+- [API Reference](/docs/api) - REST and MCP endpoints

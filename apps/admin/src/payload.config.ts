@@ -7,6 +7,14 @@ import { CloudflareContext, getCloudflareContext } from '@opennextjs/cloudflare'
 import { GetPlatformProxyOptions } from 'wrangler'
 import { r2Storage } from '@payloadcms/storage-r2'
 
+// Extend CloudflareEnv to include our bindings
+declare global {
+  interface CloudflareEnv {
+    D1: D1Database
+    R2: R2Bucket
+  }
+}
+
 import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Installations } from './collections/Installations'
@@ -14,6 +22,7 @@ import { Repos } from './collections/Repos'
 import { Issues } from './collections/Issues'
 import { Milestones } from './collections/Milestones'
 import { SyncEvents } from './collections/SyncEvents'
+import { LinearIntegrations } from './collections/LinearIntegrations'
 import { migrations } from './migrations'
 
 const filename = fileURLToPath(import.meta.url)
@@ -25,7 +34,7 @@ const isProduction = process.env.NODE_ENV === 'production'
 const cloudflare =
   isCLI || !isProduction
     ? await getCloudflareContextFromWrangler()
-    : await getCloudflareContext({ async: true })
+    : await getCloudflareContext()
 
 export default buildConfig({
   admin: {
@@ -34,7 +43,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents],
+  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations],
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
   typescript: {

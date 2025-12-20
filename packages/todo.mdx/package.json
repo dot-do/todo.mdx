@@ -1,5 +1,5 @@
 {
-  "name": "todo.mdx",
+  "name": "@todo.mdx/core",
   "version": "0.1.0",
   "description": "Bidirectional sync between TODO.mdx templates, .todo/*.md files, GitHub Issues, and beads",
   "type": "module",

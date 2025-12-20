@@ -1,0 +1,1028 @@
+---
+title: todo.mdx
+description: MDX components for issue tracking - compile TODO.mdx to TODO.md
+---
+
+# todo.mdx
+
+**Bidirectional sync between TODO.mdx templates, .todo/*.md files, GitHub Issues, and beads.**
+
+The `todo.mdx` package is the core compiler that transforms MDX templates with live data components into static markdown files. It provides a declarative way to render issue data from multiple sources (beads, GitHub, API) into TODO.md files that both humans and AI agents can read.
+
+## Installation
+
+```bash
+npm install @todo.mdx/core
+# or
+pnpm add @todo.mdx/core
+# or
+bun add @todo.mdx/core
+```
+
+## Quick Start
+
+### 1. Initialize a project
+
+```bash
+npx todo.mdx init
+```
+
+This creates `TODO.mdx` with a default template:
+
+```mdx
+---
+title: TODO
+beads: true
+filePattern: "[id]-[title].mdx"
+---
+
+# {title}
+
+<Stats />
+
+## Ready to Work
+
+<Issues.Ready limit={10} />
+
+## All Open Issues
+
+<Issues.Open />
+
+## Completed
+
+<Issues.Closed />
+```
+
+### 2. Compile to markdown
+
+```bash
+npx todo.mdx
+```
+
+Outputs `TODO.md`:
+
+```markdown
+# TODO
+
+12 open · 3 in progress · 45 closed · 60 total (75% complete)
+
+## Ready to Work
+
+- [ ] **todo-4fh** (P1): Create cli.mdx package
+- [ ] **todo-8mg** (P1): Export Payload via Workers RPC
+- [ ] **todo-vm0** (P1): Workflow MDX parser
+
+## All Open Issues
+
+- [ ] **todo-4fh** (P1): Create cli.mdx package
+- [ ] **todo-8mg** (P1): Export Payload via Workers RPC
+- [ ] **todo-vm0** (P1): Workflow MDX parser
+- [-] **todo-br4** (P1): docs: todo.mdx package reference
+
+## Completed
+
+- [x] **todo-abc** (P1): Initial project setup
+- [x] **todo-xyz** (P2): Configure build system
+```
+
+### 3. Generate individual issue files
+
+```bash
+npx todo.mdx --generate
+```
+
+Creates `.todo/*.md` files:
+
+```
+.todo/
+├── todo-4fh-create-cli-mdx-package.md
+├── todo-8mg-export-payload-via-workers-rpc.md
+└── todo-vm0-workflow-mdx-parser.md
+```
+
+## Components
+
+### Issues
+
+Render filtered lists of issues as markdown checkboxes.
+
+#### `<Issues />`
+
+Renders all issues.
+
+```mdx
+<Issues />
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `limit` | number | ∞ | Maximum number of issues to render |
+
+#### `<Issues.Open />`
+
+Renders open issues (status = 'open').
+
+```mdx
+<Issues.Open />
+<Issues.Open limit={5} />
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `limit` | number | ∞ | Maximum number of issues to render |
+
+**Output:**
+
+```markdown
+- [ ] **todo-4fh** (P1): Create cli.mdx package
+- [ ] **todo-8mg** (P1): Export Payload via Workers RPC
+```
+
+#### `<Issues.InProgress />`
+
+Renders in-progress issues (status = 'in_progress').
+
+```mdx
+<Issues.InProgress />
+<Issues.InProgress limit={3} />
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `limit` | number | ∞ | Maximum number of issues to render |
+
+**Output:**
+
+```markdown
+- [-] **todo-br4** (P1): docs: todo.mdx package reference
+```
+
+#### `<Issues.Closed />`
+
+Renders closed/completed issues (status = 'closed').
+
+```mdx
+<Issues.Closed />
+<Issues.Closed limit={10} />
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `limit` | number | ∞ | Maximum number of issues to render |
+
+**Output:**
+
+```markdown
+- [x] **todo-abc** (P1): Initial project setup
+- [x] **todo-xyz** (P2): Configure build system
+```
+
+#### `<Issues.Ready />`
+
+Renders issues that are ready to work on (open status, no blockers).
+
+```mdx
+<Issues.Ready />
+<Issues.Ready limit={5} />
+```
+
+**Props:**
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `limit` | number | 10 | Maximum number of issues to render |
+
+**Output:**
+
+```markdown
+- [ ] **todo-4fh** (P1): Create cli.mdx package
+- [ ] **todo-8mg** (P1): Export Payload via Workers RPC
+- [ ] **todo-vm0** (P1): Workflow MDX parser
+```
+
+### Stats
+
+Render aggregate statistics about issues.
+
+#### `<Stats />`
+
+Renders a one-line summary of issue statistics.
+
+```mdx
+<Stats />
+```
+
+**Output:**
+
+```markdown
+12 open · 3 in progress · 45 closed · 60 total (75% complete)
+```
+
+## CLI Commands
+
+The `todo.mdx` CLI provides commands for compilation and file generation.
+
+### Compile
+
+Compile TODO.mdx to TODO.md.
+
+```bash
+npx todo.mdx
+```
+
+**Options:**
+
+| Flag | Alias | Type | Description |
+|------|-------|------|-------------|
+| `--output` | `-o` | string | Output file path (default: TODO.md) |
+| `--quiet` | `-q` | boolean | Suppress output messages |
+
+**Examples:**
+
+```bash
+# Default: TODO.mdx → TODO.md
+npx todo.mdx
+
+# Custom output
+npx todo.mdx --output MY-TODO.md
+
+# Quiet mode
+npx todo.mdx --quiet
+```
+
+### Initialize
+
+Create a default TODO.mdx template.
+
+```bash
+npx todo.mdx init
+```
+
+Creates `TODO.mdx` with default configuration and components.
+
+### Generate
+
+Generate individual `.todo/*.md` files from issues.
+
+```bash
+npx todo.mdx --generate
+```
+
+**Options:**
+
+| Flag | Alias | Type | Description |
+|------|-------|------|-------------|
+| `--generate` | `-g` | boolean | Generate .todo/*.md files |
+| `--quiet` | `-q` | boolean | Suppress output messages |
+
+**Examples:**
+
+```bash
+# Generate files
+npx todo.mdx --generate
+
+# Quiet mode
+npx todo.mdx -g -q
+```
+
+### Watch
+
+Watch for changes and recompile automatically.
+
+```bash
+npx todo.mdx --watch
+```
+
+**Note:** Watch mode is currently not implemented.
+
+### Help
+
+Show CLI help.
+
+```bash
+npx todo.mdx --help
+```
+
+## Configuration
+
+### Frontmatter Options
+
+Configure todo.mdx behavior in the frontmatter of your TODO.mdx file.
+
+```mdx
+---
+# Basic metadata
+title: Project TODO
+description: Issue tracking for my project
+
+# Data sources
+beads: true                    # Load issues from beads
+github:
+  repo: owner/repo             # GitHub repository
+  sync: true                   # Enable bidirectional sync
+
+# File generation
+filePattern: "[id]-[title].mdx"  # Pattern for .todo/*.md files
+
+# Output format
+format: md                     # Output format (md or mdx)
+---
+```
+
+**Available Options:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `title` | string | "TODO" | Title for the TODO document |
+| `description` | string | - | Description text |
+| `beads` | boolean | true | Load issues from beads (.beads/issues.jsonl) |
+| `filePattern` | string | "[id]-[title].mdx" | Naming pattern for .todo/*.md files |
+| `format` | "md" \| "mdx" | "md" | Output format |
+
+### Config File
+
+For programmatic configuration, create `todo.mdx.config.ts`:
+
+```typescript
+import type { TodoConfig } from '@todo.mdx/core'
+
+const config: TodoConfig = {
+  owner: 'myorg',
+  repo: 'myrepo',
+  beads: true,
+  filePattern: '[id]-[title].mdx',
+  format: 'md'
+}
+
+export default config
+```
+
+Then use it programmatically:
+
+```typescript
+import { compile } from '@todo.mdx/core'
+import config from './todo.mdx.config.js'
+
+await compile({
+  input: 'TODO.mdx',
+  output: 'TODO.md',
+  config
+})
+```
+
+## Data Sources
+
+todo.mdx can load issue data from multiple sources and merge them intelligently.
+
+### beads (Local Issue Tracking)
+
+The primary data source is beads, a git-based issue tracker.
+
+```mdx
+---
+beads: true
+---
+```
+
+When enabled, todo.mdx:
+1. Finds `.beads/issues.jsonl` in the current directory or parent directories
+2. Loads all issues using the `beads-workflows` SDK
+3. Maps beads fields to todo.mdx `Issue` type
+
+**Field Mapping:**
+
+| beads | todo.mdx |
+|-------|----------|
+| `id` | `id`, `beadsId` |
+| `title` | `title` |
+| `description` | `body` |
+| `status` | `state` (open, in_progress, closed) |
+| `priority` | `priority` (0-4) |
+| `type` | `type` (task, bug, feature) |
+| `labels` | `labels` |
+
+### .todo/*.md Files
+
+Individual markdown files in the `.todo/` directory are also loaded and merged.
+
+Files contain frontmatter with issue metadata:
+
+```markdown
+---
+id: todo-4fh
+title: "Create cli.mdx package"
+state: open
+priority: 1
+type: task
+labels: [enhancement, cli]
+github_number: 42
+beads_id: todo-4fh
+---
+
+# Create cli.mdx package
+
+MDX-based CLI framework for building interactive CLIs with Bun + React.
+
+## Acceptance Criteria
+
+- [ ] Parse MDX files
+- [ ] Render with Ink
+- [ ] Support interactive prompts
+```
+
+**File Issues Override beads:**
+
+If a file exists in `.todo/` with the same ID as a beads issue, the file's data takes precedence. This allows manual edits to persist.
+
+### Data Merging Strategy
+
+1. Load issues from beads (if enabled)
+2. Load issues from `.todo/*.md` files
+3. Create a Map keyed by issue ID
+4. File issues overwrite beads issues with matching IDs
+5. Return merged array
+
+```typescript
+// Simplified merge logic
+const issueMap = new Map<string, Issue>()
+
+// Add beads issues
+for (const issue of beadsIssues) {
+  issueMap.set(issue.id, issue)
+}
+
+// Override with file issues
+for (const issue of fileIssues) {
+  issueMap.set(issue.id, issue)
+}
+
+const issues = Array.from(issueMap.values())
+```
+
+## File Generation
+
+Generate individual `.todo/*.md` files from issue data.
+
+### Pattern Syntax
+
+File patterns use template variables in square brackets:
+
+```
+[id]-[title].mdx          → todo-4fh-create-cli-mdx-package.md
+[type]/[id].mdx           → task/todo-4fh.md
+[priority]-[title].mdx    → p1-create-cli-mdx-package.md
+```
+
+**Available Variables:**
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `[id]` | Issue ID | `todo-4fh` |
+| `[title]` | Slugified title | `create-cli-mdx-package` |
+| `[type]` | Issue type | `task`, `bug`, `feature` |
+| `[state]` | Issue state | `open`, `in_progress`, `closed` |
+| `[priority]` | Priority level | `p0`, `p1`, `p2`, `p3`, `p4` |
+| `[number]` | GitHub issue number | `42` |
+| `[prefix]` | ID prefix | `todo` (from `todo-4fh`) |
+
+### Slugification
+
+Title slugification rules:
+- Convert to lowercase
+- Replace non-alphanumeric characters with `-`
+- Trim leading/trailing dashes
+- Limit to 50 characters
+
+```typescript
+slugify("Create CLI.mdx Package!")
+// → "create-cli-mdx-package"
+```
+
+### Generated File Format
+
+Generated files include frontmatter and markdown content:
+
+```markdown
+---
+id: todo-4fh
+title: "Create cli.mdx package"
+state: open
+priority: 1
+type: task
+labels: [enhancement, cli]
+github_number: 42
+beads_id: todo-4fh
+---
+
+# Create cli.mdx package
+
+MDX-based CLI framework for building interactive CLIs with Bun + React.
+```
+
+### Programmatic API
+
+```typescript
+import { generateTodoFiles } from '@todo.mdx/core'
+
+const files = await generateTodoFiles({
+  todoDir: '.todo',
+  pattern: '[id]-[title].mdx',
+  issues: [
+    {
+      id: 'todo-4fh',
+      title: 'Create cli.mdx package',
+      state: 'open',
+      priority: 1,
+      type: 'task',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }
+  ]
+})
+
+// files: ['.todo/todo-4fh-create-cli-mdx-package.md']
+```
+
+## Integration
+
+### With beads
+
+todo.mdx integrates seamlessly with beads for local issue tracking:
+
+```bash
+# Create issue with beads
+bd create --title "Add authentication"
+
+# Compile to markdown
+npx todo.mdx
+
+# Generate file
+npx todo.mdx --generate
+```
+
+The `.todo/*.md` files can be edited manually and will override beads data during compilation.
+
+### With GitHub Issues
+
+When synced via the todo.mdx GitHub App, issues flow bidirectionally:
+
+1. **GitHub → todo.mdx:** Webhooks update issues in real-time
+2. **todo.mdx → GitHub:** Local edits push back via API
+3. **File fields:** `github_id` and `github_number` link to GitHub
+
+### With Payload CMS
+
+The todo.mdx Worker uses Payload CMS as the database layer:
+
+```typescript
+import { compile } from '@todo.mdx/core'
+
+// Fetch issues from Payload API
+const response = await fetch('https://todo.mdx.do/api/issues')
+const { docs: issues } = await response.json()
+
+// Compile with API data
+await compile({
+  input: 'TODO.mdx',
+  output: 'TODO.md',
+  config: {
+    beads: false  // Disable beads, use API data instead
+  }
+})
+```
+
+## Programmatic API
+
+### `compile(options)`
+
+Compile TODO.mdx to TODO.md.
+
+```typescript
+import { compile } from '@todo.mdx/core'
+
+const result = await compile({
+  input: 'TODO.mdx',
+  output: 'TODO.md',
+  todoDir: '.todo',
+  config: {
+    beads: true,
+    filePattern: '[id]-[title].mdx'
+  }
+})
+
+// result: string (compiled markdown content)
+```
+
+**Parameters:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `input` | string | 'TODO.mdx' | Input MDX file |
+| `output` | string | 'TODO.md' | Output markdown file |
+| `todoDir` | string | '.todo' | Directory for .todo/*.md files |
+| `config` | TodoConfig | {} | Configuration object |
+
+**Returns:** `Promise<string>` - The compiled markdown content
+
+### `generateTodoFiles(options)`
+
+Generate .todo/*.md files from issues.
+
+```typescript
+import { generateTodoFiles } from '@todo.mdx/core'
+
+const files = await generateTodoFiles({
+  todoDir: '.todo',
+  pattern: '[id]-[title].mdx',
+  issues: [...]
+})
+
+// files: string[] (array of created file paths)
+```
+
+**Parameters:**
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `todoDir` | string | '.todo' | Output directory |
+| `pattern` | string | '[id]-[title].mdx' | File naming pattern |
+| `issues` | Issue[] | [] | Array of issues to generate |
+
+**Returns:** `Promise<string[]>` - Array of created file paths
+
+### `parseTodoFile(content)`
+
+Parse a .todo/*.md file and extract issue data.
+
+```typescript
+import { parseTodoFile } from '@todo.mdx/core'
+
+const parsed = parseTodoFile(`---
+id: todo-4fh
+title: "Create cli.mdx package"
+state: open
+---
+
+# Create cli.mdx package
+
+Description here.
+`)
+
+// parsed: ParsedTodoFile
+// {
+//   frontmatter: { id: 'todo-4fh', title: 'Create cli.mdx package', state: 'open' },
+//   content: 'Description here.',
+//   issue: { id: 'todo-4fh', title: 'Create cli.mdx package', state: 'open', body: 'Description here.' }
+// }
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `content` | string | Markdown file content |
+
+**Returns:** `ParsedTodoFile`
+
+```typescript
+interface ParsedTodoFile {
+  frontmatter: Record<string, unknown>
+  content: string
+  issue: Partial<Issue>
+}
+```
+
+### `extractTasks(content)`
+
+Extract all checkbox items from markdown content.
+
+```typescript
+import { extractTasks } from '@todo.mdx/core'
+
+const tasks = extractTasks(`
+- [ ] Todo item 1
+- [x] Completed item 2
+- [ ] Todo item 3
+`)
+
+// tasks: [
+//   { checked: false, text: 'Todo item 1' },
+//   { checked: true, text: 'Completed item 2' },
+//   { checked: false, text: 'Todo item 3' }
+// ]
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `content` | string | Markdown content |
+
+**Returns:** `Array<{ checked: boolean; text: string }>`
+
+### `calculateProgress(content)`
+
+Calculate completion percentage from checkbox tasks.
+
+```typescript
+import { calculateProgress } from '@todo.mdx/core'
+
+const progress = calculateProgress(`
+- [ ] Todo item 1
+- [x] Completed item 2
+- [x] Completed item 3
+`)
+
+// progress: { total: 3, completed: 2, percent: 67 }
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `content` | string | Markdown content |
+
+**Returns:** `{ total: number; completed: number; percent: number }`
+
+### `parsePattern(template)`
+
+Parse a file pattern template and return a pattern object.
+
+```typescript
+import { parsePattern } from '@todo.mdx/core'
+
+const pattern = parsePattern('[id]-[title].mdx')
+
+// pattern: FilePattern
+// {
+//   variables: ['id', 'title'],
+//   separator: '-',
+//   regex: /^([^/]+?)-([^/]+?)\.mdx$/,
+//   format: (issue) => `${issue.id}-${slugify(issue.title)}.md`
+// }
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `template` | string | Pattern template with [variables] |
+
+**Returns:** `FilePattern`
+
+```typescript
+interface FilePattern {
+  variables: string[]
+  separator: string
+  regex: RegExp
+  format: (issue: Issue) => string
+}
+```
+
+### `extractFromFilename(filename, pattern)`
+
+Extract issue data from a filename using a pattern.
+
+```typescript
+import { parsePattern, extractFromFilename } from '@todo.mdx/core'
+
+const pattern = parsePattern('[id]-[title].mdx')
+const data = extractFromFilename('todo-4fh-create-cli-mdx-package.md', pattern)
+
+// data: { id: 'todo-4fh', title: 'create cli mdx package' }
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `filename` | string | Filename to parse |
+| `pattern` | FilePattern | Pattern object from parsePattern() |
+
+**Returns:** `Partial<Issue> | null`
+
+### `slugify(text)`
+
+Convert text to a URL-friendly slug.
+
+```typescript
+import { slugify } from '@todo.mdx/core'
+
+const slug = slugify('Create CLI.mdx Package!')
+// slug: 'create-cli-mdx-package'
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `text` | string | Text to slugify |
+
+**Returns:** `string` - Slugified text (lowercase, dashes, max 50 chars)
+
+## Types
+
+### `Issue`
+
+Core issue type used throughout todo.mdx.
+
+```typescript
+interface Issue {
+  id: string
+  githubId?: number
+  githubNumber?: number
+  beadsId?: string
+  title: string
+  body?: string
+  state: 'open' | 'in_progress' | 'closed'
+  labels?: string[]
+  assignees?: string[]
+  priority?: number
+  type?: 'task' | 'bug' | 'feature'
+  milestone?: string
+  createdAt: string
+  updatedAt: string
+}
+```
+
+### `TodoConfig`
+
+Configuration object for todo.mdx.
+
+```typescript
+interface TodoConfig {
+  owner?: string          // GitHub owner/org name
+  repo?: string           // GitHub repo name
+  beads?: boolean         // Sync with beads
+  filePattern?: string    // File naming pattern for .todo files
+  format?: 'md' | 'mdx'   // Output format
+}
+```
+
+### `Milestone`
+
+Milestone/epic type.
+
+```typescript
+interface Milestone {
+  id: string
+  githubId?: number
+  githubNumber?: number
+  beadsId?: string
+  title: string
+  description?: string
+  state: 'open' | 'closed'
+  dueOn?: string
+  progress?: {
+    open: number
+    closed: number
+    percent: number
+  }
+  createdAt: string
+  updatedAt: string
+}
+```
+
+### `ParsedTodoFile`
+
+Result of parsing a .todo/*.md file.
+
+```typescript
+interface ParsedTodoFile {
+  frontmatter: Record<string, unknown>
+  content: string
+  issue: Partial<Issue>
+}
+```
+
+### `FilePattern`
+
+Parsed file naming pattern.
+
+```typescript
+interface FilePattern {
+  variables: string[]
+  separator: string
+  regex: RegExp
+  format: (issue: Issue) => string
+}
+```
+
+### `SyncResult`
+
+Result of a sync operation.
+
+```typescript
+interface SyncResult {
+  source: 'github' | 'beads' | 'file'
+  target: 'github' | 'beads' | 'file'
+  action: 'created' | 'updated' | 'deleted' | 'skipped'
+  issue?: Issue
+  error?: string
+}
+```
+
+## Advanced Usage
+
+### Custom Templates
+
+Create custom MDX templates for different views:
+
+**TODO.mdx** (main todo list):
+
+```mdx
+---
+title: Project TODO
+beads: true
+---
+
+# {title}
+
+<Stats />
+
+## Ready to Work
+<Issues.Ready limit={5} />
+
+## Blocked
+<Issues.Blocked />
+```
+
+**BACKLOG.mdx** (full backlog):
+
+```mdx
+---
+title: Backlog
+beads: true
+---
+
+# {title}
+
+All open issues, ordered by priority.
+
+<Issues.Open />
+```
+
+Compile both:
+
+```bash
+npx todo.mdx --output TODO.md
+npx todo.mdx BACKLOG.mdx --output BACKLOG.md
+```
+
+### Filtering by Priority
+
+You can manually filter in the template:
+
+```mdx
+## High Priority (P0-P1)
+
+<Issues.Open limit={100} />
+```
+
+Then manually filter the rendered list. Full filtering support is planned.
+
+### Integration with CI/CD
+
+Auto-compile TODO.md on every commit:
+
+```yaml
+# .github/workflows/compile-todo.yml
+name: Compile TODO
+
+on:
+  push:
+    paths:
+      - 'TODO.mdx'
+      - '.beads/issues.jsonl'
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+      - run: bun install
+      - run: bunx todo.mdx
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add TODO.md
+          git commit -m "chore: update TODO.md" || exit 0
+          git push
+```
+
+## Next Steps
+
+- [Getting Started](/docs/getting-started) - Quick start guide
+- [roadmap.mdx Guide](/docs/roadmap-mdx) - Milestone tracking
+- [agents.mdx Workflows](/docs/agents-workflows) - Autonomous development
+- [Architecture](/docs/architecture) - System design

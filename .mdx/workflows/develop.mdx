@@ -1,0 +1,35 @@
+---
+title: Auto-develop Ready Issues
+trigger: issue.ready
+---
+
+# {title}
+
+When an issue becomes ready (no blockers), automatically spawn Claude to implement it.
+
+```typescript
+on.issue.ready(async (issue) => {
+  // Spawn Claude in the cloud
+  const result = await claude.spawn({
+    repo: github.repo,
+    task: issue.description,
+    context: todo.render()
+  })
+
+  // Create PR with the diff
+  const pr = await github.pr.create({
+    branch: `${issue.id}-${slugify(issue.title)}`,
+    title: issue.title,
+    body: `Closes #${issue.id}\n\n${result.summary}`
+  })
+
+  // Code review
+  const review = await claude.review(pr)
+
+  if (review.approved) {
+    await github.pr.merge(pr)
+    await beads.close(issue.id)
+    await slack.notify('#dev', `✅ Merged: ${issue.title}`)
+  }
+})
+```

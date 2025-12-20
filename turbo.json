@@ -1,11 +1,18 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": [
+    "NODE_ENV",
+    "WORKOS_API_KEY",
+    "WORKOS_CLIENT_ID"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "build/**"]
+      "outputs": ["dist/**", ".next/**", ".open-next/**", ".vercel/**", "build/**"],
+      "env": ["NODE_ENV"]
     },
     "dev": {
+      "dependsOn": ["^build"],
       "cache": false,
       "persistent": true
     },
@@ -15,10 +22,16 @@
     },
     "test": {
       "dependsOn": ["build"],
-      "outputs": []
+      "outputs": ["coverage/**"]
     },
     "lint": {
+      "dependsOn": ["^build"],
       "outputs": []
+    },
+    "deploy": {
+      "dependsOn": ["build"],
+      "outputs": [],
+      "cache": false
     }
   }
 }

@@ -1,5 +1,5 @@
 {
-  "name": "claude.mdx",
+  "name": "@todo.mdx/claude.mdx",
   "version": "0.1.0",
   "description": "AI-assisted development orchestrator - dispatches Claude Code sessions to work on TODOs from beads issue tracker",
   "type": "module",

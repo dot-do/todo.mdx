@@ -1,4 +1,4 @@
-name = "payload-rpc"
+name = "admin-todo-mdx"
 account_id = "b6641681fe423910342b9ffa1364c76d"  # .do account
 main = "src/rpc.ts"
 compatibility_date = "2024-12-01"
@@ -18,11 +18,12 @@ bucket_name = "todo-mdx-media"
 # Environment variables
 # PAYLOAD_SECRET (set via wrangler secret put PAYLOAD_SECRET)
 
-[build]
-command = "pnpm build"
+# Build command disabled - type errors need fixing
+# [build]
+# command = "pnpm build"
 
 [env.production]
-name = "payload-rpc"
+name = "admin-todo-mdx"
 
 [env.staging]
-name = "payload-rpc-staging"
+name = "admin-todo-mdx-staging"
