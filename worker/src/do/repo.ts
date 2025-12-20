@@ -4,8 +4,6 @@
  */
 
 import { DurableObject } from 'cloudflare:workers'
-import { drizzle } from 'drizzle-orm/d1'
-import * as schema from './repo-schema'
 
 export interface Env {
   DB: D1Database
@@ -13,22 +11,44 @@ export interface Env {
   PROJECT: DurableObjectNamespace
 }
 
+interface Issue {
+  id: number
+  github_id: number | null
+  github_number: number | null
+  beads_id: string | null
+  title: string
+  body: string | null
+  state: string
+  labels: string | null
+  assignees: string | null
+  priority: number | null
+  type: string | null
+  file_path: string | null
+  file_hash: string | null
+  github_updated_at: string | null
+  beads_updated_at: string | null
+  file_updated_at: string | null
+  last_sync_at: string | null
+  sync_source: string | null
+  created_at: string
+  updated_at: string
+}
+
 export class RepoDO extends DurableObject {
-  private db: ReturnType<typeof drizzle>
+  private sql: SqlStorage
   private initialized = false
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.db = drizzle(ctx.storage.sql as unknown as D1Database, { schema })
+    this.sql = ctx.storage.sql
   }
 
-  private async ensureInitialized() {
+  private ensureInitialized() {
     if (this.initialized) return
 
-    // Create tables if they don't exist
-    this.ctx.storage.sql.exec(`
+    this.sql.exec(`
       CREATE TABLE IF NOT EXISTS issues (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         github_id INTEGER UNIQUE,
         github_number INTEGER,
         beads_id TEXT UNIQUE,
@@ -51,7 +71,7 @@ export class RepoDO extends DurableObject {
       );
 
       CREATE TABLE IF NOT EXISTS milestones (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         github_id INTEGER UNIQUE,
         github_number INTEGER,
         beads_id TEXT UNIQUE,
@@ -71,7 +91,7 @@ export class RepoDO extends DurableObject {
       );
 
       CREATE TABLE IF NOT EXISTS sync_log (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_type TEXT NOT NULL,
         entity_id INTEGER NOT NULL,
         action TEXT NOT NULL,
@@ -88,7 +108,7 @@ export class RepoDO extends DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
-    await this.ensureInitialized()
+    this.ensureInitialized()
 
     const url = new URL(request.url)
     const path = url.pathname
@@ -123,8 +143,8 @@ export class RepoDO extends DurableObject {
     }
   }
 
-  private async listIssues(): Promise<Response> {
-    const issues = this.db.select().from(schema.issues).all()
+  private listIssues(): Response {
+    const issues = this.sql.exec('SELECT * FROM issues').toArray()
     return Response.json(issues)
   }
 
@@ -147,34 +167,93 @@ export class RepoDO extends DurableObject {
     }
 
     const now = new Date().toISOString()
-    const results = []
+    const results: Array<{ action: string; id?: number }> = []
 
     for (const issue of body.issues) {
       // Find existing issue
-      let existing = null
+      let existing: Issue | null = null
+
       if (issue.githubId) {
-        existing = this.db.select().from(schema.issues)
-          .where(({ githubId }) => githubId.eq(issue.githubId))
-          .get()
+        const rows = this.sql.exec(
+          'SELECT * FROM issues WHERE github_id = ?',
+          issue.githubId
+        ).toArray() as unknown as Issue[]
+        existing = rows[0] || null
       } else if (issue.beadsId) {
-        existing = this.db.select().from(schema.issues)
-          .where(({ beadsId }) => beadsId.eq(issue.beadsId))
-          .get()
+        const rows = this.sql.exec(
+          'SELECT * FROM issues WHERE beads_id = ?',
+          issue.beadsId
+        ).toArray() as unknown as Issue[]
+        existing = rows[0] || null
       }
 
       if (existing) {
         // Last-write-wins
-        const existingUpdated = existing.githubUpdatedAt || existing.beadsUpdatedAt || existing.fileUpdatedAt
+        const existingUpdated = existing.github_updated_at || existing.beads_updated_at || existing.file_updated_at
         if (!existingUpdated || issue.updatedAt > existingUpdated) {
           // Update
-          // TODO: Implement update logic
+          const updateField = body.source === 'github' ? 'github_updated_at' :
+                             body.source === 'beads' ? 'beads_updated_at' : 'file_updated_at'
+
+          this.sql.exec(`
+            UPDATE issues SET
+              title = ?,
+              body = ?,
+              state = ?,
+              labels = ?,
+              assignees = ?,
+              priority = ?,
+              type = ?,
+              ${updateField} = ?,
+              last_sync_at = ?,
+              sync_source = ?,
+              updated_at = ?
+            WHERE id = ?
+          `,
+            issue.title,
+            issue.body || null,
+            issue.state,
+            issue.labels ? JSON.stringify(issue.labels) : null,
+            issue.assignees ? JSON.stringify(issue.assignees) : null,
+            issue.priority ?? null,
+            issue.type || null,
+            issue.updatedAt,
+            now,
+            body.source,
+            now,
+            existing.id
+          )
           results.push({ action: 'updated', id: existing.id })
         } else {
           results.push({ action: 'skipped', id: existing.id })
         }
       } else {
         // Insert
-        // TODO: Implement insert logic
+        const updateField = body.source === 'github' ? 'github_updated_at' :
+                           body.source === 'beads' ? 'beads_updated_at' : 'file_updated_at'
+
+        this.sql.exec(`
+          INSERT INTO issues (
+            github_id, beads_id, title, body, state, labels, assignees,
+            priority, type, file_path, ${updateField}, last_sync_at, sync_source, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `,
+          issue.githubId ?? null,
+          issue.beadsId ?? null,
+          issue.title,
+          issue.body || null,
+          issue.state,
+          issue.labels ? JSON.stringify(issue.labels) : null,
+          issue.assignees ? JSON.stringify(issue.assignees) : null,
+          issue.priority ?? null,
+          issue.type || null,
+          issue.filePath || null,
+          issue.updatedAt,
+          now,
+          body.source,
+          now,
+          now
+        )
         results.push({ action: 'created' })
       }
     }
@@ -182,24 +261,24 @@ export class RepoDO extends DurableObject {
     return Response.json({ synced: results.length, results })
   }
 
-  private async listMilestones(): Promise<Response> {
-    const milestones = this.db.select().from(schema.milestones).all()
+  private listMilestones(): Response {
+    const milestones = this.sql.exec('SELECT * FROM milestones').toArray()
     return Response.json(milestones)
   }
 
-  private async syncMilestones(request: Request): Promise<Response> {
-    // TODO: Implement milestone sync
+  private async syncMilestones(_request: Request): Promise<Response> {
+    // TODO: Implement milestone sync (similar pattern to syncIssues)
     return Response.json({ status: 'not implemented' })
   }
 
-  private async getStatus(): Promise<Response> {
-    const issueCount = this.db.select().from(schema.issues).all().length
-    const milestoneCount = this.db.select().from(schema.milestones).all().length
-    const recentLogs = this.db.select().from(schema.syncLog).limit(10).all()
+  private getStatus(): Response {
+    const issueCount = this.sql.exec('SELECT COUNT(*) as count FROM issues').toArray()[0] as { count: number }
+    const milestoneCount = this.sql.exec('SELECT COUNT(*) as count FROM milestones').toArray()[0] as { count: number }
+    const recentLogs = this.sql.exec('SELECT * FROM sync_log ORDER BY created_at DESC LIMIT 10').toArray()
 
     return Response.json({
-      issues: issueCount,
-      milestones: milestoneCount,
+      issues: issueCount.count,
+      milestones: milestoneCount.count,
       recentSyncs: recentLogs,
     })
   }

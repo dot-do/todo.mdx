@@ -4,8 +4,6 @@
  */
 
 import { DurableObject } from 'cloudflare:workers'
-import { drizzle } from 'drizzle-orm/d1'
-import * as schema from './project-schema'
 
 export interface Env {
   DB: D1Database
@@ -14,20 +12,20 @@ export interface Env {
 }
 
 export class ProjectDO extends DurableObject {
-  private db: ReturnType<typeof drizzle>
+  private sql: SqlStorage
   private initialized = false
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
-    this.db = drizzle(ctx.storage.sql as unknown as D1Database, { schema })
+    this.sql = ctx.storage.sql
   }
 
-  private async ensureInitialized() {
+  private ensureInitialized() {
     if (this.initialized) return
 
-    this.ctx.storage.sql.exec(`
+    this.sql.exec(`
       CREATE TABLE IF NOT EXISTS linked_repos (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         repo_id INTEGER NOT NULL,
         owner TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -36,7 +34,7 @@ export class ProjectDO extends DurableObject {
       );
 
       CREATE TABLE IF NOT EXISTS project_items (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         github_item_id TEXT NOT NULL UNIQUE,
         content_type TEXT NOT NULL,
         content_id INTEGER,
@@ -53,7 +51,7 @@ export class ProjectDO extends DurableObject {
       );
 
       CREATE TABLE IF NOT EXISTS project_fields (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         github_field_id TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
         data_type TEXT NOT NULL,
@@ -63,7 +61,7 @@ export class ProjectDO extends DurableObject {
       );
 
       CREATE TABLE IF NOT EXISTS milestone_mappings (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         title TEXT NOT NULL,
         repo_milestones TEXT NOT NULL,
         due_on TEXT,
@@ -72,7 +70,7 @@ export class ProjectDO extends DurableObject {
       );
 
       CREATE TABLE IF NOT EXISTS sync_log (
-        id INTEGER PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         entity_type TEXT NOT NULL,
         entity_id TEXT NOT NULL,
         action TEXT NOT NULL,
@@ -87,7 +85,7 @@ export class ProjectDO extends DurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
-    await this.ensureInitialized()
+    this.ensureInitialized()
 
     const url = new URL(request.url)
     const path = url.pathname
@@ -130,8 +128,8 @@ export class ProjectDO extends DurableObject {
     }
   }
 
-  private async listLinkedRepos(): Promise<Response> {
-    const repos = this.db.select().from(schema.linkedRepos).all()
+  private listLinkedRepos(): Response {
+    const repos = this.sql.exec('SELECT * FROM linked_repos').toArray()
     return Response.json(repos)
   }
 
@@ -145,8 +143,7 @@ export class ProjectDO extends DurableObject {
 
     const now = new Date().toISOString()
 
-    // TODO: Use proper drizzle insert
-    this.ctx.storage.sql.exec(`
+    this.sql.exec(`
       INSERT OR REPLACE INTO linked_repos (repo_id, owner, name, full_name, added_at)
       VALUES (?, ?, ?, ?, ?)
     `, body.repoId, body.owner, body.name, body.fullName, now)
@@ -154,35 +151,35 @@ export class ProjectDO extends DurableObject {
     return Response.json({ success: true })
   }
 
-  private async listItems(): Promise<Response> {
-    const items = this.db.select().from(schema.projectItems).all()
+  private listItems(): Response {
+    const items = this.sql.exec('SELECT * FROM project_items').toArray()
     return Response.json(items)
   }
 
-  private async syncItems(request: Request): Promise<Response> {
+  private async syncItems(_request: Request): Promise<Response> {
     // TODO: Implement project items sync from GitHub Projects API
     return Response.json({ status: 'not implemented' })
   }
 
-  private async listMilestoneMappings(): Promise<Response> {
-    const mappings = this.db.select().from(schema.milestoneMappings).all()
+  private listMilestoneMappings(): Response {
+    const mappings = this.sql.exec('SELECT * FROM milestone_mappings').toArray()
     return Response.json(mappings)
   }
 
-  private async syncMilestones(request: Request): Promise<Response> {
+  private async syncMilestones(_request: Request): Promise<Response> {
     // TODO: Sync milestones across linked repos
     return Response.json({ status: 'not implemented' })
   }
 
-  private async getStatus(): Promise<Response> {
-    const repoCount = this.db.select().from(schema.linkedRepos).all().length
-    const itemCount = this.db.select().from(schema.projectItems).all().length
-    const milestoneCount = this.db.select().from(schema.milestoneMappings).all().length
+  private getStatus(): Response {
+    const repoCount = this.sql.exec('SELECT COUNT(*) as count FROM linked_repos').toArray()[0] as { count: number }
+    const itemCount = this.sql.exec('SELECT COUNT(*) as count FROM project_items').toArray()[0] as { count: number }
+    const milestoneCount = this.sql.exec('SELECT COUNT(*) as count FROM milestone_mappings').toArray()[0] as { count: number }
 
     return Response.json({
-      linkedRepos: repoCount,
-      items: itemCount,
-      milestoneMappings: milestoneCount,
+      linkedRepos: repoCount.count,
+      items: itemCount.count,
+      milestoneMappings: milestoneCount.count,
     })
   }
 }

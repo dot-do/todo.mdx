@@ -8,6 +8,7 @@ compatibility_flags = ["nodejs_compat"]
 binding = "DB"
 database_name = "todo-mdx"
 database_id = "" # Set after creation
+migrations_dir = "migrations"
 
 # Durable Objects
 [durable_objects]
