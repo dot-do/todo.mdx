@@ -12,11 +12,10 @@ import { api } from './api'
 import sandbox from './api/sandbox'
 import terminal from './api/terminal'
 import stdio from './api/stdio'
-import linear from './api/linear'
 import auth from './api/auth'
 import { authMiddleware, type AuthContext } from './auth'
 import { validateWorkosJwt, mightBeWorkosJwt } from './mcp/workos-jwt'
-import type { Env } from './types'
+import { PayloadAPI, type Env } from './types'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
@@ -30,7 +29,21 @@ export { TodoMCP }
 // Re-export Env type for external use
 export type { Env }
 
-const app = new Hono<{ Bindings: Env }>()
+// Extended Hono app with PayloadAPI in context
+type AppBindings = {
+  Bindings: Env
+  Variables: {
+    payload: PayloadAPI
+  }
+}
+
+const app = new Hono<AppBindings>()
+
+// Middleware to attach PayloadAPI to context
+app.use('*', async (c, next) => {
+  c.set('payload', new PayloadAPI(c.env.PAYLOAD_SERVICE))
+  await next()
+})
 
 // CORS for API access
 app.use('/api/*', cors({
@@ -444,66 +457,58 @@ app.post('/github/webhook', async (c) => {
 async function handleInstallation(c: any, payload: any): Promise<Response> {
   const t0 = Date.now()
   const timing: Record<string, number> = {}
+  const payloadApi = c.get('payload') as PayloadAPI
 
   console.log(`[Installation] action=${payload.action} account=${payload.installation?.account?.login}`)
 
   if (payload.action === 'created') {
     try {
       const installation = payload.installation
-      const now = new Date().toISOString()
       timing.setup = Date.now() - t0
 
-      // Insert directly into D1 to bypass Payload access control (use OR REPLACE for idempotency)
+      // Create installation via Payload API
       const t1 = Date.now()
-      const installResult = await c.env.DB.prepare(`
-        INSERT OR REPLACE INTO installations (installation_id, account_type, account_id, account_login, account_avatar_url, permissions, events, repository_selection, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        RETURNING id
-      `).bind(
-        installation.id,
-        installation.account.type,
-        installation.account.id,
-        installation.account.login,
-        installation.account.avatar_url,
-        JSON.stringify(installation.permissions),
-        JSON.stringify(installation.events),
-        installation.repository_selection,
-        now,
-        now
-      ).first<{ id: number }>()
+      const installResult = await payloadApi.create({
+        collection: 'installations',
+        data: {
+          installationId: installation.id,
+          accountType: installation.account.type,
+          accountId: installation.account.id,
+          accountLogin: installation.account.login,
+          accountAvatarUrl: installation.account.avatar_url,
+          permissions: installation.permissions,
+          events: installation.events,
+          repositorySelection: installation.repository_selection,
+        },
+      })
       timing.installInsert = Date.now() - t1
+      console.log(`[Installation] Created installation id=${installResult.id} (${timing.installInsert}ms)`)
 
-      const installationId = installResult?.id
-      console.log(`[Installation] Inserted installation id=${installationId} (${timing.installInsert}ms)`)
-
-      // Batch insert repos for performance
+      // Create repos via Payload API
       const repos = payload.repositories || []
       if (repos.length > 0) {
         const t2 = Date.now()
-        const stmt = c.env.DB.prepare(`
-          INSERT OR REPLACE INTO repos (github_id, name, full_name, owner, private, installation_id, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `)
-
-        await c.env.DB.batch(
-          repos.map((repo: any) => stmt.bind(
-            repo.id,
-            repo.name,
-            repo.full_name,
-            repo.full_name.split('/')[0],
-            repo.private ? 1 : 0,
-            installationId,
-            now,
-            now
-          ))
-        )
-        timing.reposBatch = Date.now() - t2
-        console.log(`[Installation] Batch inserted ${repos.length} repos (${timing.reposBatch}ms)`)
+        // Create repos sequentially (Payload doesn't have batch create)
+        for (const repo of repos) {
+          await payloadApi.create({
+            collection: 'repos',
+            data: {
+              githubId: repo.id,
+              name: repo.name,
+              fullName: repo.full_name,
+              owner: repo.full_name.split('/')[0],
+              private: repo.private,
+              installation: installResult.id,
+            },
+          })
+        }
+        timing.reposCreate = Date.now() - t2
+        console.log(`[Installation] Created ${repos.length} repos (${timing.reposCreate}ms)`)
       }
 
       timing.total = Date.now() - t0
       console.log(`[Installation] Complete: ${JSON.stringify(timing)}`)
-      return c.json({ status: 'installed', installationId, repos: repos.length, timing })
+      return c.json({ status: 'installed', installationId: installResult.id, repos: repos.length, timing })
     } catch (error: any) {
       timing.total = Date.now() - t0
       console.error(`[Installation] Error after ${timing.total}ms:`, error.message, error.stack)
@@ -512,21 +517,26 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
   }
 
   if (payload.action === 'deleted') {
-    // Find and delete installation via Payload RPC
-    const installations = await c.env.PAYLOAD.find({
-      collection: 'installations',
-      where: { installationId: { equals: payload.installation.id } },
-      limit: 1,
-    })
-
-    if (installations.docs?.length > 0) {
-      await c.env.PAYLOAD.delete({
+    try {
+      // Find and delete installation via Payload API
+      const installations = await payloadApi.find({
         collection: 'installations',
-        id: installations.docs[0].id,
+        where: { installationId: { equals: payload.installation.id } },
+        limit: 1,
       })
-    }
 
-    return c.json({ status: 'uninstalled' })
+      if (installations.docs?.length > 0) {
+        await payloadApi.delete({
+          collection: 'installations',
+          id: installations.docs[0].id,
+        })
+      }
+
+      return c.json({ status: 'uninstalled' })
+    } catch (error: any) {
+      console.error(`[Installation] Delete error:`, error.message)
+      return c.json({ error: 'Failed to delete installation', message: error.message }, 500)
+    }
   }
 
   return c.json({ status: 'ok' })
@@ -537,6 +547,7 @@ async function handleIssues(c: any, payload: any): Promise<Response> {
   const repo = payload.repository
   const issue = payload.issue
   const action = payload.action
+  const installationId = payload.installation?.id
 
   // Handle delete - remove from Vectorize
   if (action === 'deleted') {
@@ -553,20 +564,35 @@ async function handleIssues(c: any, payload: any): Promise<Response> {
   const doId = c.env.REPO.idFromName(repo.full_name)
   const stub = c.env.REPO.get(doId)
 
-  const response = await stub.fetch(new Request('http://do/issues/sync', {
+  // First, ensure repo context is set (needed for bidirectional sync)
+  if (installationId) {
+    await stub.fetch(new Request('http://do/context', {
+      method: 'POST',
+      body: JSON.stringify({
+        repoFullName: repo.full_name,
+        installationId,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    }))
+  }
+
+  // Call the webhook/github endpoint with the correct payload format
+  const response = await stub.fetch(new Request('http://do/webhook/github', {
     method: 'POST',
     body: JSON.stringify({
-      source: 'github',
-      issues: [{
-        githubId: issue.id,
-        githubNumber: issue.number,
+      action,
+      issue: {
+        id: issue.id,
+        number: issue.number,
         title: issue.title,
         body: issue.body,
         state: issue.state,
-        labels: issue.labels?.map((l: any) => l.name),
-        assignees: issue.assignees?.map((a: any) => a.login),
-        updatedAt: issue.updated_at,
-      }],
+        labels: issue.labels || [],
+        assignee: issue.assignee,
+        created_at: issue.created_at,
+        updated_at: issue.updated_at,
+        closed_at: issue.closed_at,
+      },
     }),
     headers: { 'Content-Type': 'application/json' },
   }))

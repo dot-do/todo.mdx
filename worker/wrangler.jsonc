@@ -107,12 +107,11 @@
     }
   ],
 
-  // Service Bindings - Payload RPC
+  // Service Bindings - Payload HTTP API (using fetch, not RPC)
   "services": [
     {
-      "binding": "PAYLOAD",
-      "service": "admin-todo-mdx",
-      "entrypoint": "PayloadRPC"
+      "binding": "PAYLOAD_SERVICE",
+      "service": "admin-todo-mdx"
     }
   ],
 

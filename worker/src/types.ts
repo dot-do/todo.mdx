@@ -2,14 +2,138 @@
  * Worker environment types
  */
 
-// PayloadRPC type - the actual implementation is in the admin app
-// We use a generic interface here since we access it via RPC
-export interface PayloadRPC {
-  find(args: { collection: string; where?: Record<string, unknown>; limit?: number; depth?: number; sort?: string; overrideAccess?: boolean }): Promise<{ docs: any[]; totalDocs: number }>
-  findByID(args: { collection: string; id: string; depth?: number; overrideAccess?: boolean }): Promise<any>
-  create(args: { collection: string; data: Record<string, unknown>; overrideAccess?: boolean }): Promise<any>
-  update(args: { collection: string; id: string; data: Record<string, unknown>; overrideAccess?: boolean }): Promise<any>
-  delete(args: { collection: string; id: string; overrideAccess?: boolean }): Promise<any>
+// Payload API helper - wraps HTTP calls to Payload's REST API
+export class PayloadAPI {
+  constructor(private service: Fetcher) {}
+
+  async find(args: {
+    collection: string
+    where?: Record<string, unknown>
+    limit?: number
+    depth?: number
+    sort?: string
+    overrideAccess?: boolean
+  }): Promise<{ docs: any[]; totalDocs: number }> {
+    const params = new URLSearchParams()
+    if (args.where) params.set('where', JSON.stringify(args.where))
+    if (args.limit) params.set('limit', String(args.limit))
+    if (args.depth) params.set('depth', String(args.depth))
+    if (args.sort) params.set('sort', args.sort)
+
+    const response = await this.service.fetch(
+      `http://internal/api/${args.collection}?${params}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(args.overrideAccess ? { 'X-Payload-Override-Access': 'true' } : {}),
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`Payload find failed: ${response.status} ${await response.text()}`)
+    }
+
+    return response.json()
+  }
+
+  async findByID(args: {
+    collection: string
+    id: string | number
+    depth?: number
+    overrideAccess?: boolean
+  }): Promise<any> {
+    const params = new URLSearchParams()
+    if (args.depth) params.set('depth', String(args.depth))
+
+    const response = await this.service.fetch(
+      `http://internal/api/${args.collection}/${args.id}?${params}`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(args.overrideAccess ? { 'X-Payload-Override-Access': 'true' } : {}),
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`Payload findByID failed: ${response.status} ${await response.text()}`)
+    }
+
+    return response.json()
+  }
+
+  async create(args: {
+    collection: string
+    data: Record<string, unknown>
+    overrideAccess?: boolean
+  }): Promise<any> {
+    const response = await this.service.fetch(
+      `http://internal/api/${args.collection}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(args.overrideAccess ? { 'X-Payload-Override-Access': 'true' } : {}),
+        },
+        body: JSON.stringify(args.data),
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`Payload create failed: ${response.status} ${await response.text()}`)
+    }
+
+    return response.json()
+  }
+
+  async update(args: {
+    collection: string
+    id: string | number
+    data: Record<string, unknown>
+    overrideAccess?: boolean
+  }): Promise<any> {
+    const response = await this.service.fetch(
+      `http://internal/api/${args.collection}/${args.id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(args.overrideAccess ? { 'X-Payload-Override-Access': 'true' } : {}),
+        },
+        body: JSON.stringify(args.data),
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`Payload update failed: ${response.status} ${await response.text()}`)
+    }
+
+    return response.json()
+  }
+
+  async delete(args: {
+    collection: string
+    id: string | number
+    overrideAccess?: boolean
+  }): Promise<any> {
+    const response = await this.service.fetch(
+      `http://internal/api/${args.collection}/${args.id}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(args.overrideAccess ? { 'X-Payload-Override-Access': 'true' } : {}),
+        },
+      }
+    )
+
+    if (!response.ok) {
+      throw new Error(`Payload delete failed: ${response.status} ${await response.text()}`)
+    }
+
+    return response.json()
+  }
 }
 
 export interface Env {
@@ -24,9 +148,8 @@ export interface Env {
   VECTORIZE: VectorizeIndex
   LOADER: any
   OAUTH_KV: KVNamespace
-  // PAYLOAD is a service binding to the Payload CMS worker
-  // We cast to PayloadRPC in the calling code for type safety
-  PAYLOAD: PayloadRPC
+  // PAYLOAD_SERVICE is a service binding to the Payload CMS worker (HTTP, not RPC)
+  PAYLOAD_SERVICE: Fetcher
 
   // Cloudflare Workflows
   DEVELOP_WORKFLOW: WorkflowNamespace

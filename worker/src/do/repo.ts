@@ -870,9 +870,20 @@ export class RepoDO extends DurableObject {
     }
 
     // 2. Update GitHub issues for modified beads issues
+    // Skip issues that were recently synced from GitHub to prevent loops
+    const now = Date.now()
+    const SYNC_DEBOUNCE_MS = 30_000 // 30 seconds
+
     for (const issueId of result.updated) {
       const issue = this.getIssue(issueId)
       if (issue?.github_number) {
+        // Skip if this issue was synced from GitHub very recently
+        const lastSync = issue.last_sync_at ? new Date(issue.last_sync_at).getTime() : 0
+        if (now - lastSync < SYNC_DEBOUNCE_MS) {
+          console.log(`[RepoDO] Skipping GitHub update for ${issueId} (synced ${now - lastSync}ms ago)`)
+          continue
+        }
+
         try {
           await this.updateGitHubIssue(issueId)
         } catch (error) {
@@ -1259,7 +1270,21 @@ export class RepoDO extends DurableObject {
 
       // GitHub webhook handler
       if (path === '/webhook/github' && request.method === 'POST') {
-        const payload = await request.json()
+        const payload = (await request.json()) as {
+          action: string
+          issue: {
+            id: number
+            number: number
+            title: string
+            body: string | null
+            state: 'open' | 'closed'
+            labels: Array<{ name: string }>
+            assignee: { login: string } | null
+            created_at: string
+            updated_at: string
+            closed_at: string | null
+          }
+        }
         await this.onGitHubIssue(payload)
         return Response.json({ ok: true })
       }
