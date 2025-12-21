@@ -82,6 +82,7 @@
       { "name": "REPO", "class_name": "RepoDO" },
       { "name": "PROJECT", "class_name": "ProjectDO" },
       { "name": "PRDO", "class_name": "PRDO" },
+      { "name": "ISSUE", "class_name": "IssueDO" },
       { "name": "SESSION", "class_name": "SessionDO" },
       { "name": "MCP_OBJECT", "class_name": "TodoMCP" },
       { "name": "CLAUDE_SANDBOX", "class_name": "ClaudeSandbox" }
@@ -108,6 +109,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["SessionDO"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["IssueDO"]
     }
   ],
 
@@ -140,6 +145,15 @@
     {
       "binding": "OAUTH_KV",
       "id": "5602c4ff6e3249b684e5c8eaea0b1901"
+    }
+  ],
+
+  // Worker RPC services for DO-to-Worker communication
+  "services": [
+    {
+      "binding": "WORKER",
+      "service": "todo-mdx",
+      "entrypoint": "PersistenceRPC"
     }
   ],
 

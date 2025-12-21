@@ -8,6 +8,9 @@ export { Milestones } from './Milestones'
 export { SyncEvents } from './SyncEvents'
 export { LinearIntegrations } from './LinearIntegrations'
 export { Agents } from './Agents'
+export { DurableObjects } from './DurableObjects'
+export { Connections } from './Connections'
+export { ToolExecutions } from './ToolExecutions'
 
 // Re-export for convenience
 export const collections = [
@@ -20,6 +23,9 @@ export const collections = [
   'syncEvents',
   'linearIntegrations',
   'agents',
+  'durableObjects',
+  'connections',
+  'toolExecutions',
 ] as const
 
 export type CollectionSlug = (typeof collections)[number]

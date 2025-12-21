@@ -10,6 +10,7 @@ export interface Env {
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
   PRDO: DurableObjectNamespace
+  ISSUE: DurableObjectNamespace
   SESSION: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
   CLAUDE_SANDBOX: DurableObjectNamespace
@@ -31,6 +32,30 @@ export interface Env {
   BULK_EMBED_WORKFLOW: WorkflowNamespace
   BEADS_SYNC_WORKFLOW: WorkflowNamespace
 
+  // Worker RPC Services (PersistenceRPC entrypoint)
+  // Service bindings use Fetcher + RPC methods
+  WORKER: Fetcher & {
+    persistDOState(params: {
+      doId: string
+      type: 'org' | 'repo' | 'project' | 'pr' | 'issue'
+      ref: string
+      state: any
+    }): Promise<{ success: boolean; error?: string }>
+    logToolExecution(params: {
+      doId: string
+      tool: string
+      params: any
+      result?: any
+      error?: string
+      durationMs: number
+      userId?: string
+      connectionId?: string
+    }): Promise<{ success: boolean }>
+    getConnections(userId: string, apps?: string[]): Promise<any[]>
+    getDOState(doId: string): Promise<any | null>
+    getToolExecutions(doId: string, limit?: number): Promise<any[]>
+  }
+
   // GitHub App secrets
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
@@ -45,6 +70,9 @@ export interface Env {
   // AI API keys
   ANTHROPIC_API_KEY?: string
   CLAUDE_CODE_OAUTH_TOKEN?: string
+
+  // Composio
+  COMPOSIO_API_KEY?: string
 
   // Testing
   TEST_API_KEY?: string

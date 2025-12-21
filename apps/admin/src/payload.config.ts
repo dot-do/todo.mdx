@@ -16,6 +16,9 @@ import { Milestones } from './collections/Milestones'
 import { SyncEvents } from './collections/SyncEvents'
 import { LinearIntegrations } from './collections/LinearIntegrations'
 import { Agents } from './collections/Agents'
+import { DurableObjects } from './collections/DurableObjects'
+import { Connections } from './collections/Connections'
+import { ToolExecutions } from './collections/ToolExecutions'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -40,7 +43,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations, Agents],
+  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions],
   editor: lexicalEditor(),
   secret,
   typescript: {
