@@ -3,7 +3,7 @@
  * Helpers for communicating with the todo.mdx worker API
  */
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
 

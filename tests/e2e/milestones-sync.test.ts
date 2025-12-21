@@ -12,7 +12,7 @@
  */
 
 import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'vitest'
-import { createTestWorktree, type Worktree } from '../helpers/worktree'
+import { createTestWorktree, type Worktree, waitFor } from '../helpers'
 import * as github from '../helpers/github'
 import * as worker from '../helpers/worker'
 import * as beads from '../helpers/beads'
@@ -53,16 +53,16 @@ describeWithWorker('milestone webhook handlers', () => {
 
     expect(response.ok).toBe(true)
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    // Verify milestone in D1
-    const { milestones } = await worker.repos.listMilestones(
-      TEST_REPO_OWNER,
-      TEST_REPO_NAME
-    )
-
-    const createdMilestone = milestones.find(
-      (m) => m.github_number === milestoneNumber || m.title === title
+    // Wait for milestone to be created in D1
+    const createdMilestone = await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(
+          TEST_REPO_OWNER,
+          TEST_REPO_NAME
+        )
+        return milestones.find((m) => m.github_number === milestoneNumber || m.title === title)
+      },
+      { timeout: 5000, description: 'milestone to be created in D1' }
     )
 
     expect(createdMilestone).toBeDefined()
@@ -87,7 +87,14 @@ describeWithWorker('milestone webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Wait for milestone to be created
+    await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return milestones.find((m) => m.github_number === milestoneNumber)
+      },
+      { timeout: 5000, description: 'milestone to be created' }
+    )
 
     // Edit
     await worker.webhooks.simulateMilestoneEvent(
@@ -103,14 +110,15 @@ describeWithWorker('milestone webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const { milestones } = await worker.repos.listMilestones(
-      TEST_REPO_OWNER,
-      TEST_REPO_NAME
+    // Wait for milestone to be updated
+    const milestone = await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const m = milestones.find((m) => m.github_number === milestoneNumber)
+        return m?.title === updatedTitle ? m : undefined
+      },
+      { timeout: 5000, description: 'milestone to be updated' }
     )
-
-    const milestone = milestones.find((m) => m.github_number === milestoneNumber)
 
     expect(milestone?.title).toBe(updatedTitle)
     expect(milestone?.description).toBe('Updated description')
@@ -132,7 +140,14 @@ describeWithWorker('milestone webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Wait for milestone to be created
+    await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return milestones.find((m) => m.github_number === milestoneNumber)
+      },
+      { timeout: 5000, description: 'milestone to be created' }
+    )
 
     // Close
     await worker.webhooks.simulateMilestoneEvent(
@@ -146,16 +161,17 @@ describeWithWorker('milestone webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const { milestones } = await worker.repos.listMilestones(
-      TEST_REPO_OWNER,
-      TEST_REPO_NAME,
-      { state: 'closed' }
-    )
-
-    const closedMilestone = milestones.find(
-      (m) => m.github_number === milestoneNumber
+    // Wait for milestone to be closed
+    const closedMilestone = await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(
+          TEST_REPO_OWNER,
+          TEST_REPO_NAME,
+          { state: 'closed' }
+        )
+        return milestones.find((m) => m.github_number === milestoneNumber)
+      },
+      { timeout: 5000, description: 'milestone to be closed' }
     )
 
     expect(closedMilestone?.state).toBe('closed')
@@ -176,7 +192,14 @@ describeWithWorker('milestone webhook handlers', () => {
         state: 'open',
       }
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return milestones.find((m) => m.github_number === milestoneNumber)
+      },
+      { timeout: 5000, description: 'milestone to be created' }
+    )
 
     await worker.webhooks.simulateMilestoneEvent(
       TEST_REPO_OWNER,
@@ -188,7 +211,19 @@ describeWithWorker('milestone webhook handlers', () => {
         state: 'closed',
       }
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(
+          TEST_REPO_OWNER,
+          TEST_REPO_NAME,
+          { state: 'closed' }
+        )
+        const m = milestones.find((m) => m.github_number === milestoneNumber)
+        return m?.state === 'closed' ? m : undefined
+      },
+      { timeout: 5000, description: 'milestone to be closed' }
+    )
 
     // Reopen
     await worker.webhooks.simulateMilestoneEvent(
@@ -202,15 +237,14 @@ describeWithWorker('milestone webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const { milestones } = await worker.repos.listMilestones(
-      TEST_REPO_OWNER,
-      TEST_REPO_NAME
-    )
-
-    const reopenedMilestone = milestones.find(
-      (m) => m.github_number === milestoneNumber
+    // Wait for milestone to be reopened
+    const reopenedMilestone = await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const m = milestones.find((m) => m.github_number === milestoneNumber)
+        return m?.state === 'open' ? m : undefined
+      },
+      { timeout: 5000, description: 'milestone to be reopened' }
     )
 
     expect(reopenedMilestone?.state).toBe('open')
@@ -280,7 +314,14 @@ describeWithWorker('milestone sync API', () => {
       ],
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Wait for milestone to be created
+    await waitFor(
+      async () => {
+        const { milestones } = await worker.repos.listMilestones(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return milestones.find((m) => m.beads_id === beadsId)
+      },
+      { timeout: 5000, description: 'milestone to be created' }
+    )
 
     // Update
     const result = await worker.sync.syncMilestones(TEST_REPO_OWNER, TEST_REPO_NAME, {
@@ -341,7 +382,15 @@ describeWithBoth('epic to milestone mapping', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for sync to complete
+    await waitFor(
+      async () => {
+        const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
+        // Check if sync has completed (state is idle)
+        return status.syncStatus?.state === 'idle' ? status : undefined
+      },
+      { timeout: 10000, description: 'epic sync to complete' }
+    )
 
     // Check if milestone was created on GitHub
     // Note: This depends on sync implementation creating milestones from epics
@@ -377,7 +426,14 @@ describeWithBoth('epic to milestone mapping', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for sync to complete
+    await waitFor(
+      async () => {
+        const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return status.syncStatus?.state === 'idle' ? status : undefined
+      },
+      { timeout: 10000, description: 'sync to complete' }
+    )
 
     // Verify relationship in local beads
     const showOutput = await beads.show(worktree, taskId)
@@ -417,7 +473,14 @@ describeWithBoth('epic to milestone mapping', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Wait for sync to complete
+    await waitFor(
+      async () => {
+        const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return status.syncStatus?.state === 'idle' ? status : undefined
+      },
+      { timeout: 5000, description: 'initial sync to complete' }
+    )
 
     // Close all child tasks
     await beads.close(worktree, task1Id, 'Done')
@@ -433,7 +496,14 @@ describeWithBoth('epic to milestone mapping', () => {
     await execa('git', ['push'], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Wait for epic closure to sync
+    await waitFor(
+      async () => {
+        const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return status.syncStatus?.state === 'idle' ? status : undefined
+      },
+      { timeout: 5000, description: 'epic closure sync to complete' }
+    )
 
     // Verify epic is closed locally
     const listOutput = await beads.list(worktree, { status: 'closed' })

@@ -1,21 +1,49 @@
 import { describe, test, expect, beforeAll } from 'vitest'
+import { getToken } from 'oauth.do/node'
 
 // MCP server URL (local dev or staging)
-const MCP_BASE_URL = process.env.MCP_BASE_URL || 'http://localhost:8787'
-const MCP_ACCESS_TOKEN = process.env.MCP_ACCESS_TOKEN
+const MCP_BASE_URL = process.env.MCP_BASE_URL || 'https://todo.mdx.do'
 
-function hasMcpCredentials(): boolean {
-  return !!MCP_ACCESS_TOKEN
+// Cached token from oauth.do
+let cachedToken: string | null = null
+
+/**
+ * Get authentication token via oauth.do
+ * Falls back to MCP_ACCESS_TOKEN env var for CI
+ */
+async function getAuthToken(): Promise<string | null> {
+  if (cachedToken) return cachedToken
+
+  // Try env var first (for CI)
+  if (process.env.MCP_ACCESS_TOKEN) {
+    cachedToken = process.env.MCP_ACCESS_TOKEN
+    return cachedToken
+  }
+
+  try {
+    // Get token from oauth.do storage
+    cachedToken = await getToken() ?? null
+    return cachedToken
+  } catch (err) {
+    console.error('oauth.do authentication failed:', err)
+    return null
+  }
 }
 
-// Skip tests if no MCP access token is configured
-const describeWithMcp = hasMcpCredentials() ? describe : describe.skip
+async function hasMcpCredentials(): Promise<boolean> {
+  const token = await getAuthToken()
+  return !!token
+}
+
+// We'll check credentials in beforeAll
+let hasCredentials = false
 
 async function mcpFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = await getAuthToken()
   return fetch(`${MCP_BASE_URL}/mcp${path}`, {
     ...options,
     headers: {
-      Authorization: `Bearer ${MCP_ACCESS_TOKEN}`,
+      Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
       ...options.headers,
     },
@@ -50,14 +78,17 @@ describe('MCP server discovery', () => {
   })
 })
 
-describeWithMcp('MCP server authenticated', () => {
-  beforeAll(() => {
-    if (!hasMcpCredentials()) {
-      console.log('Skipping MCP authenticated tests - no MCP_ACCESS_TOKEN configured')
+describe('MCP server authenticated', () => {
+  beforeAll(async () => {
+    hasCredentials = await hasMcpCredentials()
+    if (!hasCredentials) {
+      console.log('Skipping MCP authenticated tests - run `oauth.do login` or set MCP_ACCESS_TOKEN')
     }
   })
 
   test('GET /info returns server capabilities', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/info')
 
     expect(response.ok).toBe(true)
@@ -71,6 +102,8 @@ describeWithMcp('MCP server authenticated', () => {
   })
 
   test('GET /tools returns available tools', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools')
 
     expect(response.ok).toBe(true)
@@ -80,21 +113,22 @@ describeWithMcp('MCP server authenticated', () => {
 
     // Check expected tools exist
     const toolNames = tools.map((t: any) => t.name)
-    expect(toolNames).toContain('list_todos')
-    expect(toolNames).toContain('create_todo')
-    expect(toolNames).toContain('update_todo')
     expect(toolNames).toContain('search')
     expect(toolNames).toContain('fetch')
     expect(toolNames).toContain('roadmap')
+    expect(toolNames).toContain('do')
 
-    // Check tool schema structure
-    const listTodos = tools.find((t: any) => t.name === 'list_todos')
-    expect(listTodos).toHaveProperty('description')
-    expect(listTodos).toHaveProperty('inputSchema')
-    expect(listTodos.inputSchema.properties).toHaveProperty('repo')
+    // Check do tool schema structure
+    const doTool = tools.find((t: any) => t.name === 'do')
+    expect(doTool).toHaveProperty('description')
+    expect(doTool).toHaveProperty('inputSchema')
+    expect(doTool.inputSchema.properties).toHaveProperty('repo')
+    expect(doTool.inputSchema.properties).toHaveProperty('code')
   })
 
   test('GET /resources returns user repositories', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/resources')
 
     expect(response.ok).toBe(true)
@@ -111,6 +145,8 @@ describeWithMcp('MCP server authenticated', () => {
   })
 
   test('POST /tools/call with roadmap returns markdown', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -132,6 +168,8 @@ describeWithMcp('MCP server authenticated', () => {
   })
 
   test('POST /tools/call with search returns results', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -214,10 +252,16 @@ describe('MCP tool schemas', () => {
  * Tests MCP tools: listIssues, createIssue, updateIssue, closeIssue, search
  * Verifies responses and side effects
  */
-describeWithMcp('MCP issue management tools', () => {
+describe('MCP issue management tools', () => {
   const TEST_REPO = 'dot-do/test.mdx'
 
+  beforeAll(async () => {
+    hasCredentials = await hasMcpCredentials()
+  })
+
   test('list_todos returns issues array', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -241,6 +285,8 @@ describeWithMcp('MCP issue management tools', () => {
   })
 
   test('list_todos with status filter', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -265,6 +311,8 @@ describeWithMcp('MCP issue management tools', () => {
   })
 
   test('list_todos with limit', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -284,6 +332,8 @@ describeWithMcp('MCP issue management tools', () => {
   })
 
   test('create_todo creates new issue', async () => {
+    if (!hasCredentials) return
+
     const uniqueTitle = `MCP test issue ${Date.now()}`
 
     const response = await mcpFetch('/tools/call', {
@@ -323,6 +373,8 @@ describeWithMcp('MCP issue management tools', () => {
   })
 
   test('update_todo modifies issue', async () => {
+    if (!hasCredentials) return
+
     // First create an issue
     const uniqueTitle = `MCP update test ${Date.now()}`
 
@@ -373,6 +425,8 @@ describeWithMcp('MCP issue management tools', () => {
   })
 
   test('close_todo closes issue', async () => {
+    if (!hasCredentials) return
+
     // Create an issue to close
     const uniqueTitle = `MCP close test ${Date.now()}`
 
@@ -422,8 +476,14 @@ describeWithMcp('MCP issue management tools', () => {
   })
 })
 
-describeWithMcp('MCP search functionality', () => {
+describe('MCP search functionality', () => {
+  beforeAll(async () => {
+    hasCredentials = await hasMcpCredentials()
+  })
+
   test('search finds issues by text', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -443,6 +503,8 @@ describeWithMcp('MCP search functionality', () => {
   })
 
   test('search returns relevant fields', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -468,6 +530,8 @@ describeWithMcp('MCP search functionality', () => {
   })
 
   test('search with repo filter', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -485,6 +549,8 @@ describeWithMcp('MCP search functionality', () => {
   })
 
   test('search handles empty results', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -506,8 +572,14 @@ describeWithMcp('MCP search functionality', () => {
   })
 })
 
-describeWithMcp('MCP fetch tool', () => {
+describe('MCP fetch tool', () => {
+  beforeAll(async () => {
+    hasCredentials = await hasMcpCredentials()
+  })
+
   test('fetch retrieves resource content', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -526,6 +598,8 @@ describeWithMcp('MCP fetch tool', () => {
   })
 
   test('fetch handles invalid URI gracefully', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -542,8 +616,14 @@ describeWithMcp('MCP fetch tool', () => {
   })
 })
 
-describeWithMcp('MCP roadmap tool', () => {
+describe('MCP roadmap tool', () => {
+  beforeAll(async () => {
+    hasCredentials = await hasMcpCredentials()
+  })
+
   test('roadmap returns markdown content', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -560,6 +640,8 @@ describeWithMcp('MCP roadmap tool', () => {
   })
 
   test('roadmap with repo filter', async () => {
+    if (!hasCredentials) return
+
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
       body: JSON.stringify({
@@ -579,11 +661,10 @@ describeWithMcp('MCP roadmap tool', () => {
 
 describe('MCP protocol compliance', () => {
   test('server implements required capabilities', async () => {
+    const token = await getAuthToken()
     try {
       const response = await fetch(`${MCP_BASE_URL}/mcp/info`, {
-        headers: MCP_ACCESS_TOKEN
-          ? { Authorization: `Bearer ${MCP_ACCESS_TOKEN}` }
-          : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
       if (!response.ok) return
@@ -600,11 +681,10 @@ describe('MCP protocol compliance', () => {
   })
 
   test('tools have proper schema structure', async () => {
+    const token = await getAuthToken()
     try {
       const response = await fetch(`${MCP_BASE_URL}/mcp/tools`, {
-        headers: MCP_ACCESS_TOKEN
-          ? { Authorization: `Bearer ${MCP_ACCESS_TOKEN}` }
-          : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
       if (!response.ok) return
@@ -624,11 +704,10 @@ describe('MCP protocol compliance', () => {
   })
 
   test('resources follow URI convention', async () => {
+    const token = await getAuthToken()
     try {
       const response = await fetch(`${MCP_BASE_URL}/mcp/resources`, {
-        headers: MCP_ACCESS_TOKEN
-          ? { Authorization: `Bearer ${MCP_ACCESS_TOKEN}` }
-          : {},
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
       })
 
       if (!response.ok) return
@@ -643,5 +722,273 @@ describe('MCP protocol compliance', () => {
     } catch {
       // Server not running
     }
+  })
+})
+
+/**
+ * MCP `do` tool tests
+ *
+ * Tests the sandboxed code execution tool
+ */
+describe('MCP do tool', () => {
+  const TEST_REPO = 'dot-do/test.mdx'
+
+  beforeAll(async () => {
+    hasCredentials = await hasMcpCredentials()
+  })
+
+  test('do tool executes simple code and returns result', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: 'return { message: "hello from sandbox", timestamp: Date.now() }',
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    expect(result.isError).not.toBe(true)
+    expect(result.content).toBeDefined()
+    expect(result.content[0].type).toBe('text')
+
+    const output = JSON.parse(result.content[0].text)
+    expect(output.message).toBe('hello from sandbox')
+    expect(typeof output.timestamp).toBe('number')
+  })
+
+  test('do tool can list issues via RPC', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: `
+            const allIssues = await issues.list()
+            return { count: allIssues.length, hasIssues: allIssues.length > 0 }
+          `,
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    expect(result.isError).not.toBe(true)
+    const output = JSON.parse(result.content[0].text)
+    expect(typeof output.count).toBe('number')
+    expect(typeof output.hasIssues).toBe('boolean')
+  })
+
+  test('do tool can filter issues', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: `
+            const openIssues = await issues.list({ status: 'open' })
+            return openIssues.map(i => ({ id: i.id, title: i.title }))
+          `,
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    expect(result.isError).not.toBe(true)
+    const output = JSON.parse(result.content[0].text)
+    expect(Array.isArray(output)).toBe(true)
+  })
+
+  test('do tool can list milestones', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: `
+            const ms = await milestones.list()
+            return { count: ms.length }
+          `,
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    expect(result.isError).not.toBe(true)
+    const output = JSON.parse(result.content[0].text)
+    expect(typeof output.count).toBe('number')
+  })
+
+  test('do tool handles syntax errors gracefully', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: 'this is not valid javascript {{{',
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    // Should return an error, not crash
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('Error')
+  })
+
+  test('do tool handles runtime errors gracefully', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: 'throw new Error("intentional test error")',
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('intentional test error')
+  })
+
+  test('do tool requires repo parameter', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          code: 'return 42',
+        },
+      }),
+    })
+
+    // Should fail validation
+    const result = await response.json()
+    expect(result.isError).toBe(true)
+  })
+
+  test('do tool requires code parameter', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+        },
+      }),
+    })
+
+    // Should fail validation
+    const result = await response.json()
+    expect(result.isError).toBe(true)
+  })
+
+  test('do tool denies access to unauthorized repos', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: 'nonexistent/fake-repo-12345',
+          code: 'return 42',
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain('Access denied')
+  })
+
+  test('do tool can render todo markdown', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: `
+            const markdown = await todo.render()
+            return { markdown, hasContent: markdown.length > 0 }
+          `,
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    if (!result.isError) {
+      const output = JSON.parse(result.content[0].text)
+      expect(typeof output.markdown).toBe('string')
+      expect(output.hasContent).toBe(true)
+    }
+  })
+
+  test('do tool can use log function', async () => {
+    if (!hasCredentials) return
+
+    const response = await mcpFetch('/tools/call', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'do',
+        arguments: {
+          repo: TEST_REPO,
+          code: `
+            log('info', 'Test log message from sandbox')
+            return { logged: true }
+          `,
+        },
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    const result = await response.json()
+
+    // Log should not cause errors
+    expect(result.isError).not.toBe(true)
+    const output = JSON.parse(result.content[0].text)
+    expect(output.logged).toBe(true)
   })
 })

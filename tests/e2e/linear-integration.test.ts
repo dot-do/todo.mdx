@@ -12,6 +12,7 @@
  */
 
 import { describe, test, expect, beforeAll } from 'vitest'
+import { waitFor } from '../helpers'
 import * as worker from '../helpers/worker'
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY
@@ -145,15 +146,15 @@ describeWithLinear('Linear integration', () => {
     expect(linearIssue.id).toBeDefined()
     expect(linearIssue.identifier).toMatch(/^[A-Z]+-\d+$/)
 
-    // Wait for webhook processing
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-
-    // Check if issue synced to worker
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-
-    // Look for issue by Linear ID or title
-    const syncedIssue = issues.find(
-      (i) => i.title.includes(uniqueTitle) || i.body?.includes(linearIssue.identifier)
+    // Wait for webhook processing and sync to worker
+    const syncedIssue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find(
+          (i) => i.title.includes(uniqueTitle) || i.body?.includes(linearIssue.identifier)
+        )
+      },
+      { timeout: 15000, description: 'Linear issue to sync to worker D1' }
     )
 
     // Note: Full sync depends on Linear webhook integration
@@ -180,31 +181,33 @@ describeWithLinear('Linear integration', () => {
 
     expect(issue.id).toBeDefined()
 
-    // Wait for sync
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-
-    // Query Linear for the issue
-    // Note: This requires the worker to have Linear sync enabled
-    const query = `
-      query SearchIssues($filter: IssueFilter!) {
-        issues(filter: $filter) {
-          nodes {
-            id
-            identifier
-            title
+    // Wait for sync to Linear
+    const linearIssues = await waitFor(
+      async () => {
+        const query = `
+          query SearchIssues($filter: IssueFilter!) {
+            issues(filter: $filter) {
+              nodes {
+                id
+                identifier
+                title
+              }
+            }
           }
-        }
-      }
-    `
+        `
 
-    const result = await linearFetch(query, {
-      filter: {
-        team: { id: { eq: LINEAR_TEAM_ID } },
-        title: { contains: uniqueTitle },
+        const result = await linearFetch(query, {
+          filter: {
+            team: { id: { eq: LINEAR_TEAM_ID } },
+            title: { contains: uniqueTitle },
+          },
+        })
+
+        const linearIssues = result.issues.nodes
+        return linearIssues.length > 0 ? linearIssues : undefined
       },
-    })
-
-    const linearIssues = result.issues.nodes
+      { timeout: 15000, description: 'worker issue to sync to Linear' }
+    )
 
     // Cleanup
     if (linearIssues.length > 0) {
@@ -221,7 +224,14 @@ describeWithLinear('Linear integration', () => {
     // Create in Linear
     const linearIssue = await createLinearIssue(uniqueTitle)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for initial sync
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'initial Linear issue to sync' }
+    )
 
     // Update in Linear
     await updateLinearIssue(linearIssue.id, {
@@ -229,11 +239,14 @@ describeWithLinear('Linear integration', () => {
       description: 'Updated description from Linear',
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Check worker
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-    const syncedIssue = issues.find((i) => i.title.includes(updatedTitle))
+    // Wait for update to sync
+    const syncedIssue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i) => i.title.includes(updatedTitle))
+      },
+      { timeout: 10000, description: 'Linear issue update to sync' }
+    )
 
     // Cleanup
     await deleteLinearIssue(linearIssue.id)
@@ -247,7 +260,14 @@ describeWithLinear('Linear integration', () => {
     // Create in Linear
     const linearIssue = await createLinearIssue(uniqueTitle)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for initial sync
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'Linear issue to sync' }
+    )
 
     // Get "In Progress" state ID
     const statesQuery = `
@@ -269,7 +289,14 @@ describeWithLinear('Linear integration', () => {
         stateId: inProgressState.id,
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      // Wait for state update to sync
+      await waitFor(
+        async () => {
+          const updatedIssue = await getLinearIssue(linearIssue.id)
+          return updatedIssue.state.name !== 'Backlog' ? updatedIssue : undefined
+        },
+        { timeout: 10000, description: 'Linear state update to sync' }
+      )
 
       // Verify in Linear
       const updatedIssue = await getLinearIssue(linearIssue.id)
@@ -286,7 +313,14 @@ describeWithLinear('Linear integration', () => {
     // Create in Linear
     const linearIssue = await createLinearIssue(uniqueTitle)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for initial sync
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'Linear issue to sync' }
+    )
 
     // Get "Done" state ID
     const statesQuery = `
@@ -308,15 +342,18 @@ describeWithLinear('Linear integration', () => {
         stateId: doneState.id,
       })
 
-      await new Promise((resolve) => setTimeout(resolve, 2000))
-
-      // Check worker
-      const { issues } = await worker.repos.listIssues(
-        TEST_REPO_OWNER,
-        TEST_REPO_NAME
+      // Wait for issue to be marked as closed in worker
+      const closedIssue = await waitFor(
+        async () => {
+          const { issues } = await worker.repos.listIssues(
+            TEST_REPO_OWNER,
+            TEST_REPO_NAME
+          )
+          const issue = issues.find((i) => i.title.includes(uniqueTitle))
+          return issue?.state === 'closed' ? issue : undefined
+        },
+        { timeout: 10000, description: 'Linear issue to close in worker' }
       )
-
-      const closedIssue = issues.find((i) => i.title.includes(uniqueTitle))
 
       expect(closedIssue?.state).toBe('closed')
     }

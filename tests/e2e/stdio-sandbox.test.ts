@@ -9,7 +9,7 @@
  * - Exit code handling
  *
  * Requires:
- * - WORKER_BASE_URL (default: http://localhost:8787)
+ * - WORKER_BASE_URL (default: https://todo.mdx.do)
  * - oauth.do authentication (run `oauth.do login` first)
  */
 

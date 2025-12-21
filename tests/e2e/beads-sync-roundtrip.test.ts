@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'vitest'
-import { createTestWorktree, type Worktree } from '../helpers/worktree'
+import { createTestWorktree, type Worktree, waitFor } from '../helpers'
 import * as beads from '../helpers/beads'
 import * as github from '../helpers/github'
 import * as worker from '../helpers/worker'
@@ -80,27 +80,31 @@ describeWithCredentials('beads sync roundtrip', () => {
     // 3. Trigger bd sync (this pushes beads state to cloud)
     await beads.sync(worktree)
 
-    // 4. Wait for GitHub webhook processing
-    await new Promise((resolve) => setTimeout(resolve, 3000))
-
-    // 5. Verify issue exists on GitHub
-    const issues = await github.listIssues({ state: 'open' })
-    const createdIssue = issues.find((i: any) => i.title.includes(uniqueTitle))
+    // 4. Wait for issue to appear on GitHub
+    const createdIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 15000, description: 'issue to appear on GitHub' }
+    )
     expect(createdIssue).toBeDefined()
     expect(createdIssue?.body).toContain('Test issue for sync roundtrip verification')
 
-    // 6. Check D1 via worker API
+    // 5. Check D1 via worker API
     const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
     expect(status.issues).toBeGreaterThan(0)
 
-    // 7. Verify issue appears in worker's issue list
-    const { issues: workerIssues } = await worker.repos.listIssues(
-      TEST_REPO_OWNER,
-      TEST_REPO_NAME
-    )
-
-    const workerIssue = workerIssues.find(
-      (i) => i.title.includes(uniqueTitle) || i.beads_id === issueId
+    // 6. Verify issue appears in worker's issue list
+    const workerIssue = await waitFor(
+      async () => {
+        const { issues: workerIssues } = await worker.repos.listIssues(
+          TEST_REPO_OWNER,
+          TEST_REPO_NAME
+        )
+        return workerIssues.find((i) => i.title.includes(uniqueTitle) || i.beads_id === issueId)
+      },
+      { timeout: 10000, description: 'issue to appear in D1' }
     )
     expect(workerIssue).toBeDefined()
   })
@@ -123,7 +127,14 @@ describeWithCredentials('beads sync roundtrip', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for initial issue to be created on GitHub
+    await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'initial issue to be created on GitHub' }
+    )
 
     // Update issue status
     await beads.update(worktree, issueId, { status: 'in_progress' })
@@ -136,11 +147,18 @@ describeWithCredentials('beads sync roundtrip', () => {
     await execa('git', ['push'], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Verify update on GitHub
-    const issues = await github.listIssues({ state: 'open' })
-    const issue = issues.find((i: any) => i.title.includes(uniqueTitle))
+    // Wait for GitHub issue status to update
+    const issue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        const issue = issues.find((i: any) => i.title.includes(uniqueTitle))
+        const labels = issue?.labels.map((l: any) =>
+          typeof l === 'string' ? l : l.name
+        ) || []
+        return labels.includes('in-progress') ? issue : undefined
+      },
+      { timeout: 10000, description: 'GitHub issue status to update' }
+    )
     expect(issue).toBeDefined()
 
     const labels = issue?.labels.map((l: any) =>
@@ -167,7 +185,14 @@ describeWithCredentials('beads sync roundtrip', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for issue to be created on GitHub
+    await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'issue to be created on GitHub' }
+    )
 
     // Close the issue
     await beads.close(worktree, issueId, 'Completed roundtrip test')
@@ -178,11 +203,14 @@ describeWithCredentials('beads sync roundtrip', () => {
     await execa('git', ['push'], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Verify closed on GitHub
-    const closedIssues = await github.listIssues({ state: 'closed' })
-    const closedIssue = closedIssues.find((i: any) => i.title.includes(uniqueTitle))
+    // Wait for issue to be closed on GitHub
+    const closedIssue = await waitFor(
+      async () => {
+        const closedIssues = await github.listIssues({ state: 'closed' })
+        return closedIssues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'issue to be closed on GitHub' }
+    )
     expect(closedIssue).toBeDefined()
     expect(closedIssue?.state).toBe('closed')
   })
@@ -218,9 +246,18 @@ describeWithCredentials('beads sync roundtrip', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for issues to appear on GitHub
+    await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        const blockerIssue = issues.find((i: any) => i.body?.includes(blockerId))
+        const blockedIssue = issues.find((i: any) => i.body?.includes(blockedId))
+        return (blockerIssue || blockedIssue) ? { blockerIssue, blockedIssue } : undefined
+      },
+      { timeout: 10000, description: 'dependent issues to appear on GitHub' }
+    )
 
-    // Verify both issues on GitHub
+    // Re-fetch to verify
     const issues = await github.listIssues({ state: 'open' })
     const blockerIssue = issues.find((i: any) => i.body?.includes(blockerId))
     const blockedIssue = issues.find((i: any) => i.body?.includes(blockedId))
@@ -282,10 +319,16 @@ describeWithCredentials('beads sync roundtrip', () => {
     expect(result.queued).toBe(true)
     expect(result.files.beads).toBeGreaterThan(0)
 
-    // Wait for processing
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for sync to complete
+    await waitFor(
+      async () => {
+        const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return status.syncStatus?.state === 'idle' ? status : undefined
+      },
+      { timeout: 10000, description: 'sync to complete' }
+    )
 
-    // Check sync status
+    // Verify final status
     const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
     expect(status.syncStatus?.state).toBe('idle')
   })
@@ -315,10 +358,16 @@ describeWithCredentials('beads sync roundtrip', () => {
     expect(result.queued).toBe(true)
 
     // Wait for sync to complete
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    const finalStatus = await waitFor(
+      async () => {
+        const status = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return status.syncStatus?.state === 'idle' ? status : undefined
+      },
+      { timeout: 5000, description: 'sync to complete' }
+    )
 
     // Verify sync completed
-    const finalStatus = await worker.sync.getStatus(TEST_REPO_OWNER, TEST_REPO_NAME)
-    expect(finalStatus.syncStatus?.state).toBe('idle')
+    expect(finalStatus).toBeDefined()
+    expect(finalStatus?.syncStatus?.state).toBe('idle')
   })
 })

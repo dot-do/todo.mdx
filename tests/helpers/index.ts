@@ -1,4 +1,5 @@
 export * from './worktree'
 export * from './github'
 export * from './beads'
+export * from './waitFor'
 export * as worker from './worker'

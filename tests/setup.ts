@@ -1,6 +1,9 @@
 import { beforeAll, afterAll } from 'vitest'
 import { cleanupAllWorktrees } from './helpers/worktree'
 
+// Track oauth.do login status (set during setup)
+export let hasOAuthCredentials = false
+
 // Global test setup
 beforeAll(async () => {
   // Verify submodule is initialized
@@ -23,6 +26,20 @@ beforeAll(async () => {
         '   to run GitHub integration tests.\n' +
         '   Skipping tests that require GitHub access.\n'
     )
+  }
+
+  // Ensure oauth.do token is fresh (runs once for all tests)
+  try {
+    const { ensureLoggedIn } = await import('oauth.do/node')
+    await ensureLoggedIn()
+    hasOAuthCredentials = true
+  } catch (err) {
+    console.warn(
+      '\n⚠️  oauth.do not authenticated.\n' +
+        '   Run `oauth.do login` to authenticate.\n' +
+        '   Skipping tests that require oauth.do access.\n'
+    )
+    hasOAuthCredentials = false
   }
 })
 

@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest'
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
 
 /**

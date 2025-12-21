@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'vitest'
-import { createTestWorktree, type Worktree } from '../helpers/worktree'
+import { createTestWorktree, type Worktree, waitFor } from '../helpers'
 import * as beads from '../helpers/beads'
 import * as github from '../helpers/github'
 import * as worker from '../helpers/worker'
@@ -59,12 +59,14 @@ describeWithGitHub('GitHub sync', () => {
     // Sync beads (which should create GitHub issue)
     await beads.sync(worktree)
 
-    // Wait a moment for GitHub to process
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Check GitHub for the issue
-    const issues = await github.listIssues({ state: 'open' })
-    const createdIssue = issues.find((i: any) => i.title.includes(uniqueTitle))
+    // Wait for GitHub issue to be created
+    const createdIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'GitHub issue to be created' }
+    )
 
     expect(createdIssue).toBeDefined()
     expect(createdIssue?.labels.map((l: any) => (typeof l === 'string' ? l : l.name))).toContain('task')
@@ -86,8 +88,14 @@ describeWithGitHub('GitHub sync', () => {
     await execa('git', ['push', '-u', 'origin', worktree.branch], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    // Wait for GitHub
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for GitHub issue to be created
+    await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'GitHub issue to be created' }
+    )
 
     // Update to in_progress
     await beads.update(worktree, issueId, { status: 'in_progress' })
@@ -98,12 +106,16 @@ describeWithGitHub('GitHub sync', () => {
     await execa('git', ['push'], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    // Wait for GitHub
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Verify status label on GitHub
-    const issues = await github.listIssues({ state: 'open' })
-    const issue = issues.find((i: any) => i.title.includes(uniqueTitle))
+    // Wait for GitHub issue status to update
+    const issue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        const issue = issues.find((i: any) => i.title.includes(uniqueTitle))
+        const labels = issue?.labels.map((l: any) => (typeof l === 'string' ? l : l.name)) || []
+        return labels.includes('in-progress') ? issue : undefined
+      },
+      { timeout: 10000, description: 'GitHub issue status to update' }
+    )
 
     expect(issue).toBeDefined()
     const labels = issue?.labels.map((l: any) => (typeof l === 'string' ? l : l.name)) || []
@@ -126,8 +138,14 @@ describeWithGitHub('GitHub sync', () => {
     await execa('git', ['push', '-u', 'origin', worktree.branch], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    // Wait for GitHub
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for GitHub issue to be created
+    await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'GitHub issue to be created' }
+    )
 
     // Close the issue
     await beads.close(worktree, issueId, 'Completed')
@@ -138,12 +156,14 @@ describeWithGitHub('GitHub sync', () => {
     await execa('git', ['push'], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    // Wait for GitHub
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Verify closed on GitHub
-    const closedIssues = await github.listIssues({ state: 'closed' })
-    const closedIssue = closedIssues.find((i: any) => i.title.includes(uniqueTitle))
+    // Wait for GitHub issue to be closed
+    const closedIssue = await waitFor(
+      async () => {
+        const closedIssues = await github.listIssues({ state: 'closed' })
+        return closedIssues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'GitHub issue to be closed' }
+    )
 
     expect(closedIssue).toBeDefined()
     expect(closedIssue?.state).toBe('closed')
@@ -225,12 +245,14 @@ describeWithBoth('GitHub webhook handlers', () => {
 
     expect(response.ok).toBe(true)
 
-    // Wait for processing
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    // Verify issue exists in D1 via worker API
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-    const createdIssue = issues.find((i: any) => i.github_number === issueNumber)
+    // Wait for webhook processing
+    const createdIssue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i: any) => i.github_number === issueNumber)
+      },
+      { timeout: 5000, description: 'webhook to create issue in D1' }
+    )
 
     expect(createdIssue).toBeDefined()
     expect(createdIssue?.title).toBe(uniqueTitle)
@@ -255,7 +277,14 @@ describeWithBoth('GitHub webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Wait for initial issue to be created
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i: any) => i.github_number === issueNumber)
+      },
+      { timeout: 5000, description: 'initial issue to be created in D1' }
+    )
 
     // Edit the issue
     await worker.webhooks.simulateIssueEvent(
@@ -271,11 +300,15 @@ describeWithBoth('GitHub webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Verify update in D1
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-    const updatedIssue = issues.find((i: any) => i.github_number === issueNumber)
+    // Wait for issue to be updated
+    const updatedIssue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const issue = issues.find((i: any) => i.github_number === issueNumber)
+        return issue?.title === updatedTitle ? issue : undefined
+      },
+      { timeout: 5000, description: 'issue to be updated in D1' }
+    )
 
     expect(updatedIssue?.title).toBe(updatedTitle)
   })
@@ -298,7 +331,14 @@ describeWithBoth('GitHub webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Wait for issue to be created
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i: any) => i.github_number === issueNumber)
+      },
+      { timeout: 5000, description: 'issue to be created in D1' }
+    )
 
     // Close issue
     await worker.webhooks.simulateIssueEvent(
@@ -314,11 +354,15 @@ describeWithBoth('GitHub webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Verify closed in D1
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-    const closedIssue = issues.find((i: any) => i.github_number === issueNumber)
+    // Wait for issue to be closed
+    const closedIssue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const issue = issues.find((i: any) => i.github_number === issueNumber)
+        return issue?.state === 'closed' ? issue : undefined
+      },
+      { timeout: 5000, description: 'issue to be closed in D1' }
+    )
 
     expect(closedIssue?.state).toBe('closed')
   })
@@ -340,7 +384,14 @@ describeWithBoth('GitHub webhook handlers', () => {
         labels: [],
       }
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i: any) => i.github_number === issueNumber)
+      },
+      { timeout: 5000, description: 'issue to be created in D1' }
+    )
 
     await worker.webhooks.simulateIssueEvent(
       TEST_REPO_OWNER,
@@ -354,7 +405,15 @@ describeWithBoth('GitHub webhook handlers', () => {
         labels: [],
       }
     )
-    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const issue = issues.find((i: any) => i.github_number === issueNumber)
+        return issue?.state === 'closed' ? issue : undefined
+      },
+      { timeout: 5000, description: 'issue to be closed in D1' }
+    )
 
     // Reopen
     await worker.webhooks.simulateIssueEvent(
@@ -370,11 +429,15 @@ describeWithBoth('GitHub webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Verify reopened in D1
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-    const reopenedIssue = issues.find((i: any) => i.github_number === issueNumber)
+    // Wait for issue to be reopened
+    const reopenedIssue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const issue = issues.find((i: any) => i.github_number === issueNumber)
+        return issue?.state === 'open' ? issue : undefined
+      },
+      { timeout: 5000, description: 'issue to be reopened in D1' }
+    )
 
     expect(reopenedIssue?.state).toBe('open')
   })
@@ -400,10 +463,17 @@ describeWithBoth('GitHub webhook handlers', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
-    const issue = issues.find((i: any) => i.github_number === issueNumber)
+    // Wait for issue with labels to be created
+    const issue = await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const issue = issues.find((i: any) => i.github_number === issueNumber)
+        if (!issue?.labels) return undefined
+        const labels = JSON.parse(issue.labels)
+        return labels.includes('bug') ? issue : undefined
+      },
+      { timeout: 5000, description: 'issue with labels to be created in D1' }
+    )
 
     expect(issue).toBeDefined()
     const labels = issue?.labels ? JSON.parse(issue.labels) : []
@@ -449,40 +519,45 @@ describeWithBoth('bidirectional sync verification', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-
-    // Find issue on GitHub
-    const issues = await github.listIssues({ state: 'open' })
-    const ghIssue = issues.find((i: any) => i.title.includes(uniqueTitle))
+    // Wait for issue to appear on GitHub
+    const ghIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title.includes(uniqueTitle))
+      },
+      { timeout: 10000, description: 'issue to appear on GitHub' }
+    )
     expect(ghIssue).toBeDefined()
 
     // Simulate GitHub edit webhook (as if someone edited via GitHub UI)
-    if (ghIssue) {
-      await worker.webhooks.simulateIssueEvent(
-        TEST_REPO_OWNER,
-        TEST_REPO_NAME,
-        'edited',
-        {
-          number: ghIssue.number,
-          title: ghIssue.title,
-          body: 'Updated via GitHub UI simulation',
-          state: 'open',
-          labels: [{ name: 'in-progress' }],
-        }
-      )
+    await worker.webhooks.simulateIssueEvent(
+      TEST_REPO_OWNER,
+      TEST_REPO_NAME,
+      'edited',
+      {
+        number: ghIssue.number,
+        title: ghIssue.title,
+        body: 'Updated via GitHub UI simulation',
+        state: 'open',
+        labels: [{ name: 'in-progress' }],
+      }
+    )
 
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Wait for D1 to have the update
+    const d1Issue = await waitFor(
+      async () => {
+        const { issues: workerIssues } = await worker.repos.listIssues(
+          TEST_REPO_OWNER,
+          TEST_REPO_NAME
+        )
+        const issue = workerIssues.find((i: any) => i.github_number === ghIssue.number)
+        return issue?.body?.includes('Updated via GitHub UI simulation') ? issue : undefined
+      },
+      { timeout: 5000, description: 'D1 to have the update' }
+    )
 
-      // Verify D1 has the update
-      const { issues: workerIssues } = await worker.repos.listIssues(
-        TEST_REPO_OWNER,
-        TEST_REPO_NAME
-      )
-      const d1Issue = workerIssues.find((i: any) => i.github_number === ghIssue.number)
-
-      expect(d1Issue).toBeDefined()
-      expect(d1Issue?.body).toContain('Updated via GitHub UI simulation')
-    }
+    expect(d1Issue).toBeDefined()
+    expect(d1Issue?.body).toContain('Updated via GitHub UI simulation')
   })
 
   test('D1 sync updates propagate to beads on next sync', async () => {
@@ -503,7 +578,14 @@ describeWithBoth('bidirectional sync verification', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Wait for issue to be synced
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        return issues.find((i: any) => i.title.includes(uniqueTitle) || i.beads_id === issueId)
+      },
+      { timeout: 10000, description: 'issue to be synced to D1' }
+    )
 
     // Directly update D1 via sync API (simulating external update)
     await worker.sync.syncIssues(TEST_REPO_OWNER, TEST_REPO_NAME, {
@@ -520,7 +602,15 @@ describeWithBoth('bidirectional sync verification', () => {
       ],
     })
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Wait for sync to complete
+    await waitFor(
+      async () => {
+        const { issues } = await worker.repos.listIssues(TEST_REPO_OWNER, TEST_REPO_NAME)
+        const issue = issues.find((i: any) => i.beads_id === issueId)
+        return issue?.priority === 0 ? issue : undefined
+      },
+      { timeout: 5000, description: 'sync to complete' }
+    )
 
     // Pull and sync
     await execa('git', ['pull'], { cwd: worktree.path })

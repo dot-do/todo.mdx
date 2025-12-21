@@ -8,7 +8,7 @@
 
 import { getToken } from 'oauth.do/node'
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 
 // Cached token from oauth.do
 let cachedToken: string | null = null
