@@ -7,7 +7,9 @@
     "build": "echo 'Skipping typecheck - fix worker types later'",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@cloudflare/sandbox": "^0.6.7",
@@ -31,6 +33,7 @@
     "esbuild": "^0.24.0",
     "patch-package": "^8.0.1",
     "typescript": "^5.7.0",
+    "vitest": "^2.0.0",
     "wrangler": "^4.0.0"
   }
 }
