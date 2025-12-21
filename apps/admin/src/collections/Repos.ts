@@ -188,6 +188,201 @@ export const Repos: CollectionConfig = {
         },
       ],
     },
+    // Approval gate configuration (repo level overrides)
+    {
+      name: 'approvalGates',
+      type: 'group',
+      admin: {
+        description: 'Approval gate settings for this repo (overrides org-level defaults)',
+      },
+      fields: [
+        {
+          name: 'inheritFromOrg',
+          type: 'checkbox',
+          defaultValue: true,
+          admin: {
+            description: 'Inherit approval gate settings from organization',
+          },
+        },
+        {
+          name: 'requireHumanApproval',
+          type: 'checkbox',
+          admin: {
+            description: 'Require human approval before merging PRs',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'allowFullAutonomy',
+          type: 'checkbox',
+          admin: {
+            description: 'Allow fully autonomous operation (no human approval required)',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'maxBudgetPerDay',
+          type: 'number',
+          admin: {
+            description: 'Maximum daily budget in USD for this repo',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'maxAgentSpawnsPerHour',
+          type: 'number',
+          admin: {
+            description: 'Rate limit: max agent spawns per hour for this repo',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'riskThreshold',
+          type: 'select',
+          options: [
+            { label: 'Low - Approve all automatically', value: 'low' },
+            { label: 'Medium - Approve low-risk changes', value: 'medium' },
+            { label: 'High - Require approval for all changes', value: 'high' },
+          ],
+          admin: {
+            description: 'Risk threshold for automatic approval',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'criticalPaths',
+          type: 'json',
+          admin: {
+            description: 'Additional file paths that require human approval (glob patterns)',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'autoApproveLabels',
+          type: 'json',
+          admin: {
+            description: 'Issue labels that allow automatic merge without human approval',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'requireApprovalLabels',
+          type: 'json',
+          admin: {
+            description: 'Issue labels that always require human approval',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+        },
+        // Triggers - conditions that trigger approval requirements
+        {
+          name: 'triggers',
+          type: 'group',
+          admin: {
+            description: 'Conditions that trigger approval requirements',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+          fields: [
+            {
+              name: 'labels',
+              type: 'array',
+              admin: {
+                description: 'PR/issue labels that trigger approval',
+              },
+              fields: [
+                {
+                  name: 'label',
+                  type: 'text',
+                  required: true,
+                },
+              ],
+            },
+            {
+              name: 'types',
+              type: 'array',
+              admin: {
+                description: 'Issue types that trigger approval',
+              },
+              fields: [
+                {
+                  name: 'type',
+                  type: 'select',
+                  required: true,
+                  options: [
+                    { label: 'Task', value: 'task' },
+                    { label: 'Bug', value: 'bug' },
+                    { label: 'Feature', value: 'feature' },
+                    { label: 'Epic', value: 'epic' },
+                  ],
+                },
+              ],
+            },
+            {
+              name: 'filesChanged',
+              type: 'array',
+              admin: {
+                description: 'File path patterns that trigger approval (glob patterns)',
+              },
+              fields: [
+                {
+                  name: 'pattern',
+                  type: 'text',
+                  required: true,
+                  admin: {
+                    description: 'Glob pattern (e.g., src/auth/**, *.sql)',
+                  },
+                },
+              ],
+            },
+            {
+              name: 'riskScore',
+              type: 'number',
+              min: 0,
+              max: 100,
+              admin: {
+                description: 'Risk score threshold (0-100) that triggers approval',
+              },
+            },
+          ],
+        },
+        // Approvers - who can approve
+        {
+          name: 'approvers',
+          type: 'array',
+          admin: {
+            description: 'GitHub usernames who can approve',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+          fields: [
+            {
+              name: 'username',
+              type: 'text',
+              required: true,
+              admin: {
+                description: 'GitHub username',
+              },
+            },
+          ],
+        },
+        {
+          name: 'teamApprovers',
+          type: 'array',
+          admin: {
+            description: 'GitHub teams who can approve (format: org/team-slug)',
+            condition: (data) => !data.approvalGates?.inheritFromOrg,
+          },
+          fields: [
+            {
+              name: 'team',
+              type: 'text',
+              required: true,
+              admin: {
+                description: 'GitHub team in format: org/team-slug',
+              },
+            },
+          ],
+        },
+      ],
+    },
     // Tool configuration (repo level)
     {
       name: 'toolConfig',
@@ -195,6 +390,189 @@ export const Repos: CollectionConfig = {
       admin: {
         description: 'Tool configuration for this repository (inherits from installation)',
       },
+    },
+    // Cost controls and budget tracking
+    {
+      name: 'costControls',
+      type: 'group',
+      admin: {
+        description: 'Cost control settings and spend tracking for agent operations',
+      },
+      fields: [
+        {
+          name: 'enabled',
+          type: 'checkbox',
+          defaultValue: true,
+          admin: {
+            description: 'Whether cost controls are enabled for this repo',
+          },
+        },
+        {
+          name: 'inheritFromOrg',
+          type: 'checkbox',
+          defaultValue: true,
+          admin: {
+            description: 'Inherit budget limits from organization installation',
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        // Budget limits
+        {
+          name: 'monthlyBudget',
+          type: 'number',
+          admin: {
+            description: 'Maximum monthly budget in USD for Claude API spend (overrides org-level if not inheriting)',
+            condition: (data) => data.costControls?.enabled && !data.costControls?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'dailySessionLimit',
+          type: 'number',
+          admin: {
+            description: 'Maximum number of agent sessions per day (overrides org-level if not inheriting)',
+            condition: (data) => data.costControls?.enabled && !data.costControls?.inheritFromOrg,
+          },
+        },
+        {
+          name: 'maxConcurrentSessions',
+          type: 'number',
+          admin: {
+            description: 'Maximum number of concurrent agent sessions (overrides org-level if not inheriting)',
+            condition: (data) => data.costControls?.enabled && !data.costControls?.inheritFromOrg,
+          },
+        },
+        // Alert configuration
+        {
+          name: 'alertThresholds',
+          type: 'array',
+          defaultValue: [
+            { percentage: 50, notified: false },
+            { percentage: 80, notified: false },
+            { percentage: 100, notified: false },
+          ],
+          admin: {
+            description: 'Budget alert thresholds (percentage of monthly budget)',
+            condition: (data) => data.costControls?.enabled,
+          },
+          fields: [
+            {
+              name: 'percentage',
+              type: 'number',
+              required: true,
+              admin: {
+                description: 'Threshold percentage (e.g., 50 for 50%)',
+              },
+            },
+            {
+              name: 'notified',
+              type: 'checkbox',
+              defaultValue: false,
+              admin: {
+                description: 'Whether notification has been sent for this threshold this month',
+              },
+            },
+            {
+              name: 'lastNotifiedAt',
+              type: 'date',
+              admin: {
+                description: 'When the last notification was sent',
+              },
+            },
+          ],
+        },
+        {
+          name: 'alertEmails',
+          type: 'array',
+          admin: {
+            description: 'Email addresses to notify when budget thresholds are reached',
+            condition: (data) => data.costControls?.enabled,
+          },
+          fields: [
+            {
+              name: 'email',
+              type: 'email',
+              required: true,
+            },
+          ],
+        },
+        // Current tracking (read-only, updated by system)
+        {
+          name: 'currentMonthSpend',
+          type: 'number',
+          defaultValue: 0,
+          admin: {
+            description: 'Current month spend in USD (auto-calculated from agent sessions)',
+            readOnly: true,
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        {
+          name: 'currentMonthStart',
+          type: 'date',
+          admin: {
+            description: 'Start date of current month tracking period',
+            readOnly: true,
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        {
+          name: 'todaySessionCount',
+          type: 'number',
+          defaultValue: 0,
+          admin: {
+            description: 'Number of agent sessions started today (auto-calculated)',
+            readOnly: true,
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        {
+          name: 'todayDate',
+          type: 'date',
+          admin: {
+            description: 'Date for today session count tracking',
+            readOnly: true,
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        {
+          name: 'activeSessions',
+          type: 'number',
+          defaultValue: 0,
+          admin: {
+            description: 'Number of currently active agent sessions',
+            readOnly: true,
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        // Hard stops
+        {
+          name: 'budgetExceeded',
+          type: 'checkbox',
+          defaultValue: false,
+          admin: {
+            description: 'Whether monthly budget has been exceeded (prevents new sessions)',
+            readOnly: true,
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+        {
+          name: 'budgetExceededAt',
+          type: 'date',
+          admin: {
+            description: 'When the budget was exceeded',
+            readOnly: true,
+            condition: (data) => data.costControls?.budgetExceeded,
+          },
+        },
+        {
+          name: 'pausedUntil',
+          type: 'date',
+          admin: {
+            description: 'Manually pause all agent operations until this date',
+            condition: (data) => data.costControls?.enabled,
+          },
+        },
+      ],
     },
   ],
   timestamps: true,

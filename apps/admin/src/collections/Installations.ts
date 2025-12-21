@@ -123,6 +123,190 @@ export const Installations: CollectionConfig = {
         description: 'Tool configuration for all repos in this installation',
       },
     },
+    // Approval gate configuration (org level defaults)
+    {
+      name: 'approvalGates',
+      type: 'group',
+      admin: {
+        description: 'Default approval gate settings for all repos in this installation',
+      },
+      fields: [
+        {
+          name: 'requireHumanApproval',
+          type: 'checkbox',
+          defaultValue: true,
+          admin: {
+            description: 'Require human approval before merging PRs (default for all repos)',
+          },
+        },
+        {
+          name: 'allowFullAutonomy',
+          type: 'checkbox',
+          defaultValue: false,
+          admin: {
+            description: 'Allow fully autonomous operation (no human approval required)',
+          },
+        },
+        {
+          name: 'maxBudgetPerDay',
+          type: 'number',
+          defaultValue: 100,
+          admin: {
+            description: 'Maximum daily budget in USD for agent operations',
+          },
+        },
+        {
+          name: 'maxAgentSpawnsPerHour',
+          type: 'number',
+          defaultValue: 10,
+          admin: {
+            description: 'Rate limit: max agent spawns per hour',
+          },
+        },
+        {
+          name: 'riskThreshold',
+          type: 'select',
+          options: [
+            { label: 'Low - Approve all automatically', value: 'low' },
+            { label: 'Medium - Approve low-risk changes', value: 'medium' },
+            { label: 'High - Require approval for all changes', value: 'high' },
+          ],
+          defaultValue: 'high',
+          admin: {
+            description: 'Risk threshold for automatic approval',
+          },
+        },
+        {
+          name: 'criticalPaths',
+          type: 'json',
+          defaultValue: ['**/auth/**', '**/payment/**', '**/security/**', '**/.env*'],
+          admin: {
+            description: 'File paths that always require human approval (glob patterns)',
+          },
+        },
+        {
+          name: 'autoApproveLabels',
+          type: 'json',
+          defaultValue: ['auto-approve', 'safe-change'],
+          admin: {
+            description: 'Issue labels that allow automatic merge without human approval',
+          },
+        },
+        {
+          name: 'requireApprovalLabels',
+          type: 'json',
+          defaultValue: ['needs-review', 'breaking-change', 'security'],
+          admin: {
+            description: 'Issue labels that always require human approval',
+          },
+        },
+        // Triggers - conditions that trigger approval requirements
+        {
+          name: 'triggers',
+          type: 'group',
+          admin: {
+            description: 'Conditions that trigger approval requirements (org-wide defaults)',
+          },
+          fields: [
+            {
+              name: 'labels',
+              type: 'array',
+              admin: {
+                description: 'PR/issue labels that trigger approval',
+              },
+              fields: [
+                {
+                  name: 'label',
+                  type: 'text',
+                  required: true,
+                },
+              ],
+            },
+            {
+              name: 'types',
+              type: 'array',
+              admin: {
+                description: 'Issue types that trigger approval',
+              },
+              fields: [
+                {
+                  name: 'type',
+                  type: 'select',
+                  required: true,
+                  options: [
+                    { label: 'Task', value: 'task' },
+                    { label: 'Bug', value: 'bug' },
+                    { label: 'Feature', value: 'feature' },
+                    { label: 'Epic', value: 'epic' },
+                  ],
+                },
+              ],
+            },
+            {
+              name: 'filesChanged',
+              type: 'array',
+              admin: {
+                description: 'File path patterns that trigger approval (glob patterns)',
+              },
+              fields: [
+                {
+                  name: 'pattern',
+                  type: 'text',
+                  required: true,
+                  admin: {
+                    description: 'Glob pattern (e.g., src/auth/**, *.sql)',
+                  },
+                },
+              ],
+            },
+            {
+              name: 'riskScore',
+              type: 'number',
+              min: 0,
+              max: 100,
+              admin: {
+                description: 'Risk score threshold (0-100) that triggers approval',
+              },
+            },
+          ],
+        },
+        // Approvers - who can approve (org-wide defaults)
+        {
+          name: 'approvers',
+          type: 'array',
+          admin: {
+            description: 'GitHub usernames who can approve (org-wide default)',
+          },
+          fields: [
+            {
+              name: 'username',
+              type: 'text',
+              required: true,
+              admin: {
+                description: 'GitHub username',
+              },
+            },
+          ],
+        },
+        {
+          name: 'teamApprovers',
+          type: 'array',
+          admin: {
+            description: 'GitHub teams who can approve (format: org/team-slug)',
+          },
+          fields: [
+            {
+              name: 'team',
+              type: 'text',
+              required: true,
+              admin: {
+                description: 'GitHub team in format: org/team-slug',
+              },
+            },
+          ],
+        },
+      ],
+    },
   ],
   timestamps: true,
 }

@@ -21,7 +21,30 @@ export interface Env {
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
   ANTHROPIC_API_KEY: string
+  // For audit logging
+  PAYLOAD?: Fetcher
 }
+
+/**
+ * Audit log action types
+ */
+export type AuditAction =
+  | 'agent_spawned'
+  | 'agent_completed'
+  | 'agent_failed'
+  | 'review_started'
+  | 'review_approved'
+  | 'review_rejected'
+  | 'changes_requested'
+  | 'approval_required'
+  | 'approval_granted'
+  | 'approval_denied'
+  | 'auto_approved'
+  | 'pr_merged'
+  | 'pr_closed'
+  | 'rollback_triggered'
+  | 'rollback_completed'
+  | 'rollback_failed'
 
 // =============================================================================
 // Types (from design doc Section 2)
@@ -46,6 +69,28 @@ export interface ReviewOutcome {
   comment: string
   escalations: string[]
   timestamp: string
+}
+
+/**
+ * Approval gate configuration (cascaded from org/repo)
+ */
+export interface ApprovalGateConfig {
+  requireHumanApproval: boolean
+  allowFullAutonomy: boolean
+  riskThreshold: 'low' | 'medium' | 'high'
+  criticalPaths: string[]
+  autoApproveLabels: string[]
+  requireApprovalLabels: string[]
+}
+
+/**
+ * Risk assessment for a PR
+ */
+export interface RiskAssessment {
+  level: 'low' | 'medium' | 'high' | 'critical'
+  factors: string[]
+  touchesCriticalPath: boolean
+  requiresHumanApproval: boolean
 }
 
 /**
@@ -75,14 +120,22 @@ export interface PRContext {
 
   // Audit
   mergeType: 'auto' | 'approved' | 'forced' | null
+
+  // Approval gates
+  approvalGates: ApprovalGateConfig | null
+  riskAssessment: RiskAssessment | null
+  humanApprovalGranted: boolean
+  humanApprover: string | null
+  issueLabels: string[]
+  filesChanged: string[]
 }
 
 /**
  * PR state machine events
  */
 export type PREvent =
-  | { type: 'PR_OPENED'; prNumber: number; author: string; base: string; head: string; installationId: number; repoFullName: string }
-  | { type: 'CONFIG_LOADED'; reviewers: ReviewerConfig[]; authorPAT: string }
+  | { type: 'PR_OPENED'; prNumber: number; author: string; base: string; head: string; installationId: number; repoFullName: string; labels?: string[]; filesChanged?: string[] }
+  | { type: 'CONFIG_LOADED'; reviewers: ReviewerConfig[]; authorPAT: string; approvalGates: ApprovalGateConfig }
   | { type: 'SESSION_STARTED'; sessionId: string }
   | { type: 'SESSION_FAILED'; error: string }
   | { type: 'REVIEW_COMPLETE'; reviewer: string; decision: 'approved' | 'changes_requested'; body: string }
@@ -90,6 +143,8 @@ export type PREvent =
   | { type: 'CLOSE'; merged: boolean }
   | { type: 'RETRY' }
   | { type: 'MERGE' }
+  | { type: 'HUMAN_APPROVAL'; approver: string; approved: boolean; reason?: string }
+  | { type: 'RISK_ASSESSED'; assessment: RiskAssessment }
 
 // =============================================================================
 // Escalation Parsing
@@ -239,6 +294,38 @@ const prMachine = setup({
     allApproved: ({ context }) => context.currentReviewerIndex >= context.reviewers.length - 1,
     canRetry: ({ context }) => context.retryCount < 3,
     wasMerged: ({ event }) => event.type === 'CLOSE' && event.merged === true,
+    // Approval gate guards
+    canAutoMerge: ({ context }) => {
+      // Full autonomy mode - no human approval needed
+      if (context.approvalGates?.allowFullAutonomy) return true
+      // Human approval already granted
+      if (context.humanApprovalGranted) return true
+      // Check if auto-approve labels are present
+      const hasAutoApproveLabel = context.issueLabels.some(
+        label => context.approvalGates?.autoApproveLabels?.includes(label)
+      )
+      if (hasAutoApproveLabel) return true
+      // Risk assessment says no human approval needed
+      if (context.riskAssessment && !context.riskAssessment.requiresHumanApproval) return true
+      // Default: cannot auto-merge
+      return false
+    },
+    requiresHumanApproval: ({ context }) => {
+      // Check explicit requirement from org/repo config
+      if (context.approvalGates?.requireHumanApproval) return true
+      // Check if require-approval labels are present
+      const hasRequireApprovalLabel = context.issueLabels.some(
+        label => context.approvalGates?.requireApprovalLabels?.includes(label)
+      )
+      if (hasRequireApprovalLabel) return true
+      // Check risk assessment
+      if (context.riskAssessment?.requiresHumanApproval) return true
+      return false
+    },
+    humanApprovalGranted: ({ event }) =>
+      event.type === 'HUMAN_APPROVAL' && event.approved === true,
+    humanApprovalDenied: ({ event }) =>
+      event.type === 'HUMAN_APPROVAL' && event.approved === false,
   },
   actions: {
     loadRepoConfig: assign({
@@ -386,6 +473,13 @@ const prMachine = setup({
     retryCount: 0,
     lastError: null,
     mergeType: null,
+    // Approval gates
+    approvalGates: null,
+    riskAssessment: null,
+    humanApprovalGranted: false,
+    humanApprover: null,
+    issueLabels: [],
+    filesChanged: [],
   },
 
   // Global transitions - any state can transition to merged/closed
@@ -493,10 +587,69 @@ const prMachine = setup({
     },
 
     approved: {
-      // Placeholder: will attempt auto-merge if configured
+      // Check if human approval is required before merging
+      always: [
+        {
+          guard: 'canAutoMerge',
+          target: 'merging',
+        },
+        {
+          guard: 'requiresHumanApproval',
+          target: 'awaiting_approval',
+        },
+      ],
       on: {
-        MERGE: { target: '#prReview.merged' },
+        MERGE: { target: '#prReview.merging' },
       },
+    },
+
+    awaiting_approval: {
+      // Wait for human approval before merging
+      on: {
+        HUMAN_APPROVAL: [
+          {
+            guard: 'humanApprovalGranted',
+            target: 'merging',
+            actions: [
+              assign({
+                humanApprovalGranted: () => true,
+                humanApprover: ({ event }) =>
+                  event.type === 'HUMAN_APPROVAL' ? event.approver : null,
+                mergeType: () => 'approved' as const,
+              }),
+            ],
+          },
+          {
+            guard: 'humanApprovalDenied',
+            target: 'closed',
+            actions: [
+              assign({
+                lastError: ({ event }) =>
+                  event.type === 'HUMAN_APPROVAL'
+                    ? `Approval denied by ${event.approver}: ${event.reason || 'No reason provided'}`
+                    : null,
+              }),
+            ],
+          },
+        ],
+      },
+    },
+
+    merging: {
+      // Attempt auto-merge
+      entry: [
+        assign({
+          mergeType: ({ context }) =>
+            context.humanApprovalGranted
+              ? ('approved' as const)
+              : context.approvalGates?.allowFullAutonomy
+                ? ('auto' as const)
+                : ('auto' as const),
+        }),
+      ],
+      always: [
+        { target: 'merged' },
+      ],
     },
 
     merged: {
@@ -528,12 +681,49 @@ export class PRDO extends DurableObject<Env> {
   }
 
   /**
-   * Load reviewer config from D1 database
+   * Load reviewer config and approval gates from D1 database
    */
   private async loadReviewerConfig(repoFullName: string): Promise<{
     reviewers: ReviewerConfig[]
     defaultAuthorPAT: string
+    approvalGates: ApprovalGateConfig
   }> {
+    // Default approval gates (safe defaults)
+    const defaultApprovalGates: ApprovalGateConfig = {
+      requireHumanApproval: true,
+      allowFullAutonomy: false,
+      riskThreshold: 'high',
+      criticalPaths: ['**/auth/**', '**/payment/**', '**/security/**', '**/.env*'],
+      autoApproveLabels: ['auto-approve', 'safe-change'],
+      requireApprovalLabels: ['needs-review', 'breaking-change', 'security'],
+    }
+
+    // Query repo and installation for approval gates
+    const [owner, repo] = repoFullName.split('/')
+    const repoResult = await this.env.DB.prepare(`
+      SELECT
+        r.approvalGates,
+        i.approvalGates as orgApprovalGates
+      FROM repos r
+      JOIN installations i ON r.installation = i.id
+      WHERE r.owner = ? AND r.name = ?
+    `).bind(owner, repo).first()
+
+    let approvalGates = defaultApprovalGates
+
+    if (repoResult) {
+      const orgGates = repoResult.orgApprovalGates ? JSON.parse(repoResult.orgApprovalGates as string) : null
+      const repoGates = repoResult.approvalGates ? JSON.parse(repoResult.approvalGates as string) : null
+
+      // Merge: repo overrides org, org overrides defaults
+      if (orgGates) {
+        approvalGates = { ...approvalGates, ...orgGates }
+      }
+      if (repoGates && !repoGates.inheritFromOrg) {
+        approvalGates = { ...approvalGates, ...repoGates }
+      }
+    }
+
     // Query agents table for reviewers configured for this repo
     const agents = await this.env.DB.prepare(`
       SELECT
@@ -561,6 +751,7 @@ export class PRDO extends DurableObject<Env> {
           { agent: 'quinn', type: 'agent' as const, canEscalate: ['sam'] }
         ],
         defaultAuthorPAT: '',
+        approvalGates,
       }
     }
 
@@ -571,7 +762,145 @@ export class PRDO extends DurableObject<Env> {
       canEscalate: row.canEscalate?.split(',').filter(Boolean) || [],
     }))
 
-    return { reviewers, defaultAuthorPAT: '' }
+    return { reviewers, defaultAuthorPAT: '', approvalGates }
+  }
+
+  /**
+   * Assess risk based on files changed and approval gate config
+   */
+  private assessRisk(
+    filesChanged: string[],
+    approvalGates: ApprovalGateConfig
+  ): RiskAssessment {
+    const factors: string[] = []
+    let touchesCriticalPath = false
+
+    // Check if any files match critical paths
+    for (const file of filesChanged) {
+      for (const pattern of approvalGates.criticalPaths) {
+        if (this.matchGlob(file, pattern)) {
+          touchesCriticalPath = true
+          factors.push(`File matches critical path: ${file} (${pattern})`)
+        }
+      }
+    }
+
+    // Calculate risk level based on factors
+    let level: 'low' | 'medium' | 'high' | 'critical' = 'low'
+    const fileCount = filesChanged.length
+
+    if (touchesCriticalPath) {
+      level = 'critical'
+      factors.push('Changes touch security-critical files')
+    } else if (fileCount > 50) {
+      level = 'high'
+      factors.push(`Large change: ${fileCount} files modified`)
+    } else if (fileCount > 20) {
+      level = 'medium'
+      factors.push(`Moderate change: ${fileCount} files modified`)
+    }
+
+    // Determine if human approval is required based on risk threshold
+    const riskLevels = { low: 1, medium: 2, high: 3, critical: 4 }
+    const thresholdLevel = riskLevels[approvalGates.riskThreshold] || 3
+    const actualLevel = riskLevels[level]
+    const requiresHumanApproval = actualLevel >= thresholdLevel || touchesCriticalPath
+
+    return {
+      level,
+      factors,
+      touchesCriticalPath,
+      requiresHumanApproval,
+    }
+  }
+
+  /**
+   * Simple glob pattern matching
+   */
+  private matchGlob(path: string, pattern: string): boolean {
+    // Convert glob pattern to regex
+    const regexPattern = pattern
+      .replace(/\*\*/g, '{{GLOBSTAR}}')
+      .replace(/\*/g, '[^/]*')
+      .replace(/{{GLOBSTAR}}/g, '.*')
+      .replace(/\?/g, '.')
+    const regex = new RegExp(`^${regexPattern}$`)
+    return regex.test(path)
+  }
+
+  /**
+   * Log an action to the audit log
+   */
+  private async logAudit(
+    action: AuditAction,
+    context: PRContext,
+    details?: {
+      sessionId?: string
+      error?: string
+      reviewer?: string
+      decision?: string
+      approver?: string
+      cost?: { inputTokens?: number; outputTokens?: number; totalUsd?: number }
+      riskAssessment?: RiskAssessment
+    }
+  ): Promise<void> {
+    try {
+      // Log to local SQL storage for quick access
+      const now = new Date().toISOString()
+      this.sql.exec(
+        `INSERT INTO audit_log (action, pr_number, repo, session_id, details, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        action,
+        context.prNumber,
+        context.repoFullName,
+        details?.sessionId || null,
+        JSON.stringify({
+          reviewer: details?.reviewer,
+          decision: details?.decision,
+          approver: details?.approver,
+          error: details?.error,
+          cost: details?.cost,
+          riskAssessment: details?.riskAssessment,
+        }),
+        now
+      )
+
+      // Also log to Payload CMS audit-logs collection if available
+      if (this.env.PAYLOAD) {
+        await this.env.PAYLOAD.fetch(new Request('http://payload/api/audit-logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action,
+            status: details?.error ? 'failed' : 'success',
+            prNumber: context.prNumber,
+            sessionId: details?.sessionId,
+            cost: details?.cost,
+            riskAssessment: details?.riskAssessment ? {
+              level: details.riskAssessment.level,
+              factors: details.riskAssessment.factors,
+              touchesCriticalPath: details.riskAssessment.touchesCriticalPath,
+            } : undefined,
+            details: {
+              reviewer: details?.reviewer,
+              decision: details?.decision,
+              approver: details?.approver,
+              repoFullName: context.repoFullName,
+              filesChanged: context.filesChanged,
+            },
+            approval: details?.approver ? {
+              required: true,
+              approvedBy: null, // Will be set by Payload based on user lookup
+              reason: details?.decision,
+            } : undefined,
+            errorMessage: details?.error,
+          }),
+        }))
+      }
+    } catch (error) {
+      // Don't fail the main operation if audit logging fails
+      console.error('[PRDO] Failed to log audit:', error)
+    }
   }
 
   /**
@@ -643,7 +972,20 @@ export class PRDO extends DurableObject<Env> {
         created_at TEXT NOT NULL
       );
 
+      -- Audit log for all PRDO actions
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action TEXT NOT NULL,
+        pr_number INTEGER NOT NULL,
+        repo TEXT NOT NULL,
+        session_id TEXT,
+        details TEXT, -- JSON
+        created_at TEXT NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON review_sessions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_audit_pr ON audit_log(pr_number, repo);
+      CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
     `)
 
     this.initialized = true
@@ -725,6 +1067,31 @@ export class PRDO extends DurableObject<Env> {
         return this.handleSessionCallback(callback)
       }
 
+      // POST /approve - Handle human approval (from GitHub PR review or UI)
+      if (path === '/approve' && request.method === 'POST') {
+        const approval = (await request.json()) as {
+          approver: string
+          approved: boolean
+          reason?: string
+        }
+        return this.handleHumanApproval(approval)
+      }
+
+      // POST /rollback - Rollback to a previous commit
+      if (path === '/rollback' && request.method === 'POST') {
+        const rollback = (await request.json()) as {
+          targetCommit: string
+          reason: string
+          requestedBy: string
+        }
+        return this.handleRollback(rollback)
+      }
+
+      // GET /rollback-info - Get rollback information
+      if (path === '/rollback-info' && request.method === 'GET') {
+        return this.getRollbackInfo()
+      }
+
       return new Response('Not Found', { status: 404 })
     } catch (error) {
       console.error('[PRDO] Error:', error)
@@ -759,10 +1126,22 @@ export class PRDO extends DurableObject<Env> {
     // For PR_OPENED, initialize context and load config
     if (event.type === 'PR_OPENED') {
       // Update context with PR info
-      const prOpenedEvent = event as { type: 'PR_OPENED'; prNumber: number; author: string; repoFullName: string; installationId: number }
+      const prOpenedEvent = event as {
+        type: 'PR_OPENED'
+        prNumber: number
+        author: string
+        repoFullName: string
+        installationId: number
+        labels?: string[]
+        filesChanged?: string[]
+      }
 
-      // Load reviewer config
+      // Load reviewer config and approval gates
       const config = await this.loadReviewerConfig(prOpenedEvent.repoFullName)
+
+      // Assess risk based on files changed
+      const filesChanged = prOpenedEvent.filesChanged || []
+      const riskAssessment = this.assessRisk(filesChanged, config.approvalGates)
 
       // Initialize machine context
       const context = this.prActor.getSnapshot().context
@@ -772,13 +1151,27 @@ export class PRDO extends DurableObject<Env> {
       context.authorAgent = prOpenedEvent.author
       context.reviewers = config.reviewers
       context.authorPAT = config.defaultAuthorPAT
+      context.approvalGates = config.approvalGates
+      context.riskAssessment = riskAssessment
+      context.issueLabels = prOpenedEvent.labels || []
+      context.filesChanged = filesChanged
 
       // Store context
       await this.ctx.storage.put('prContext', context)
 
+      // Log to audit (if approval is required)
+      if (riskAssessment.requiresHumanApproval) {
+        console.log(`[PRDO] PR #${prOpenedEvent.prNumber} requires human approval:`, riskAssessment)
+      }
+
       // Send PR_OPENED then CONFIG_LOADED
       this.prActor.send(event)
-      this.prActor.send({ type: 'CONFIG_LOADED', reviewers: config.reviewers, authorPAT: config.defaultAuthorPAT })
+      this.prActor.send({
+        type: 'CONFIG_LOADED',
+        reviewers: config.reviewers,
+        authorPAT: config.defaultAuthorPAT,
+        approvalGates: config.approvalGates,
+      })
     } else {
       // Send event to state machine
       this.prActor.send(event)
@@ -884,6 +1277,189 @@ export class PRDO extends DurableObject<Env> {
       ok: true,
       state: state.value,
       context: state.context,
+    })
+  }
+
+  /**
+   * Handle human approval or denial from GitHub PR review or UI
+   */
+  private async handleHumanApproval(approval: {
+    approver: string
+    approved: boolean
+    reason?: string
+  }): Promise<Response> {
+    if (!this.prActor) {
+      return new Response('PR actor not initialized', { status: 500 })
+    }
+
+    const state = this.prActor.getSnapshot()
+    const currentState = state.value as string
+
+    // Only accept approval in awaiting_approval state
+    if (currentState !== 'awaiting_approval') {
+      return Response.json({
+        ok: false,
+        error: `Cannot process approval in state: ${currentState}`,
+        expectedState: 'awaiting_approval',
+      }, { status: 400 })
+    }
+
+    // Log the approval/denial
+    console.log(`[PRDO] Human approval from ${approval.approver}: ${approval.approved ? 'APPROVED' : 'DENIED'}${approval.reason ? ` - ${approval.reason}` : ''}`)
+
+    // Send the HUMAN_APPROVAL event
+    this.prActor.send({
+      type: 'HUMAN_APPROVAL',
+      approver: approval.approver,
+      approved: approval.approved,
+      reason: approval.reason,
+    })
+
+    const newState = this.prActor.getSnapshot()
+
+    return Response.json({
+      ok: true,
+      previousState: currentState,
+      state: newState.value,
+      context: {
+        humanApprovalGranted: newState.context.humanApprovalGranted,
+        humanApprover: newState.context.humanApprover,
+        mergeType: newState.context.mergeType,
+      },
+    })
+  }
+
+  /**
+   * Handle rollback request to revert to a previous commit
+   */
+  private async handleRollback(rollback: {
+    targetCommit: string
+    reason: string
+    requestedBy: string
+  }): Promise<Response> {
+    if (!this.prActor) {
+      return new Response('PR actor not initialized', { status: 500 })
+    }
+
+    const context = this.prActor.getSnapshot().context
+
+    try {
+      // Get installation token for GitHub API
+      const { Octokit } = await import('@octokit/rest')
+      const { createAppAuth } = await import('@octokit/auth-app')
+
+      const auth = createAppAuth({
+        appId: this.env.GITHUB_APP_ID,
+        privateKey: this.env.GITHUB_PRIVATE_KEY,
+        installationId: context.installationId,
+      })
+      const { token } = await auth({ type: 'installation' })
+      const octokit = new Octokit({ auth: token })
+
+      const [owner, repo] = context.repoFullName.split('/')
+
+      // Create a revert commit
+      const revertBranch = `rollback-pr-${context.prNumber}-${Date.now()}`
+
+      // Get the default branch
+      const { data: repoData } = await octokit.repos.get({ owner, repo })
+      const defaultBranch = repoData.default_branch
+
+      // Get the ref for the default branch
+      const { data: ref } = await octokit.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${defaultBranch}`,
+      })
+
+      // Create a new branch from the target commit for rollback
+      await octokit.git.createRef({
+        owner,
+        repo,
+        ref: `refs/heads/${revertBranch}`,
+        sha: rollback.targetCommit,
+      })
+
+      // Create a PR to merge the rollback branch
+      const { data: pr } = await octokit.pulls.create({
+        owner,
+        repo,
+        title: `Rollback: Revert PR #${context.prNumber}`,
+        body: `## Rollback Request
+
+**Requested by:** ${rollback.requestedBy}
+**Reason:** ${rollback.reason}
+**Target commit:** ${rollback.targetCommit}
+**Original PR:** #${context.prNumber}
+
+This PR reverts the changes from PR #${context.prNumber}.
+
+---
+🤖 Automatically created by PRDO rollback system`,
+        head: revertBranch,
+        base: defaultBranch,
+      })
+
+      // Log the rollback to audit
+      await this.logAudit('rollback_triggered' as AuditAction, context, {
+        approver: rollback.requestedBy,
+        decision: rollback.reason,
+      })
+
+      // Store rollback info
+      await this.ctx.storage.put('rollbackInfo', {
+        targetCommit: rollback.targetCommit,
+        reason: rollback.reason,
+        requestedBy: rollback.requestedBy,
+        rollbackPR: pr.number,
+        rollbackBranch: revertBranch,
+        timestamp: new Date().toISOString(),
+      })
+
+      return Response.json({
+        ok: true,
+        rollbackPR: pr.number,
+        rollbackBranch: revertBranch,
+        targetCommit: rollback.targetCommit,
+      })
+    } catch (error) {
+      console.error('[PRDO] Rollback failed:', error)
+
+      // Log the failed rollback
+      await this.logAudit('rollback_failed' as AuditAction, context, {
+        error: String(error),
+        approver: rollback.requestedBy,
+      })
+
+      return Response.json({
+        ok: false,
+        error: String(error),
+      }, { status: 500 })
+    }
+  }
+
+  /**
+   * Get rollback information for this PR
+   */
+  private async getRollbackInfo(): Promise<Response> {
+    if (!this.prActor) {
+      return new Response('PR actor not initialized', { status: 500 })
+    }
+
+    const context = this.prActor.getSnapshot().context
+    const rollbackInfo = await this.ctx.storage.get<any>('rollbackInfo')
+
+    // Get the list of commits that can be rolled back to
+    const commits = this.sql.exec<{ session_id: string; created_at: string }>(
+      `SELECT session_id, created_at FROM review_sessions WHERE task_type = 'fix' ORDER BY created_at DESC LIMIT 10`
+    ).toArray()
+
+    return Response.json({
+      prNumber: context.prNumber,
+      repoFullName: context.repoFullName,
+      currentState: this.prActor.getSnapshot().value,
+      rollbackInfo,
+      availableRollbackPoints: commits,
     })
   }
 

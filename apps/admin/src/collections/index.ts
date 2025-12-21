@@ -13,6 +13,7 @@ export { Connections } from './Connections'
 export { ToolExecutions } from './ToolExecutions'
 export { Models } from './Models'
 export { ModelDefaults } from './ModelDefaults'
+export { AuditLogs } from './AuditLogs'
 
 // Re-export for convenience
 export const collections = [
@@ -30,6 +31,7 @@ export const collections = [
   'toolExecutions',
   'models',
   'model-defaults',
+  'audit-logs',
 ] as const
 
 export type CollectionSlug = (typeof collections)[number]
