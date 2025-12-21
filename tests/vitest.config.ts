@@ -4,7 +4,7 @@ import path from 'path'
 export default defineConfig({
   test: {
     root: __dirname,
-    include: ['e2e/**/*.test.ts'],
+    include: ['unit/**/*.test.ts', 'e2e/**/*.test.ts'],
     globals: true,
     testTimeout: 60000, // E2E tests need longer timeouts
     hookTimeout: 30000,
