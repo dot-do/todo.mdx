@@ -76,6 +76,8 @@ export interface Config {
     'sync-events': SyncEvent;
     'linear-integrations': LinearIntegration;
     agents: Agent;
+    'durable-objects': DurableObject;
+    connections: Connection;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -99,6 +101,8 @@ export interface Config {
     'sync-events': SyncEventsSelect<false> | SyncEventsSelect<true>;
     'linear-integrations': LinearIntegrationsSelect<false> | LinearIntegrationsSelect<true>;
     agents: AgentsSelect<false> | AgentsSelect<true>;
+    'durable-objects': DurableObjectsSelect<false> | DurableObjectsSelect<true>;
+    connections: ConnectionsSelect<false> | ConnectionsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -635,6 +639,114 @@ export interface LinearIntegration {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "durable-objects".
+ */
+export interface DurableObject {
+  id: number;
+  /**
+   * Type of Durable Object
+   */
+  type: 'org' | 'repo' | 'project' | 'pr' | 'issue';
+  /**
+   * Durable Object ID string
+   */
+  doId: string;
+  /**
+   * Human-readable reference: owner/repo#123
+   */
+  ref: string;
+  /**
+   * XState snapshot
+   */
+  state?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Last state update for detecting stale DOs
+   */
+  lastHeartbeat?: string | null;
+  /**
+   * Related installation/organization
+   */
+  org?: (number | null) | Installation;
+  /**
+   * Related repository
+   */
+  repo?: (number | null) | Repo;
+  /**
+   * Related issue
+   */
+  issue?: (number | null) | Issue;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "connections".
+ */
+export interface Connection {
+  id: number;
+  /**
+   * User who owns this connection
+   */
+  user: number | User;
+  /**
+   * Optional org-level connection
+   */
+  org?: (number | null) | Installation;
+  /**
+   * Integration name (PascalCase): GitHub, Slack, Linear
+   */
+  app: string;
+  provider: 'native' | 'composio';
+  /**
+   * Provider-specific ID (composioUserId, installationId, etc.)
+   */
+  externalId: string;
+  /**
+   * Provider-specific metadata
+   */
+  externalRef?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  status: 'active' | 'expired' | 'revoked';
+  /**
+   * Granted permissions/scopes
+   */
+  scopes?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * When the connection was established
+   */
+  connectedAt: string;
+  /**
+   * Token expiration for refresh
+   */
+  expiresAt?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -692,6 +804,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'agents';
         value: number | Agent;
+      } | null)
+    | ({
+        relationTo: 'durable-objects';
+        value: number | DurableObject;
+      } | null)
+    | ({
+        relationTo: 'connections';
+        value: number | Connection;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -940,6 +1060,40 @@ export interface AgentsSelect<T extends boolean = true> {
         agentName?: T;
         id?: T;
       };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "durable-objects_select".
+ */
+export interface DurableObjectsSelect<T extends boolean = true> {
+  type?: T;
+  doId?: T;
+  ref?: T;
+  state?: T;
+  lastHeartbeat?: T;
+  org?: T;
+  repo?: T;
+  issue?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "connections_select".
+ */
+export interface ConnectionsSelect<T extends boolean = true> {
+  user?: T;
+  org?: T;
+  app?: T;
+  provider?: T;
+  externalId?: T;
+  externalRef?: T;
+  status?: T;
+  scopes?: T;
+  connectedAt?: T;
+  expiresAt?: T;
   updatedAt?: T;
   createdAt?: T;
 }

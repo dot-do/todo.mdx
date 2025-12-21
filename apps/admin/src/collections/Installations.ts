@@ -115,6 +115,14 @@ export const Installations: CollectionConfig = {
         description: 'Users connected to this installation',
       },
     },
+    // Tool configuration (org level)
+    {
+      name: 'toolConfig',
+      type: 'json',
+      admin: {
+        description: 'Tool configuration for all repos in this installation',
+      },
+    },
   ],
   timestamps: true,
 }

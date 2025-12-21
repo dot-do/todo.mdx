@@ -183,6 +183,14 @@ export const Issues: CollectionConfig = {
         description: 'Reason for closing the issue',
       },
     },
+    // Tool configuration (issue level)
+    {
+      name: 'toolConfig',
+      type: 'json',
+      admin: {
+        description: 'Tool configuration for this issue (inherits from repo → installation)',
+      },
+    },
   ],
   timestamps: true,
 }

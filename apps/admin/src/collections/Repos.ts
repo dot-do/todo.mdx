@@ -188,6 +188,14 @@ export const Repos: CollectionConfig = {
         },
       ],
     },
+    // Tool configuration (repo level)
+    {
+      name: 'toolConfig',
+      type: 'json',
+      admin: {
+        description: 'Tool configuration for this repository (inherits from installation)',
+      },
+    },
   ],
   timestamps: true,
 }
