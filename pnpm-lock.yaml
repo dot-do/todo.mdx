@@ -810,6 +810,9 @@ importers:
       vitest:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.3)(jsdom@26.1.0)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)
+      xstate:
+        specifier: ^5.25.0
+        version: 5.25.0
 
   worker:
     dependencies:
@@ -871,6 +874,9 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.19.3)(jsdom@26.1.0)(lightningcss@1.30.2)(sass@1.77.4)(terser@5.16.9)
       wrangler:
         specifier: ^4.0.0
         version: 4.56.0(@cloudflare/workers-types@4.20251218.0)

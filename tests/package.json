@@ -27,7 +27,8 @@
     "@playwright/test": "^1.49.0",
     "dotenv": "16.4.7",
     "execa": "^9.0.0",
-    "vitest": "^2.0.0"
+    "vitest": "^2.0.0",
+    "xstate": "^5.25.0"
   },
   "dependencies": {
     "oauth.do": "^0.1.15"
