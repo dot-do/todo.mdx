@@ -14,9 +14,14 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:e2e": "pnpm --filter @todo.mdx/tests test:e2e",
-    "lint": "turbo run lint"
+    "lint": "turbo run lint",
+    "changeset": "changeset",
+    "changeset:version": "changeset version",
+    "changeset:publish": "changeset publish",
+    "changeset:status": "changeset status"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.29.8",
     "turbo": "^2.3.3",
     "typescript": "^5.7.0"
   },
