@@ -15,7 +15,7 @@ import stdio from './api/stdio'
 import auth from './api/auth'
 import { authMiddleware, type AuthContext } from './auth'
 import { validateWorkosJwt, mightBeWorkosJwt } from './mcp/workos-jwt'
-import { PayloadAPI, type Env } from './types'
+import type { Env } from './types'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
@@ -29,21 +29,7 @@ export { TodoMCP }
 // Re-export Env type for external use
 export type { Env }
 
-// Extended Hono app with PayloadAPI in context
-type AppBindings = {
-  Bindings: Env
-  Variables: {
-    payload: PayloadAPI
-  }
-}
-
-const app = new Hono<AppBindings>()
-
-// Middleware to attach PayloadAPI to context
-app.use('*', async (c, next) => {
-  c.set('payload', new PayloadAPI(c.env.PAYLOAD_SERVICE))
-  await next()
-})
+const app = new Hono<{ Bindings: Env }>()
 
 // CORS for API access
 app.use('/api/*', cors({
@@ -72,13 +58,6 @@ app.route('/api/voice', voice)
 // ============================================
 
 app.route('/api/auth', auth)
-
-// ============================================
-// Linear Integration routes
-// Note: Webhook endpoint does NOT use auth (verified via signature)
-// ============================================
-
-app.route('/api/linear', linear)
 
 // ============================================
 // Stdio WebSocket Proxy (new binary protocol)
@@ -220,7 +199,7 @@ app.all('/mcp/*', async (c) => {
                 const payloadUserId = userResult.docs[0].id
                 const installationsResult = await c.env.PAYLOAD.find({
                   collection: 'installations',
-                  where: { users: { contains: payloadUserId } },
+                  where: { 'users.id': { equals: payloadUserId } },
                   limit: 100,
                   overrideAccess: true,
                 })
@@ -457,7 +436,6 @@ app.post('/github/webhook', async (c) => {
 async function handleInstallation(c: any, payload: any): Promise<Response> {
   const t0 = Date.now()
   const timing: Record<string, number> = {}
-  const payloadApi = c.get('payload') as PayloadAPI
 
   console.log(`[Installation] action=${payload.action} account=${payload.installation?.account?.login}`)
 
@@ -466,9 +444,9 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
       const installation = payload.installation
       timing.setup = Date.now() - t0
 
-      // Create installation via Payload API
+      // Create installation via Payload RPC
       const t1 = Date.now()
-      const installResult = await payloadApi.create({
+      const installResult = await c.env.PAYLOAD.create({
         collection: 'installations',
         data: {
           installationId: installation.id,
@@ -484,13 +462,13 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
       timing.installInsert = Date.now() - t1
       console.log(`[Installation] Created installation id=${installResult.id} (${timing.installInsert}ms)`)
 
-      // Create repos via Payload API
+      // Create repos via Payload RPC
       const repos = payload.repositories || []
       if (repos.length > 0) {
         const t2 = Date.now()
         // Create repos sequentially (Payload doesn't have batch create)
         for (const repo of repos) {
-          await payloadApi.create({
+          await c.env.PAYLOAD.create({
             collection: 'repos',
             data: {
               githubId: repo.id,
@@ -518,15 +496,15 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
 
   if (payload.action === 'deleted') {
     try {
-      // Find and delete installation via Payload API
-      const installations = await payloadApi.find({
+      // Find and delete installation via Payload RPC
+      const installations = await c.env.PAYLOAD.find({
         collection: 'installations',
         where: { installationId: { equals: payload.installation.id } },
         limit: 1,
       })
 
       if (installations.docs?.length > 0) {
-        await payloadApi.delete({
+        await c.env.PAYLOAD.delete({
           collection: 'installations',
           id: installations.docs[0].id,
         })
