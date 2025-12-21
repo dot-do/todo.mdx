@@ -79,7 +79,7 @@ app.get('/:sandboxId', async (c) => {
   // Get sandbox instance
   try {
     const sandbox = getSandbox(
-      c.env.CLAUDE_SANDBOX as unknown as DurableObjectNamespace,
+      c.env.Sandbox,
       sandboxId
     )
 
@@ -139,7 +139,7 @@ app.get('/:sandboxId/warmup', async (c) => {
 
   try {
     const sandbox = getSandbox(
-      c.env.CLAUDE_SANDBOX as unknown as DurableObjectNamespace,
+      c.env.Sandbox,
       sandboxId
     )
 
@@ -438,8 +438,8 @@ app.post('/create', authMiddleware, async (c) => {
     }))
 
     // Pre-create sandbox instance
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
-    c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sandboxId)
+    c.env.Sandbox.get(doId)
 
     return c.json({
       sandboxId,

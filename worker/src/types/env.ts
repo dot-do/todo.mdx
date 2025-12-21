@@ -2,6 +2,8 @@
  * Cloudflare Worker environment bindings
  */
 
+import type { Sandbox } from '@cloudflare/sandbox'
+
 export interface Env {
   // D1 Database
   DB: D1Database
@@ -14,7 +16,7 @@ export interface Env {
   SESSION: DurableObjectNamespace
   RATELIMIT: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
-  CLAUDE_SANDBOX: DurableObjectNamespace
+  Sandbox: DurableObjectNamespace<Sandbox>
 
   // AI & Vector
   AI: Ai

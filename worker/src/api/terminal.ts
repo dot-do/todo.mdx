@@ -74,8 +74,8 @@ app.get('/:sessionId', async (c) => {
   }), { expirationTtl: 3600 })
 
   // Get or create sandbox instance
-  const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-  const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+  const doId = c.env.Sandbox.idFromName(sessionId)
+  const sandbox = c.env.Sandbox.get(doId)
 
   // Build WebSocket URL with query params (fallback to session data)
   const wsUrl = new URL('http://sandbox/ws')
@@ -125,8 +125,8 @@ app.post('/start', async (c) => {
     } as TerminalSession), { expirationTtl: 3600 })
 
     // Pre-create the sandbox instance
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    c.env.Sandbox.get(doId)
 
     return c.json({
       sessionId,
@@ -155,8 +155,8 @@ app.get('/:sessionId/events', async (c) => {
   const encoder = new TextEncoder()
 
   // Get sandbox instance
-  const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-  const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+  const doId = c.env.Sandbox.idFromName(sessionId)
+  const sandbox = c.env.Sandbox.get(doId)
 
   // Start streaming from sandbox
   const streamResponse = await sandbox.fetch(new Request('http://sandbox/stream', {
@@ -213,8 +213,8 @@ app.post('/:sessionId/terminate', async (c) => {
   }), { expirationTtl: 300 }) // Keep for 5 min after termination
 
   // Signal sandbox to abort
-  const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-  const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+  const doId = c.env.Sandbox.idFromName(sessionId)
+  const sandbox = c.env.Sandbox.get(doId)
 
   await sandbox.fetch(new Request('http://sandbox/abort', {
     method: 'POST',

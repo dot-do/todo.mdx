@@ -89,8 +89,8 @@ app.post('/:org/:repo/start', async (c) => {
     )
 
     // Pre-create the sandbox instance
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    c.env.Sandbox.get(doId)
 
     return c.json({
       sessionId,
@@ -173,8 +173,8 @@ app.delete('/:org/:repo/sessions/:sessionId', async (c) => {
   )
 
   // Signal sandbox to abort
-  const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-  const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+  const doId = c.env.Sandbox.idFromName(sessionId)
+  const sandbox = c.env.Sandbox.get(doId)
 
   try {
     await sandbox.fetch(new Request('http://sandbox/abort', { method: 'POST' }))

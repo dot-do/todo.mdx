@@ -7,12 +7,9 @@
  * @see https://developers.cloudflare.com/sandbox/
  */
 
-import { Sandbox, getSandbox, parseSSEStream } from '@cloudflare/sandbox'
+import { Sandbox, parseSSEStream } from '@cloudflare/sandbox'
 import type { Env } from '../types'
 import { getGitHubToken } from '../auth/vault'
-
-// Re-export Sandbox for wrangler binding
-export { Sandbox }
 
 // ============================================================================
 // Types
@@ -69,37 +66,37 @@ export interface Session {
 }
 
 // ============================================================================
-// ClaudeSandbox Worker
+// ClaudeSandbox Durable Object
 // ============================================================================
 
 /**
- * Worker that handles Claude Code sandbox requests
- * Uses getSandbox() to interact with the Sandbox Durable Object
+ * ClaudeSandbox extends Sandbox from @cloudflare/sandbox
+ * This is the Durable Object class that Cloudflare instantiates
  */
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+export class ClaudeSandbox extends Sandbox<Env> {
+  /**
+   * Override fetch to handle custom routes for Claude Code execution
+   */
+  async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname
 
-    // Get sandbox instance
-    const sandboxId = url.searchParams.get('sandboxId') || 'default'
-    const sandbox = getSandbox(env.CLAUDE_SANDBOX as unknown as DurableObjectNamespace<Sandbox>, sandboxId)
-
     // WebSocket upgrade for interactive terminal
     if (request.headers.get('Upgrade') === 'websocket') {
-      return handleWebSocket(request, env, sandbox)
+      return handleWebSocket(request, this.env, this)
     }
 
     // API routes
     if (path === '/execute' && request.method === 'POST') {
-      return handleExecute(request, env, sandbox)
+      return handleExecute(request, this.env, this)
     }
 
     if (path === '/stream' && request.method === 'POST') {
-      return handleStream(request, env, sandbox)
+      return handleStream(request, this.env, this)
     }
 
-    return new Response('Not Found', { status: 404 })
+    // Delegate to parent Sandbox class for default routes
+    return super.fetch(request)
   }
 }
 
@@ -113,7 +110,7 @@ export default {
 async function handleExecute(
   request: Request,
   env: Env,
-  sandbox: ReturnType<typeof getSandbox>
+  sandbox: ClaudeSandbox
 ): Promise<Response> {
   try {
     const opts = await request.json() as ExecuteOptions
@@ -132,7 +129,7 @@ async function handleExecute(
 async function handleStream(
   request: Request,
   env: Env,
-  sandbox: ReturnType<typeof getSandbox>
+  sandbox: ClaudeSandbox
 ): Promise<Response> {
   const opts = await request.json() as ExecuteOptions
 
@@ -169,7 +166,7 @@ async function handleStream(
 async function handleWebSocket(
   request: Request,
   env: Env,
-  sandbox: ReturnType<typeof getSandbox>
+  sandbox: ClaudeSandbox
 ): Promise<Response> {
   const { 0: client, 1: server } = new WebSocketPair()
 
@@ -208,7 +205,7 @@ async function handleWebSocket(
  */
 async function executeClaudeCode(
   env: Env,
-  sandbox: ReturnType<typeof getSandbox>,
+  sandbox: ClaudeSandbox,
   opts: ExecuteOptions
 ): Promise<ExecuteResult> {
   const { repo, task, context, installationId, branch = 'main', push, targetBranch, commitMessage } = opts
@@ -370,7 +367,7 @@ async function executeClaudeCode(
  */
 async function executeClaudeCodeWithStreaming(
   env: Env,
-  sandbox: ReturnType<typeof getSandbox>,
+  sandbox: ClaudeSandbox,
   opts: ExecuteOptions,
   writer: WritableStreamDefaultWriter,
   encoder: TextEncoder
@@ -483,7 +480,7 @@ async function executeClaudeCodeWithStreaming(
 async function runInteractiveSession(
   ws: WebSocket,
   env: Env,
-  sandbox: ReturnType<typeof getSandbox>,
+  sandbox: ClaudeSandbox,
   opts: { repo: string; task: string; installationId: number }
 ): Promise<void> {
   const { repo, task, installationId } = opts

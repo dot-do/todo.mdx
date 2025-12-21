@@ -17,7 +17,7 @@ export interface Env {
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
   PRDO: DurableObjectNamespace
-  CLAUDE_SANDBOX: DurableObjectNamespace
+  Sandbox: DurableObjectNamespace
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
   ANTHROPIC_API_KEY: string
@@ -917,8 +917,8 @@ export class PRDO extends DurableObject<Env> {
   }): Promise<string> {
     // Create a unique sandbox instance
     const sandboxId = `prdo-${config.task}-${config.repo}-${config.pr}-${Date.now()}`
-    const doId = this.env.CLAUDE_SANDBOX.idFromName(sandboxId)
-    const sandbox = this.env.CLAUDE_SANDBOX.get(doId)
+    const doId = this.env.Sandbox.idFromName(sandboxId)
+    const sandbox = this.env.Sandbox.get(doId)
 
     // Call the sandbox's execute endpoint
     const response = await sandbox.fetch(new Request('http://sandbox/execute', {
@@ -1020,12 +1020,12 @@ export class PRDO extends DurableObject<Env> {
       // The dispatchReviewSession/dispatchFixSession actions set this flag
       const sandboxSession = (globalThis as any).__sandboxSession
       if (sandboxSession !== undefined) {
-        if (this.env.SANDBOX) {
-          this.env.SANDBOX.run(sandboxSession).catch((error) => {
+        if (this.env.Sandbox) {
+          this.env.Sandbox.run(sandboxSession).catch((error) => {
             console.error('[PRDO] Failed to dispatch sandbox session:', error)
           })
         } else {
-          console.error('[PRDO] SANDBOX binding not available')
+          console.error('[PRDO] Sandbox binding not available')
         }
         ;(globalThis as any).__sandboxSession = undefined
       }

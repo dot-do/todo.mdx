@@ -20,15 +20,15 @@ const app = new Hono<{ Bindings: Env }>()
 // Health check endpoint (no auth required)
 app.get('/health', async (c) => {
   try {
-    // Check if CLAUDE_SANDBOX binding exists
-    if (!c.env.CLAUDE_SANDBOX) {
+    // Check if Sandbox binding exists
+    if (!c.env.Sandbox) {
       return c.json({ available: false, reason: 'Sandbox binding not configured' }, 200)
     }
 
     // Try to get a sandbox instance to verify it's operational
     const testId = 'health-check'
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(testId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(testId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     // Make a simple ping request with short timeout
     const controller = new AbortController()
@@ -82,15 +82,15 @@ app.post('/execute', async (c) => {
     // installationId is optional for public repos
 
     // Validate sandbox binding is available
-    if (!c.env.CLAUDE_SANDBOX) {
-      console.error('[Sandbox API] CLAUDE_SANDBOX binding not found')
-      return c.json({ error: 'Sandbox service is not available - CLAUDE_SANDBOX binding not configured' }, 500)
+    if (!c.env.Sandbox) {
+      console.error('[Sandbox API] Sandbox binding not found')
+      return c.json({ error: 'Sandbox service is not available - Sandbox binding not configured' }, 500)
     }
 
     // Get or create sandbox instance
     const sandboxId = `sandbox-${body.repo.replace('/', '-')}-${Date.now()}`
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sandboxId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     // Forward request to Durable Object
     const response = await sandbox.fetch(new Request('http://sandbox/execute', {
@@ -133,15 +133,15 @@ app.post('/execute/stream', async (c) => {
     // installationId is optional for public repos
 
     // Validate sandbox binding is available
-    if (!c.env.CLAUDE_SANDBOX) {
-      console.error('[Sandbox API] CLAUDE_SANDBOX binding not found')
-      return c.json({ error: 'Sandbox service is not available - CLAUDE_SANDBOX binding not configured' }, 500)
+    if (!c.env.Sandbox) {
+      console.error('[Sandbox API] Sandbox binding not found')
+      return c.json({ error: 'Sandbox service is not available - Sandbox binding not configured' }, 500)
     }
 
     // Get or create sandbox instance
     const sandboxId = `sandbox-${body.repo.replace('/', '-')}-${Date.now()}`
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sandboxId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     // Forward request to Durable Object's stream endpoint
     const response = await sandbox.fetch(new Request('http://sandbox/stream', {
@@ -195,17 +195,17 @@ app.post('/sessions', async (c) => {
     // installationId is optional for public repos
 
     // Validate sandbox binding is available
-    if (!c.env.CLAUDE_SANDBOX) {
-      console.error('[Sandbox API] CLAUDE_SANDBOX binding not found')
-      return c.json({ error: 'Sandbox service is not available - CLAUDE_SANDBOX binding not configured' }, 500)
+    if (!c.env.Sandbox) {
+      console.error('[Sandbox API] Sandbox binding not found')
+      return c.json({ error: 'Sandbox service is not available - Sandbox binding not configured' }, 500)
     }
 
     // Create session ID
     const sessionId = crypto.randomUUID()
 
     // Get sandbox instance
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     // Start streaming session in background
     c.executionCtx.waitUntil(
@@ -232,12 +232,12 @@ app.get('/sessions/:id', async (c) => {
   try {
     const sessionId = c.req.param('id')
 
-    if (!c.env.CLAUDE_SANDBOX) {
+    if (!c.env.Sandbox) {
       return c.json({ error: 'Sandbox service is not available' }, 500)
     }
 
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     const response = await sandbox.fetch(new Request(`http://sandbox/session/${sessionId}`))
 
@@ -263,12 +263,12 @@ app.get('/sessions/:id/stream', async (c) => {
   try {
     const sessionId = c.req.param('id')
 
-    if (!c.env.CLAUDE_SANDBOX) {
+    if (!c.env.Sandbox) {
       return c.json({ error: 'Sandbox service is not available' }, 500)
     }
 
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     // Forward to DO's stream endpoint
     const response = await sandbox.fetch(new Request('http://sandbox/stream', {
@@ -310,12 +310,12 @@ app.post('/sessions/:id/feedback', async (c) => {
       return c.json({ error: 'Missing required field: message' }, 400)
     }
 
-    if (!c.env.CLAUDE_SANDBOX) {
+    if (!c.env.Sandbox) {
       return c.json({ error: 'Sandbox service is not available' }, 500)
     }
 
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     const response = await sandbox.fetch(new Request(`http://sandbox/feedback/${sessionId}`, {
       method: 'POST',
@@ -345,12 +345,12 @@ app.delete('/sessions/:id', async (c) => {
   try {
     const sessionId = c.req.param('id')
 
-    if (!c.env.CLAUDE_SANDBOX) {
+    if (!c.env.Sandbox) {
       return c.json({ error: 'Sandbox service is not available' }, 500)
     }
 
-    const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
-    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+    const doId = c.env.Sandbox.idFromName(sessionId)
+    const sandbox = c.env.Sandbox.get(doId)
 
     const response = await sandbox.fetch(new Request(`http://sandbox/abort/${sessionId}`, {
       method: 'POST',

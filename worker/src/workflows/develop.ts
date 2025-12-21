@@ -48,7 +48,7 @@ export interface DevelopWorkflowPayload {
 interface WorkflowEnv {
   // Service bindings
   PAYLOAD: any // PayloadRPC
-  CLAUDE_SANDBOX: any // ClaudeSandbox
+  Sandbox: any // Sandbox
 
   // API keys
   ANTHROPIC_API_KEY: string
@@ -79,7 +79,7 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
       transport: durableTransport(step as unknown as WorkflowStep, {
         repo,
         payloadBinding: this.env.PAYLOAD,
-        claudeBinding: this.env.CLAUDE_SANDBOX,
+        claudeBinding: this.env.Sandbox,
         installationId,
         stepPrefix: issue.id, // Prefix all steps with issue ID for clarity
         githubEnv: {

@@ -16,9 +16,8 @@ export {
 } from './loader'
 export type { SandboxConfig, WorkflowTrigger, WorkflowModule } from './loader'
 
-// Claude Code Sandbox
-export { Sandbox as ClaudeSandbox } from './claude'
-export type { ExecuteOptions, ExecuteResult, StreamEvent, Session } from './claude'
+// Re-export Sandbox from Cloudflare SDK (required for DO class)
+export { Sandbox } from '@cloudflare/sandbox'
 
-// Default export for wiring to routes
-export { default as claudeSandboxHandler } from './claude'
+// Claude Code Sandbox types
+export type { ExecuteOptions, ExecuteResult, StreamEvent, Session } from './claude'
