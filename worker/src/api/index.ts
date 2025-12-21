@@ -10,6 +10,7 @@ import { search } from './search.js'
 import { models } from './models.js'
 import code from './code.js'
 import terminal from './terminal.js'
+import { browser } from '../browser/api.js'
 import type { Env } from '../types.js'
 
 const api = new Hono<{ Bindings: Env }>()
@@ -24,5 +25,6 @@ api.route('/search', search)
 api.route('/models', models)
 api.route('/code', code)
 api.route('/terminal', terminal)
+api.route('/browser', browser)
 
 export { api }

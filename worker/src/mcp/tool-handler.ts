@@ -9,6 +9,8 @@ import type { Props } from "./props";
 import type { Env } from "../types";
 import { executeSandboxedWorkflow } from "../sandbox";
 import { createDirectDb } from "../db/direct";
+import { getBrowserProvider } from "../browser/provider";
+import type { CreateSessionOptions, ProviderType } from "../types/browser";
 
 interface ToolResult {
   content: Array<{ type: string; text: string }>;
@@ -66,6 +68,15 @@ export async function handleMcpToolCall(
 
     case "do":
       return handleDo(args as { repo: string; code: string }, props, env, ctx);
+
+    case "browser_start":
+      return handleBrowserStart(args as { timeout?: number; provider?: ProviderType; contextId?: string }, env);
+
+    case "browser_status":
+      return handleBrowserStatus(args as { sessionId: string }, env);
+
+    case "browser_release":
+      return handleBrowserRelease(args as { sessionId: string }, env);
 
     default:
       return {
@@ -340,6 +351,166 @@ export async function run() {
   } catch (e: any) {
     return {
       content: [{ type: "text", text: `Execution error: ${e.message}` }],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Browser start tool handler - creates a browser automation session
+ */
+async function handleBrowserStart(
+  args: { timeout?: number; provider?: ProviderType; contextId?: string },
+  env: Env
+): Promise<ToolResult> {
+  try {
+    const options: CreateSessionOptions = {
+      timeout: args.timeout ?? 60000,
+      provider: args.provider,
+      contextId: args.contextId,
+    };
+
+    const provider = getBrowserProvider(env, options);
+    const session = await provider.createSession(options);
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          sessionId: session.id,
+          provider: session.provider,
+          status: session.status,
+          connectUrl: session.connectUrl,
+          debuggerUrl: session.debuggerUrl,
+          expiresAt: session.expiresAt,
+        }, null, 2)
+      }],
+    };
+  } catch (e: any) {
+    return {
+      content: [{ type: "text", text: `Browser start error: ${e.message}` }],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Browser status tool handler - gets session status and recording
+ */
+async function handleBrowserStatus(
+  args: { sessionId: string },
+  env: Env
+): Promise<ToolResult> {
+  try {
+    const { sessionId } = args;
+
+    if (!sessionId) {
+      return {
+        content: [{ type: "text", text: "Error: sessionId is required" }],
+        isError: true,
+      };
+    }
+
+    // Get stored session from KV
+    if (!env.OAUTH_KV) {
+      return {
+        content: [{ type: "text", text: "Error: KV storage not available" }],
+        isError: true,
+      };
+    }
+
+    const stored = await env.OAUTH_KV.get(sessionId);
+    if (!stored) {
+      return {
+        content: [{ type: "text", text: `Session not found: ${sessionId}` }],
+        isError: true,
+      };
+    }
+
+    const sessionData = JSON.parse(stored);
+    const provider = getBrowserProvider(env, { provider: sessionData.provider });
+    const session = await provider.getSession(sessionId);
+
+    if (!session) {
+      return {
+        content: [{ type: "text", text: `Session expired: ${sessionId}` }],
+        isError: true,
+      };
+    }
+
+    // Get recording if completed
+    let recording = null;
+    if (session.status === 'completed' && session.provider === 'browserbase') {
+      recording = await provider.getRecording(sessionId);
+    }
+
+    return {
+      content: [{
+        type: "text",
+        text: JSON.stringify({
+          session: {
+            id: session.id,
+            provider: session.provider,
+            status: session.status,
+            connectUrl: session.connectUrl,
+            debuggerUrl: session.debuggerUrl,
+            expiresAt: session.expiresAt,
+          },
+          hasRecording: recording ? recording.length > 0 : false,
+        }, null, 2)
+      }],
+    };
+  } catch (e: any) {
+    return {
+      content: [{ type: "text", text: `Browser status error: ${e.message}` }],
+      isError: true,
+    };
+  }
+}
+
+/**
+ * Browser release tool handler - releases a browser session
+ */
+async function handleBrowserRelease(
+  args: { sessionId: string },
+  env: Env
+): Promise<ToolResult> {
+  try {
+    const { sessionId } = args;
+
+    if (!sessionId) {
+      return {
+        content: [{ type: "text", text: "Error: sessionId is required" }],
+        isError: true,
+      };
+    }
+
+    // Get stored session from KV
+    if (!env.OAUTH_KV) {
+      return {
+        content: [{ type: "text", text: "Error: KV storage not available" }],
+        isError: true,
+      };
+    }
+
+    const stored = await env.OAUTH_KV.get(sessionId);
+    if (!stored) {
+      return {
+        content: [{ type: "text", text: `Session not found: ${sessionId}` }],
+        isError: true,
+      };
+    }
+
+    const sessionData = JSON.parse(stored);
+    const provider = getBrowserProvider(env, { provider: sessionData.provider });
+    await provider.releaseSession(sessionId);
+
+    return {
+      content: [{ type: "text", text: `Session released: ${sessionId}` }],
+    };
+  } catch (e: any) {
+    return {
+      content: [{ type: "text", text: `Browser release error: ${e.message}` }],
       isError: true,
     };
   }

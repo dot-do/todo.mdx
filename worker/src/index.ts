@@ -210,6 +210,57 @@ app.get('/code/:org/:repo/:ref', ensureCsrfToken, async (c) => {
   }
 })
 
+// Browser widget - serves browse.html with auth
+app.get('/browse', ensureCsrfToken, async (c) => {
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+
+  if (!session) {
+    const returnUrl = encodeURIComponent(c.req.url)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  }
+
+  try {
+    const htmlRequest = new Request(new URL('/browse.html', c.req.url).toString())
+    return await c.env.ASSETS.fetch(htmlRequest)
+  } catch (e) {
+    return c.text('Error loading browser widget', 500)
+  }
+})
+
+// Browser widget with session ID
+app.get('/browse/:sessionId', ensureCsrfToken, async (c) => {
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+
+  if (!session) {
+    const returnUrl = encodeURIComponent(c.req.url)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  }
+
+  try {
+    const htmlRequest = new Request(new URL('/browse.html', c.req.url).toString())
+    return await c.env.ASSETS.fetch(htmlRequest)
+  } catch (e) {
+    return c.text('Error loading browser widget', 500)
+  }
+})
+
+// Issue-scoped browser widget
+app.get('/:org/:repo/:issue/browse', ensureCsrfToken, async (c) => {
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+
+  if (!session) {
+    const returnUrl = encodeURIComponent(c.req.url)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  }
+
+  try {
+    const htmlRequest = new Request(new URL('/browse.html', c.req.url).toString())
+    return await c.env.ASSETS.fetch(htmlRequest)
+  } catch (e) {
+    return c.text('Error loading browser widget', 500)
+  }
+})
+
 // ============================================
 // Protected API routes (repos, issues, milestones, search)
 // General rate limiting for API endpoints
@@ -293,6 +344,9 @@ app.all('/mcp/*', rateLimitMiddleware('mcp'), async (c) => {
           { name: 'fetch', description: 'Fetch a resource by URI', inputSchema: { type: 'object', properties: { uri: { type: 'string' } }, required: ['uri'] } },
           { name: 'roadmap', description: 'Generate roadmap markdown', inputSchema: { type: 'object', properties: { repo: { type: 'string' } } } },
           { name: 'do', description: 'Execute JavaScript code in a sandboxed environment', inputSchema: { type: 'object', properties: { repo: { type: 'string' }, code: { type: 'string' } }, required: ['repo', 'code'] } },
+          { name: 'browser_start', description: 'Start a browser automation session (Cloudflare Browser Rendering or Browserbase)', inputSchema: { type: 'object', properties: { timeout: { type: 'number', description: 'Session timeout in ms (default: 60000)' }, provider: { type: 'string', enum: ['cloudflare', 'browserbase'], description: 'Browser provider to use' }, contextId: { type: 'string', description: 'Optional context ID for issue-scoped sessions' } } } },
+          { name: 'browser_status', description: 'Get status and recording for a browser session', inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] } },
+          { name: 'browser_release', description: 'Release a browser automation session', inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: ['sessionId'] } },
         ]
         return c.json({ tools })
       }
@@ -1508,7 +1562,7 @@ app.get('*', async (c) => {
   const path = url.pathname
 
   // Only serve static files (has extension or is a known static file)
-  if (path.includes('.') || path === '/terminal.html' || path === '/code.html') {
+  if (path.includes('.') || path === '/terminal.html' || path === '/code.html' || path === '/browse.html') {
     try {
       // Forward to ASSETS binding
       const assetResponse = await c.env.ASSETS.fetch(c.req.raw)

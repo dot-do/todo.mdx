@@ -40,12 +40,19 @@
     { "pattern": "todo.mdx.do/terminal.html", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/code/*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/code.html", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/browse*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/browse.html", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/assets/*", "zone_name": "mdx.do" }
   ],
 
   // Workers AI for voice and embeddings
   "ai": {
     "binding": "AI"
+  },
+
+  // Cloudflare Browser Rendering
+  "browser": {
+    "binding": "BROWSER"
   },
 
   // Vectorize for semantic search

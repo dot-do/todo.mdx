@@ -101,6 +101,12 @@ export interface Env {
   // Composio
   COMPOSIO_API_KEY?: string
 
+  // Browser automation
+  BROWSER?: Fetcher  // Cloudflare Browser Rendering binding
+  BROWSER_BASE_API_KEY?: string
+  BROWSER_BASE_PROJECT_ID?: string
+  BROWSER_PROVIDER?: 'cloudflare' | 'browserbase'
+
   // Testing
   TEST_API_KEY?: string
 
