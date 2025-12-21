@@ -8,7 +8,7 @@
 import type { Props } from "./props";
 import type { Env } from "../types";
 import { executeSandboxedWorkflow } from "../sandbox";
-import { getPayloadClient } from "../payload";
+import { createDirectDb } from "../db/direct";
 
 interface ToolResult {
   content: Array<{ type: string; text: string }>;
@@ -16,45 +16,23 @@ interface ToolResult {
 }
 
 /**
- * Get repos the authenticated user has access to
+ * Get repos the authenticated user has access to via D1
  */
 async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
-  const payload = await getPayloadClient(env);
+  const db = env.DB;
 
-  const userResult = await payload.find({
-    collection: "users",
-    where: { workosUserId: { equals: workosUserId } },
-    limit: 1,
-    overrideAccess: true,
-  });
+  // Direct D1 query to get user's repos via users -> installations_rels -> installations -> repos
+  const result = await db.prepare(`
+    SELECT r.id, r.github_id, r.name, r.full_name as fullName, r.owner, r.private, r.installation_id
+    FROM repos r
+    INNER JOIN installations i ON r.installation_id = i.id
+    INNER JOIN installations_rels ir ON ir.parent_id = i.id AND ir.path = 'users'
+    INNER JOIN users u ON ir.users_id = u.id
+    WHERE u.workos_user_id = ?
+    LIMIT 100
+  `).bind(workosUserId).all<any>();
 
-  if (!userResult.docs?.length) {
-    return [];
-  }
-
-  const payloadUserId = userResult.docs[0].id;
-
-  const installationsResult = await payload.find({
-    collection: "installations",
-    where: { 'users.id': { equals: payloadUserId } },
-    limit: 100,
-    overrideAccess: true,
-  });
-
-  if (!installationsResult.docs?.length) {
-    return [];
-  }
-
-  const installationIds = installationsResult.docs.map((i: any) => i.id);
-
-  const reposResult = await payload.find({
-    collection: "repos",
-    where: { installation: { in: installationIds } },
-    limit: 100,
-    overrideAccess: true,
-  });
-
-  return reposResult.docs || [];
+  return result.results || [];
 }
 
 /**
@@ -98,7 +76,7 @@ export async function handleMcpToolCall(
 }
 
 /**
- * Search tool handler
+ * Search tool handler - uses Vectorize for semantic search
  */
 async function handleSearch(
   args: { query: string; limit?: number },
@@ -107,49 +85,32 @@ async function handleSearch(
 ): Promise<ToolResult> {
   try {
     const { query, limit = 20 } = args;
-    const workosUserId = props.user?.id!;
-    const repos = await getUserRepos(env, workosUserId);
 
-    const results: Array<{
-      id: string;
-      title: string;
-      repo: string;
-      status: string;
-      url: string;
-    }> = [];
+    // Generate embedding for the query using Cloudflare AI
+    const embeddingResult = await env.AI.run('@cf/baai/bge-m3', {
+      text: [query],
+    }) as { data: number[][] };
 
-    for (const repo of repos) {
-      const doId = env.REPO.idFromName(repo.fullName);
-      const stub = env.REPO.get(doId);
+    const queryEmbedding = embeddingResult.data[0];
 
-      try {
-        const response = await stub.fetch(
-          new Request("http://do/issues/search", {
-            method: "POST",
-            body: JSON.stringify({ query, limit: Math.min(limit, 50) }),
-            headers: { "Content-Type": "application/json" },
-          })
-        );
+    // Query Vectorize for semantically similar items
+    const vectorResult = await env.VECTORIZE.query(queryEmbedding, {
+      topK: Math.min(limit, 50),
+      returnMetadata: 'all',
+    });
 
-        if (response.ok) {
-          const data = (await response.json()) as any;
-          for (const issue of data.results || []) {
-            results.push({
-              id: issue.id,
-              title: issue.title,
-              repo: repo.fullName,
-              status: issue.status || "open",
-              url: `https://github.com/${repo.fullName}/issues/${issue.githubNumber}`,
-            });
-          }
-        }
-      } catch (e) {
-        console.error(`Search failed for ${repo.fullName}:`, e);
-      }
-    }
+    // Format results from vectorize matches
+    const results = vectorResult.matches.map((match) => ({
+      id: match.id,
+      title: match.metadata?.title as string | undefined,
+      repo: match.metadata?.repo as string | undefined,
+      status: match.metadata?.status as string | undefined,
+      url: match.metadata?.url as string | undefined,
+      score: match.score,
+    }));
 
     return {
-      content: [{ type: "text", text: JSON.stringify(results.slice(0, limit)) }],
+      content: [{ type: "text", text: JSON.stringify(results) }],
     };
   } catch (e: any) {
     return {

@@ -1241,6 +1241,74 @@ app.post('/api/repos/:owner/:name/sync', authMiddleware, async (c) => {
   return c.json({ status: 'queued', repo: fullName })
 })
 
+// API: Import beads JSONL from GitHub repo (initial sync)
+app.post('/api/repos/:owner/:name/import', authMiddleware, async (c) => {
+  const owner = c.req.param('owner')
+  const name = c.req.param('name')
+  const fullName = `${owner}/${name}`
+
+  // Get installation ID for this repo
+  const installation = await c.env.DB.prepare(
+    'SELECT id FROM Installations WHERE repos LIKE ?'
+  ).bind(`%${fullName}%`).first<{ id: number }>()
+
+  if (!installation) {
+    return c.json({ error: 'No installation found for this repo' }, { status: 404 })
+  }
+
+  const doId = c.env.REPO.idFromName(fullName)
+  const stub = c.env.REPO.get(doId)
+
+  // Trigger the beads push handler which imports JSONL and creates GitHub issues
+  const response = await stub.fetch(new Request('http://do/webhook/beads', {
+    method: 'POST',
+    body: JSON.stringify({
+      commit: 'HEAD',
+      files: ['.beads/issues.jsonl'],
+      repoFullName: fullName,
+      installationId: installation.id,
+    }),
+  }))
+
+  return response
+})
+
+// API: Bulk sync beads issues to GitHub (creates GitHub issues for issues without github_number)
+app.post('/api/repos/:owner/:name/sync/bulk', authMiddleware, async (c) => {
+  const owner = c.req.param('owner')
+  const name = c.req.param('name')
+  const fullName = `${owner}/${name}`
+
+  // Get installation ID for this repo
+  const installation = await c.env.DB.prepare(
+    'SELECT id FROM Installations WHERE repos LIKE ?'
+  ).bind(`%${fullName}%`).first<{ id: number }>()
+
+  if (!installation) {
+    return c.json({ error: 'No installation found for this repo' }, { status: 404 })
+  }
+
+  const doId = c.env.REPO.idFromName(fullName)
+  const stub = c.env.REPO.get(doId)
+
+  // Set context first (required for GitHub API calls)
+  await stub.fetch(new Request('http://do/context', {
+    method: 'POST',
+    body: JSON.stringify({ repoFullName: fullName, installationId: installation.id }),
+  }))
+
+  // Get query params
+  const url = new URL(c.req.url)
+  const limit = url.searchParams.get('limit') || '50'
+  const dryRun = url.searchParams.get('dry_run') || 'false'
+
+  // Trigger bulk sync
+  const response = await stub.fetch(
+    new Request(`http://do/sync/bulk?limit=${limit}&dry_run=${dryRun}`, { method: 'POST' })
+  )
+  return response
+})
+
 // ============================================
 // Project API routes
 // ============================================
