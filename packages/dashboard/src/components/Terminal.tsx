@@ -4,6 +4,13 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { Terminal as XTerminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import {
+  parseServerMessage,
+  createResizeMessage,
+  isExitMessage,
+  STREAM_STDOUT,
+  STREAM_STDERR,
+} from '@todo.mdx/sandbox-stdio'
 import '@xterm/xterm/css/xterm.css'
 
 export interface TerminalProps {
@@ -15,31 +22,21 @@ export interface TerminalProps {
   className?: string
 }
 
-export interface WebSocketMessage {
-  type: 'stdout' | 'stderr' | 'complete' | 'error'
-  data?: string
-  exitCode?: number
-  error?: string
-}
-
-export interface ClientMessage {
-  type: 'stdin' | 'resize'
-  data?: string
-  cols?: number
-  rows?: number
-}
-
 /**
  * Terminal component with xterm.js
  *
  * Features:
  * - Full ANSI escape code support (colors, cursor movement, clearing)
  * - Unicode support for Claude Code's UI elements
- * - Bidirectional WebSocket for stdin/stdout
+ * - Bidirectional WebSocket with binary protocol
  * - Responsive sizing with FitAddon
  * - Copy/paste support
  * - Clickable URLs with WebLinksAddon
  * - Auto-reconnect on connection loss
+ *
+ * Protocol:
+ * - Server → Client: Binary (stdout/stderr with stream ID prefix), JSON (exit)
+ * - Client → Server: Binary (stdin), JSON (resize/signal)
  */
 export function Terminal({
   wsUrl,
@@ -57,6 +54,8 @@ export function Terminal({
   const [error, setError] = useState<string | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const reconnectAttemptsRef = useRef(0)
+  const textEncoder = useRef(new TextEncoder())
+  const textDecoder = useRef(new TextDecoder())
 
   // Initialize terminal
   useEffect(() => {
@@ -114,16 +113,7 @@ export function Terminal({
     const resizeObserver = new ResizeObserver(() => {
       if (fitAddonRef.current && xtermRef.current) {
         fitAddonRef.current.fit()
-
-        // Send resize to server if connected
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const message: ClientMessage = {
-            type: 'resize',
-            cols: xtermRef.current.cols,
-            rows: xtermRef.current.rows,
-          }
-          wsRef.current.send(JSON.stringify(message))
-        }
+        sendResize()
       }
     })
 
@@ -133,10 +123,10 @@ export function Terminal({
 
     // Handle terminal input (user typing)
     xterm.onData((data) => {
-      // Forward to server
+      // Send as binary (raw bytes)
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        const message: ClientMessage = { type: 'stdin', data }
-        wsRef.current.send(JSON.stringify(message))
+        const bytes = textEncoder.current.encode(data)
+        wsRef.current.send(bytes)
       }
 
       // Call callback
@@ -152,12 +142,27 @@ export function Terminal({
     }
   }, [onData])
 
+  /**
+   * Send terminal resize message (JSON)
+   */
+  const sendResize = useCallback(() => {
+    if (!xtermRef.current) return
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+
+    const msg = createResizeMessage(
+      xtermRef.current.cols,
+      xtermRef.current.rows
+    )
+    wsRef.current.send(JSON.stringify(msg))
+  }, [])
+
   // Connect to WebSocket
   const connect = useCallback(() => {
     if (!xtermRef.current) return
 
     try {
       const ws = new WebSocket(wsUrl)
+      ws.binaryType = 'arraybuffer' // Enable binary protocol
       wsRef.current = ws
 
       ws.onopen = () => {
@@ -167,49 +172,38 @@ export function Terminal({
         reconnectAttemptsRef.current = 0
 
         // Send initial resize event
-        if (xtermRef.current) {
-          const message: ClientMessage = {
-            type: 'resize',
-            cols: xtermRef.current.cols,
-            rows: xtermRef.current.rows,
-          }
-          ws.send(JSON.stringify(message))
-        }
-
+        sendResize()
         onConnect?.()
       }
 
       ws.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data) as WebSocketMessage
+          const parsed = parseServerMessage(event.data)
 
-          switch (message.type) {
-            case 'stdout':
-            case 'stderr':
-              if (message.data && xtermRef.current) {
-                xtermRef.current.write(message.data)
+          if (parsed.kind === 'binary') {
+            // Decode binary payload to string and write to terminal
+            const text = textDecoder.current.decode(parsed.payload)
+
+            if (xtermRef.current) {
+              // Both stdout and stderr go to the terminal
+              // Could differentiate with colors if desired
+              if (parsed.streamId === STREAM_STDERR) {
+                // Optionally style stderr differently
+                xtermRef.current.write(text)
+              } else {
+                xtermRef.current.write(text)
               }
-              break
-
-            case 'complete':
-              console.log('[Terminal] Session complete', message.exitCode)
+            }
+          } else if (parsed.kind === 'control') {
+            if (isExitMessage(parsed.message)) {
+              console.log('[Terminal] Session complete', parsed.message.code)
               if (xtermRef.current) {
                 xtermRef.current.write(
-                  `\r\n\x1b[32m[Process completed with exit code ${message.exitCode ?? 0}]\x1b[0m\r\n`
+                  `\r\n\x1b[32m[Process completed with exit code ${parsed.message.code}]\x1b[0m\r\n`
                 )
               }
-              onComplete?.(message.exitCode ?? 0)
-              break
-
-            case 'error':
-              console.error('[Terminal] Server error:', message.error)
-              if (xtermRef.current) {
-                xtermRef.current.write(
-                  `\r\n\x1b[31m[Error: ${message.error}]\x1b[0m\r\n`
-                )
-              }
-              setError(message.error || 'Unknown error')
-              break
+              onComplete?.(parsed.message.code)
+            }
           }
         } catch (err) {
           console.error('[Terminal] Failed to parse message:', err)
@@ -250,7 +244,7 @@ export function Terminal({
       console.error('[Terminal] Failed to connect:', err)
       setError(err instanceof Error ? err.message : 'Failed to connect')
     }
-  }, [wsUrl, onConnect, onDisconnect, onComplete])
+  }, [wsUrl, onConnect, onDisconnect, onComplete, sendResize])
 
   // Connect on mount and when wsUrl changes
   useEffect(() => {

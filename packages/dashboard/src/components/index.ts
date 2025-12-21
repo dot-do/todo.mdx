@@ -19,7 +19,7 @@ export type { DashboardProps } from './dashboard'
 export type { DashboardLayoutProps } from './layout'
 export type { DashboardNavProps } from './nav'
 export type { DashboardSidebarProps, NavItem } from './sidebar'
-export type { TerminalProps, WebSocketMessage, ClientMessage } from './Terminal'
+export type { TerminalProps } from './Terminal'
 export type { SandboxEditorProps } from './Editor'
 export type { FileTreeProps, FileNode } from './FileTree'
 
