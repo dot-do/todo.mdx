@@ -39,9 +39,7 @@ app.post('/execute', async (c) => {
     if (!body.task) {
       return c.json({ error: 'Missing required field: task' }, 400)
     }
-    if (!body.installationId) {
-      return c.json({ error: 'Missing required field: installationId' }, 400)
-    }
+    // installationId is optional for public repos
 
     // Get or create sandbox instance
     const sandboxId = `sandbox-${body.repo.replace('/', '-')}-${Date.now()}`
@@ -69,6 +67,50 @@ app.post('/execute', async (c) => {
   }
 })
 
+/**
+ * POST /api/sandbox/execute/stream
+ * Execute Claude Code with SSE streaming output
+ */
+app.post('/execute/stream', async (c) => {
+  try {
+    const body = await c.req.json<ExecuteOptions>()
+
+    // Validate required fields
+    if (!body.repo) {
+      return c.json({ error: 'Missing required field: repo' }, 400)
+    }
+    if (!body.task) {
+      return c.json({ error: 'Missing required field: task' }, 400)
+    }
+    // installationId is optional for public repos
+
+    // Get or create sandbox instance
+    const sandboxId = `sandbox-${body.repo.replace('/', '-')}-${Date.now()}`
+    const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
+    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+
+    // Forward request to Durable Object's stream endpoint
+    const response = await sandbox.fetch(new Request('http://sandbox/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }))
+
+    // Return the SSE stream
+    return new Response(response.body, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[Sandbox API] Stream error:', message)
+    return c.json({ error: message }, 500)
+  }
+})
+
 // ============================================================================
 // Session Management
 // ============================================================================
@@ -88,9 +130,7 @@ app.post('/sessions', async (c) => {
     if (!body.task) {
       return c.json({ error: 'Missing required field: task' }, 400)
     }
-    if (!body.installationId) {
-      return c.json({ error: 'Missing required field: installationId' }, 400)
-    }
+    // installationId is optional for public repos
 
     // Create session ID
     const sessionId = crypto.randomUUID()

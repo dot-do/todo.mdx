@@ -16,7 +16,7 @@ import stdio from './api/stdio'
 import auth from './api/auth'
 import workflows from './api/workflows'
 import { authMiddleware, type AuthContext } from './auth'
-import { validateWorkosJwt, mightBeWorkosJwt } from './mcp/workos-jwt'
+import { validateWorkosJwt, mightBeWorkosJwt, isOAuthProviderToken, validateOAuthProviderToken } from './mcp/workos-jwt'
 import { getSessionFromRequest } from './auth/session'
 import { getPayloadClient } from './payload'
 import { handlePRApproval } from './workflows/webhook-handlers'
@@ -215,121 +215,125 @@ app.all('/callback', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
 app.all('/sse', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
 
 // Forward /mcp requests to OAuthProvider (pass as-is, OAuthProvider routes by apiRoute)
-// With fallback support for WorkOS JWTs (from oauth.do)
+// With fallback support for WorkOS JWTs (from oauth.do) and OAuth provider tokens
 app.all('/mcp/*', async (c) => {
-  // Check if the request has a WorkOS JWT that we can validate directly
+  // Check if the request has a token we can validate
   const authHeader = c.req.header('Authorization')
 
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7)
 
+    // Try WorkOS JWT first, then OAuth provider token
+    let props = null
     if (mightBeWorkosJwt(token)) {
-      const props = await validateWorkosJwt(token, c.env)
+      props = await validateWorkosJwt(token, c.env)
+    } else if (isOAuthProviderToken(token)) {
+      props = await validateOAuthProviderToken(token, c.env)
+    }
 
-      if (props) {
-        // WorkOS JWT validated - handle MCP endpoints directly
+    if (props) {
+      // Token validated - handle MCP endpoints directly
 
-        // Build a synthetic authenticated request
-        // The MCP agent needs env, props, and the request
-        const url = new URL(c.req.url)
-        const path = url.pathname.replace('/mcp', '')
+      // Build a synthetic authenticated request
+      // The MCP agent needs env, props, and the request
+      const url = new URL(c.req.url)
+      const path = url.pathname.replace('/mcp', '')
 
-        // Handle different MCP endpoints
-        if (path === '/info' || path === '') {
-          return c.json({
-            name: 'todo.mdx',
-            version: '0.1.0',
-            capabilities: {
-              tools: true,
-              resources: true,
-            },
-          })
-        }
+      // Handle different MCP endpoints
+      if (path === '/info' || path === '') {
+        return c.json({
+          name: 'todo.mdx',
+          version: '0.1.0',
+          capabilities: {
+            tools: true,
+            resources: true,
+          },
+        })
+      }
 
-        if (path === '/tools') {
-          // Return available tools
-          const tools = [
-            { name: 'search', description: 'Search issues across all repositories', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
-            { name: 'fetch', description: 'Fetch a resource by URI', inputSchema: { type: 'object', properties: { uri: { type: 'string' } }, required: ['uri'] } },
-            { name: 'roadmap', description: 'Generate roadmap markdown', inputSchema: { type: 'object', properties: { repo: { type: 'string' } } } },
-            { name: 'do', description: 'Execute JavaScript code in a sandboxed environment', inputSchema: { type: 'object', properties: { repo: { type: 'string' }, code: { type: 'string' } }, required: ['repo', 'code'] } },
-          ]
-          return c.json({ tools })
-        }
+      if (path === '/tools') {
+        // Return available tools
+        const tools = [
+          { name: 'search', description: 'Search issues across all repositories', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
+          { name: 'fetch', description: 'Fetch a resource by URI', inputSchema: { type: 'object', properties: { uri: { type: 'string' } }, required: ['uri'] } },
+          { name: 'roadmap', description: 'Generate roadmap markdown', inputSchema: { type: 'object', properties: { repo: { type: 'string' } } } },
+          { name: 'do', description: 'Execute JavaScript code in a sandboxed environment', inputSchema: { type: 'object', properties: { repo: { type: 'string' }, code: { type: 'string' } }, required: ['repo', 'code'] } },
+        ]
+        return c.json({ tools })
+      }
 
-        if (path === '/resources') {
-          // Return user's repos as resources
-          try {
-            const workosUserId = props.user?.id
-            if (workosUserId) {
-              const payload = await getPayloadClient(c.env)
-              // Get user's repos
-              const userResult = await payload.find({
-                collection: 'users',
-                where: { workosUserId: { equals: workosUserId } },
-                limit: 1,
+      if (path === '/resources') {
+        // Return user's repos as resources
+        try {
+          const workosUserId = props.user?.id
+          if (workosUserId) {
+            const payload = await getPayloadClient(c.env)
+            // Get user's repos
+            const userResult = await payload.find({
+              collection: 'users',
+              where: { workosUserId: { equals: workosUserId } },
+              limit: 1,
+              overrideAccess: true,
+            })
+
+            if (userResult.docs?.length) {
+              const payloadUserId = userResult.docs[0].id
+              const installationsResult = await payload.find({
+                collection: 'installations',
+                where: { 'users.id': { equals: payloadUserId } },
+                limit: 100,
                 overrideAccess: true,
               })
 
-              if (userResult.docs?.length) {
-                const payloadUserId = userResult.docs[0].id
-                const installationsResult = await payload.find({
-                  collection: 'installations',
-                  where: { 'users.id': { equals: payloadUserId } },
+              if (installationsResult.docs?.length) {
+                const installationIds = installationsResult.docs.map((i: any) => i.id)
+                const reposResult = await payload.find({
+                  collection: 'repos',
+                  where: { installation: { in: installationIds } },
                   limit: 100,
                   overrideAccess: true,
                 })
 
-                if (installationsResult.docs?.length) {
-                  const installationIds = installationsResult.docs.map((i) => i.id)
-                  const reposResult = await payload.find({
-                    collection: 'repos',
-                    where: { installation: { in: installationIds } },
-                    limit: 100,
-                    overrideAccess: true,
-                  })
+                const resources = (reposResult.docs || []).map((repo: any) => ({
+                  uri: `todo://${repo.fullName}/issues`,
+                  name: repo.fullName,
+                  description: `Issues for ${repo.fullName}`,
+                }))
 
-                  const resources = (reposResult.docs || []).map((repo) => ({
-                    uri: `todo://${repo.fullName}/issues`,
-                    name: repo.fullName,
-                    description: `Issues for ${repo.fullName}`,
-                  }))
-
-                  return c.json({ resources })
-                }
+                return c.json({ resources })
               }
             }
-          } catch (e) {
-            console.error('Failed to fetch resources:', e)
           }
-          return c.json({ resources: [] })
+        } catch (e) {
+          console.error('Failed to fetch resources:', e)
         }
-
-        if (path === '/tools/call' && c.req.method === 'POST') {
-          // Handle tool calls via the TodoMCP server
-          try {
-            const body = await c.req.json()
-            const { name, arguments: args } = body
-
-            // Import and use the tool handlers directly
-            const { handleMcpToolCall } = await import('./mcp/tool-handler')
-            const result = await handleMcpToolCall(name, args, props, c.env, c.executionCtx)
-            return c.json(result)
-          } catch (e) {
-            const error = e as Error
-            return c.json({
-              content: [{ type: 'text', text: `Error: ${error.message}` }],
-              isError: true,
-            })
-          }
-        }
-
-        // Unknown path, fall through to OAuthProvider
+        return c.json({ resources: [] })
       }
+
+      if (path === '/tools/call' && c.req.method === 'POST') {
+        // Handle tool calls via the TodoMCP server
+        try {
+          const body = await c.req.json()
+          const { name, arguments: args } = body
+
+          // Import and use the tool handlers directly
+          const { handleMcpToolCall } = await import('./mcp/tool-handler')
+          const result = await handleMcpToolCall(name, args, props, c.env, c.executionCtx)
+          return c.json(result)
+        } catch (e) {
+          const error = e as Error
+          return c.json({
+            content: [{ type: 'text', text: `Error: ${error.message}` }],
+            isError: true,
+          })
+        }
+      }
+
+      // Unknown path, fall through to OAuthProvider
     }
   }
 
-  // Fall back to OAuthProvider for standard OAuth 2.1 flow
+  // No valid token or unrecognized token format - fall back to OAuthProvider
   return mcp.fetch(c.req.raw, c.env, c.executionCtx)
 })
 

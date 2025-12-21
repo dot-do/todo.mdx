@@ -14,6 +14,7 @@
 import * as jose from "jose";
 import type { Props } from "./props";
 import type { Env } from "../types";
+import { getPayloadClient } from "../payload";
 
 /**
  * Validate an oauth.do JWT and extract user information
@@ -62,7 +63,8 @@ export async function validateWorkosJwt(
     // Try to fetch user from Payload with overrideAccess to bypass access control
     let payloadUser: any = null;
     try {
-      const users = await env.PAYLOAD.find({
+      const payload = await getPayloadClient(env);
+      const users = await payload.find({
         collection: "users",
         where: { workosUserId: { equals: workosUserId } },
         limit: 1,
@@ -122,4 +124,105 @@ export function mightBeWorkosJwt(token: string): boolean {
   // WorkOS JWTs are typically base64-encoded JSON and quite long
   // OAuth provider tokens from @cloudflare/workers-oauth-provider are different
   return token.startsWith("eyJ") && token.length > 200;
+}
+
+/**
+ * Check if a token looks like an OAuth provider token
+ * Format: userId:grantId:secret
+ */
+export function isOAuthProviderToken(token: string): boolean {
+  const parts = token.split(":");
+  return parts.length === 3 && parts[0].startsWith("user_");
+}
+
+/**
+ * Generate SHA-256 hash of token (matches OAuth provider's generateTokenId)
+ */
+async function generateTokenId(token: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(token);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Validate an OAuth provider token by looking it up in KV
+ *
+ * @param token - The OAuth provider token (format: userId:grantId:secret)
+ * @param env - Worker environment with OAUTH_KV binding
+ * @returns Props if valid, null if invalid
+ */
+export async function validateOAuthProviderToken(
+  token: string,
+  env: Env
+): Promise<Props | null> {
+  try {
+    const parts = token.split(":");
+    if (parts.length !== 3) {
+      return null;
+    }
+
+    const [userId, grantId] = parts;
+    const tokenId = await generateTokenId(token);
+
+    // Look up token in KV (same format as OAuth provider uses)
+    const tokenKey = `token:${userId}:${grantId}:${tokenId}`;
+    const tokenData = await env.OAUTH_KV.get(tokenKey, { type: "json" }) as any;
+
+    if (!tokenData) {
+      return null;
+    }
+
+    // Token found and valid - extract props
+    // The OAuth provider stores encrypted props in tokenData.grant.encryptedProps
+    // But we need the COOKIE_ENCRYPTION_KEY to decrypt it
+    // For now, build minimal props from the token data
+
+    // Get user info from Payload
+    let payloadUser: any = null;
+    try {
+      const payload = await getPayloadClient(env);
+      const users = await payload.find({
+        collection: "users",
+        where: { workosUserId: { equals: userId } },
+        limit: 1,
+        overrideAccess: true,
+      });
+      if (users.docs?.length) {
+        payloadUser = users.docs[0];
+      }
+    } catch {
+      // Ignore - we can still use the token data
+    }
+
+    const email = payloadUser?.email || `${userId}@oauth.user`;
+
+    const props: Props = {
+      accessToken: token,
+      organizationId: tokenData.grant?.organizationId || undefined,
+      permissions: tokenData.grant?.scope || [],
+      refreshToken: "",
+      user: {
+        id: userId,
+        email,
+        firstName: payloadUser?.name?.split(" ")[0] || null,
+        lastName: payloadUser?.name?.split(" ").slice(1).join(" ") || null,
+        emailVerified: true,
+        profilePictureUrl: payloadUser?.avatar || null,
+        createdAt: payloadUser?.createdAt || new Date().toISOString(),
+        updatedAt: payloadUser?.updatedAt || new Date().toISOString(),
+        object: "user",
+        lastSignInAt: payloadUser?.updatedAt || new Date().toISOString(),
+        locale: null,
+        externalId: null,
+        metadata: {},
+      },
+    };
+
+    return props;
+  } catch (error) {
+    console.error("OAuth provider token validation error:", error);
+    return null;
+  }
 }

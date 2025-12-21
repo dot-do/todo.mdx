@@ -25,10 +25,12 @@ export interface ExecuteOptions {
   task: string
   /** Additional context (e.g., TODO.mdx output) */
   context?: string
-  /** GitHub installation ID for API access */
-  installationId: number
+  /** GitHub installation ID for API access (optional for public repos) */
+  installationId?: number
   /** Branch to work on (default: main) */
   branch?: string
+  /** Push changes to remote after execution */
+  push?: boolean
 }
 
 export interface ExecuteResult {
@@ -203,23 +205,30 @@ async function executeClaudeCode(
 ): Promise<ExecuteResult> {
   const { repo, task, context, installationId, branch = 'main' } = opts
 
-  // Get GitHub token from vault
-  const token = await getGitHubToken(
-    env,
-    installationId.toString(),
-    'installation'
-  )
-  if (!token) {
-    throw new Error(`No GitHub token for installation ${installationId}`)
-  }
-
   // Parse repo URL to get owner/repo
   const repoPath = parseRepoPath(repo)
+
+  // Get GitHub token from vault if installationId provided
+  let cloneUrl: string
+  if (installationId) {
+    const token = await getGitHubToken(
+      env,
+      installationId.toString(),
+      'installation'
+    )
+    if (!token) {
+      throw new Error(`No GitHub token for installation ${installationId}`)
+    }
+    cloneUrl = `https://x-access-token:${token}@github.com/${repoPath}.git`
+  } else {
+    // Public repo - clone without auth
+    cloneUrl = `https://github.com/${repoPath}.git`
+  }
 
   // Clone the repository using git command
   console.log(`[ClaudeSandbox] Cloning ${repoPath}...`)
   const cloneResult = await sandbox.exec(
-    `git clone --depth 1 --branch ${branch} https://x-access-token:${token}@github.com/${repoPath}.git /workspace`
+    `git clone --depth 1 --branch ${branch} ${cloneUrl} /workspace`
   )
 
   if (!cloneResult.success) {
@@ -273,26 +282,33 @@ async function executeClaudeCodeWithStreaming(
   const { repo, task, context, installationId, branch = 'main' } = opts
 
   const sendEvent = (event: StreamEvent) => {
-    writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
-  }
-
-  // Get GitHub token
-  const token = await getGitHubToken(
-    env,
-    installationId.toString(),
-    'installation'
-  )
-  if (!token) {
-    throw new Error(`No GitHub token for installation ${installationId}`)
+    writer.write(encoder.encode(`event: ${event.type}\ndata: ${event.data || ''}\n\n`))
   }
 
   const repoPath = parseRepoPath(repo)
+
+  // Get GitHub token if installationId provided
+  let cloneUrl: string
+  if (installationId) {
+    const token = await getGitHubToken(
+      env,
+      installationId.toString(),
+      'installation'
+    )
+    if (!token) {
+      throw new Error(`No GitHub token for installation ${installationId}`)
+    }
+    cloneUrl = `https://x-access-token:${token}@github.com/${repoPath}.git`
+  } else {
+    // Public repo - clone without auth
+    cloneUrl = `https://github.com/${repoPath}.git`
+  }
 
   // Clone repository
   sendEvent({ type: 'stdout', data: `Cloning ${repoPath}...\n` })
 
   const cloneResult = await sandbox.exec(
-    `git clone --depth 1 --branch ${branch} https://x-access-token:${token}@github.com/${repoPath}.git /workspace`
+    `git clone --depth 1 --branch ${branch} ${cloneUrl} /workspace`
   )
 
   if (!cloneResult.success) {

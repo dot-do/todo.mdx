@@ -346,7 +346,7 @@ describeWithCredentials('Full autonomous development workflow', () => {
 // Error Handling and Edge Cases
 // ============================================================================
 
-describe('ClaudeSandbox error handling', () => {
+describeWithCredentials('ClaudeSandbox error handling', () => {
   test('handles timeout gracefully', async () => {
     // This test verifies the sandbox handles long-running tasks
     // Implementation should set reasonable timeouts
