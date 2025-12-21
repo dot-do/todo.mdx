@@ -18,8 +18,8 @@ import type { ExecuteOptions } from '../sandbox/claude'
 const app = new Hono<{ Bindings: Env }>()
 
 // Health check endpoint (no auth required)
-// Use ?wait=true to wait for container to spawn (up to 60s)
-// Use ?wait=false (default) for quick binding check only
+// Default: waits for container to spawn and be ready (up to 60s)
+// Use ?quick=true for instant binding-only check
 app.get('/health', async (c) => {
   try {
     // Check if Sandbox binding exists
@@ -27,9 +27,9 @@ app.get('/health', async (c) => {
       return c.json({ available: false, reason: 'Sandbox binding not configured' }, 200)
     }
 
-    // Quick check mode - just verify binding exists
-    const wait = c.req.query('wait') === 'true'
-    if (!wait) {
+    // Quick check mode - just verify binding exists (for fast checks)
+    const quick = c.req.query('quick') === 'true'
+    if (quick) {
       return c.json({ available: true, status: 'binding_available' }, 200)
     }
 
