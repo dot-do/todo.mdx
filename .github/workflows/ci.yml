@@ -43,5 +43,41 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Test
+      - name: Test (Unit)
         run: pnpm test
+
+  e2e:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only run on main branch pushes (not PRs) to avoid hitting rate limits
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: ci
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run E2E Tests
+        env:
+          WORKER_BASE_URL: https://todo.mdx.do
+          TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_INSTALLATION_ID: '100570127'
+        run: pnpm test:e2e
