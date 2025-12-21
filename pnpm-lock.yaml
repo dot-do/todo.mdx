@@ -801,6 +801,9 @@ importers:
       '@playwright/test':
         specifier: ^1.49.0
         version: 1.56.1
+      dotenv:
+        specifier: 16.4.7
+        version: 16.4.7
       execa:
         specifier: ^9.0.0
         version: 9.6.1

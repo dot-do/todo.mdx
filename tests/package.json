@@ -23,6 +23,7 @@
     "@octokit/app": "^14.0.0",
     "@octokit/core": "^7.0.6",
     "@playwright/test": "^1.49.0",
+    "dotenv": "16.4.7",
     "execa": "^9.0.0",
     "vitest": "^2.0.0"
   },
