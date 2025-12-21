@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal - todo.mdx</title>
+  <link rel="stylesheet" href="/assets/terminal.css">
+  <style>
+    /* Adjust for status bar */
+    #terminal-container {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 24px; /* Space for status bar */
+    }
+  </style>
+</head>
+<body>
+  <div id="terminal-container"></div>
+  <div id="status-bar" class="status-bar">Initializing...</div>
+
+  <!-- Auth overlay (shown when not authenticated) -->
+  <div id="auth-overlay" class="auth-overlay" style="display: none;">
+    <h2>Authentication Required</h2>
+    <p style="color: #888;">Sign in to access the terminal</p>
+    <button onclick="signIn()">Sign in with GitHub</button>
+  </div>
+
+  <script src="/assets/terminal.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    let sessionId = params.get('session');
+    const repo = params.get('repo');
+    const task = params.get('task') || 'Interactive terminal session';
+
+    let terminal = null;
+    let authToken = null;
+
+    // Check authentication
+    async function checkAuth() {
+      try {
+        const response = await fetch('/api/auth/me', {
+          credentials: 'include'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return data;
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Get session token for WebSocket
+    async function getToken() {
+      try {
+        const response = await fetch('/api/auth/token', {
+          credentials: 'include'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          return data.token;
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // Sign in redirect
+    function signIn() {
+      const returnUrl = encodeURIComponent(window.location.href);
+      window.location.href = `/api/auth/login?return=${returnUrl}`;
+    }
+
+    // Start a new session
+    async function startSession() {
+      if (!repo) {
+        terminal.write('\x1b[31mError: No repository specified. Use ?repo=owner/repo\x1b[0m\r\n');
+        return null;
+      }
+
+      terminal.write(`\x1b[34mStarting session for ${repo}...\x1b[0m\r\n`);
+
+      try {
+        const response = await fetch(`/api/terminal/start`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ repo, task, installationId: 0 }) // installationId will be looked up
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to start session');
+        }
+
+        const data = await response.json();
+        sessionId = data.sessionId;
+
+        // Update URL without reload
+        const url = new URL(window.location);
+        url.searchParams.set('session', sessionId);
+        window.history.replaceState({}, '', url);
+
+        return data.sessionId;
+      } catch (e) {
+        terminal.write(`\x1b[31mError: ${e.message}\x1b[0m\r\n`);
+        return null;
+      }
+    }
+
+    // Connect to session
+    async function connectToSession(sid) {
+      const token = await getToken();
+      if (!token) {
+        document.getElementById('auth-overlay').style.display = 'flex';
+        return;
+      }
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/api/terminal/${sid}?token=${encodeURIComponent(token)}`;
+
+      await terminal.connect(wsUrl);
+    }
+
+    // Initialize
+    async function init() {
+      // Create terminal
+      terminal = new TerminalWidget({
+        containerId: 'terminal-container',
+        statusBarId: 'status-bar',
+        onComplete: (exitCode) => {
+          console.log('Session completed with exit code:', exitCode);
+        }
+      });
+
+      await terminal.init();
+
+      // Check auth
+      const user = await checkAuth();
+      if (!user) {
+        document.getElementById('auth-overlay').style.display = 'flex';
+        return;
+      }
+
+      terminal.write('\x1b[32m● Authenticated\x1b[0m\r\n');
+
+      // Start or connect to session
+      if (!sessionId && repo) {
+        sessionId = await startSession();
+      }
+
+      if (sessionId) {
+        await connectToSession(sessionId);
+      } else if (!repo) {
+        terminal.write('\r\n\x1b[33mUsage:\x1b[0m\r\n');
+        terminal.write('  ?repo=owner/repo    - Start session for a repository\r\n');
+        terminal.write('  ?session=<id>       - Connect to existing session\r\n');
+        terminal.write('  ?task=<description> - Set task description\r\n');
+      }
+    }
+
+    // Start
+    init().catch(console.error);
+  </script>
+</body>
+</html>

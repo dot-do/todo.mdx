@@ -40,6 +40,7 @@ export interface Env {
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
+  PRDO: DurableObjectNamespace
   SESSION: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
   CLAUDE_SANDBOX: DurableObjectNamespace
@@ -47,6 +48,7 @@ export interface Env {
   VECTORIZE: VectorizeIndex
   LOADER: any
   OAUTH_KV: KVNamespace
+  ASSETS: Fetcher
 
   // Payload CMS via Workers RPC
   PAYLOAD: PayloadRPC

@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono'
 import { authMiddleware } from '../auth'
+import { getSessionFromRequest, parseSessionToken } from '../auth/session'
 import type { Env } from '../types'
 
 const app = new Hono<{ Bindings: Env }>()
@@ -22,7 +23,7 @@ interface TerminalSession {
   task: string
   installationId: number
   createdAt: number
-  status: 'pending' | 'connected' | 'running' | 'complete' | 'error'
+  status: 'pending' | 'connected' | 'running' | 'complete' | 'error' | 'terminated'
 }
 
 /**
@@ -49,6 +50,16 @@ app.get('/:sessionId', async (c) => {
   const repo = c.req.query('repo')
   const task = c.req.query('task')
   const installationId = c.req.query('installationId')
+
+  // Check for token in query param (for WebSocket connections from browser)
+  const tokenParam = c.req.query('token')
+  if (tokenParam) {
+    const session = await parseSessionToken(tokenParam, c.env.COOKIE_ENCRYPTION_KEY)
+    if (!session) {
+      return c.text('Invalid token', 401)
+    }
+    // Token valid, proceed with upgrade
+  }
 
   // Validate session exists in KV
   const sessionData = await c.env.OAUTH_KV.get(`terminal:${sessionId}`, 'json') as TerminalSession | null
@@ -125,6 +136,91 @@ app.post('/start', async (c) => {
     const message = error instanceof Error ? error.message : 'Unknown error'
     return c.json({ error: message }, 500)
   }
+})
+
+/**
+ * GET /terminal/:sessionId/events
+ * SSE stream of terminal events (alternative to WebSocket for some clients)
+ */
+app.get('/:sessionId/events', async (c) => {
+  const sessionId = c.req.param('sessionId')
+
+  const sessionData = await c.env.OAUTH_KV.get(`terminal:${sessionId}`, 'json') as TerminalSession | null
+  if (!sessionData) {
+    return c.json({ error: 'Session not found' }, 404)
+  }
+
+  const { readable, writable } = new TransformStream()
+  const writer = writable.getWriter()
+  const encoder = new TextEncoder()
+
+  // Get sandbox instance
+  const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
+  const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+
+  // Start streaming from sandbox
+  const streamResponse = await sandbox.fetch(new Request('http://sandbox/stream', {
+    method: 'POST',
+    body: JSON.stringify({
+      repo: sessionData.repo,
+      task: sessionData.task,
+      installationId: sessionData.installationId,
+    }),
+    headers: { 'Content-Type': 'application/json' },
+  }))
+
+  // Pipe sandbox SSE to client
+  const reader = streamResponse.body?.getReader()
+  if (reader) {
+    (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          await writer.write(value)
+        }
+      } finally {
+        await writer.close()
+      }
+    })()
+  }
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  })
+})
+
+/**
+ * POST /terminal/:sessionId/terminate
+ * Terminate a running session
+ */
+app.post('/:sessionId/terminate', async (c) => {
+  const sessionId = c.req.param('sessionId')
+
+  const sessionData = await c.env.OAUTH_KV.get(`terminal:${sessionId}`, 'json') as TerminalSession | null
+  if (!sessionData) {
+    return c.json({ error: 'Session not found' }, 404)
+  }
+
+  // Update status
+  await c.env.OAUTH_KV.put(`terminal:${sessionId}`, JSON.stringify({
+    ...sessionData,
+    status: 'terminated',
+  }), { expirationTtl: 300 }) // Keep for 5 min after termination
+
+  // Signal sandbox to abort
+  const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
+  const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+
+  await sandbox.fetch(new Request('http://sandbox/abort', {
+    method: 'POST',
+  }))
+
+  return c.json({ success: true })
 })
 
 /**

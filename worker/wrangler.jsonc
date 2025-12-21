@@ -6,6 +6,15 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Static assets from public/ directory
+  // run_worker_first: true ensures worker code runs for auth before serving assets
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+
   // Custom domain routes - MCP OAuth at root, API under paths
   "routes": [
     { "pattern": "todo.mdx.do/.well-known/*", "zone_name": "mdx.do" },
@@ -17,7 +26,11 @@
     { "pattern": "todo.mdx.do/mcp*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/api/*", "zone_name": "mdx.do" },
     { "pattern": "todo.mdx.do/github/*", "zone_name": "mdx.do" },
-    { "pattern": "todo.mdx.do/terminal/*", "zone_name": "mdx.do" }
+    { "pattern": "todo.mdx.do/terminal*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/terminal.html", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/code/*", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/code.html", "zone_name": "mdx.do" },
+    { "pattern": "todo.mdx.do/assets/*", "zone_name": "mdx.do" }
   ],
 
   // Workers AI for voice and embeddings
