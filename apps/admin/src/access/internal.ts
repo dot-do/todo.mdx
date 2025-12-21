@@ -9,16 +9,21 @@ export function isInternalRequest(req: PayloadRequest): boolean {
     // Check for internal header from PayloadRPC
     // Handle both Headers object (.get) and plain object access
     const headers = req.headers
+    console.log('[isInternalRequest] headers type:', typeof headers, headers ? 'has headers' : 'no headers')
     if (!headers) return false
 
     if (typeof headers.get === 'function') {
-      return headers.get('x-payload-internal') === 'true'
+      const value = headers.get('x-payload-internal')
+      console.log('[isInternalRequest] headers.get result:', value)
+      return value === 'true'
     }
 
     // Fallback for plain object headers
     const headerObj = headers as unknown as Record<string, string>
-    return headerObj['x-payload-internal'] === 'true' ||
+    const result = headerObj['x-payload-internal'] === 'true' ||
            headerObj['X-Payload-Internal'] === 'true'
+    console.log('[isInternalRequest] fallback result:', result)
+    return result
   } catch (e) {
     console.error('[isInternalRequest] Error checking headers:', e)
     return false

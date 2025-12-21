@@ -502,16 +502,6 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
       const installation = payload.installation
       timing.setup = Date.now() - t0
 
-      // Check if installation already exists (for webhook redeliveries)
-      const t1 = Date.now()
-      const existing = await c.env.PAYLOAD.find({
-        collection: 'installations',
-        where: { installationId: { equals: installation.id } },
-        limit: 1,
-      })
-      timing.findExisting = Date.now() - t1
-
-      let installResult
       const installData = {
         installationId: installation.id,
         accountType: installation.account.type,
@@ -523,16 +513,23 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
         repositorySelection: installation.repository_selection,
       }
 
+      // Try to find existing installation first
+      const t1 = Date.now()
+      const existing = await c.env.PAYLOAD.find({
+        collection: 'installations',
+        where: { installationId: { equals: installation.id } },
+        limit: 1,
+      })
+      timing.findExisting = Date.now() - t1
+
+      let installResult
       const t2 = Date.now()
       if (existing.docs?.length > 0) {
-        // Update existing installation
-        installResult = await c.env.PAYLOAD.update({
-          collection: 'installations',
-          id: existing.docs[0].id,
-          data: installData,
-        })
-        timing.installUpdate = Date.now() - t2
-        console.log(`[Installation] Updated existing installation id=${installResult.id} (${timing.installUpdate}ms)`)
+        // Installation already exists, just use it
+        // (Payload REST API UPDATE doesn't work in Workers environment)
+        installResult = existing.docs[0]
+        timing.installSkip = Date.now() - t2
+        console.log(`[Installation] Using existing installation id=${installResult.id} (${timing.installSkip}ms)`)
       } else {
         // Create new installation
         installResult = await c.env.PAYLOAD.create({
@@ -563,11 +560,8 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
             installation: installResult.id,
           }
           if (existingRepo.docs?.length > 0) {
-            await c.env.PAYLOAD.update({
-              collection: 'repos',
-              id: existingRepo.docs[0].id,
-              data: repoData,
-            })
+            // Repo already exists, skip
+            // (Payload REST API UPDATE doesn't work in Workers environment)
             updated++
           } else {
             await c.env.PAYLOAD.create({
@@ -577,8 +571,8 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
             created++
           }
         }
-        timing.reposUpsert = Date.now() - t3
-        console.log(`[Installation] Upserted ${repos.length} repos (${created} created, ${updated} updated) (${timing.reposUpsert}ms)`)
+        timing.reposSync = Date.now() - t3
+        console.log(`[Installation] Synced ${repos.length} repos (${created} created, ${updated} skipped existing) (${timing.reposSync}ms)`)
       }
 
       timing.total = Date.now() - t0
