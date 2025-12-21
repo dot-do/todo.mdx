@@ -1,10 +1,11 @@
 /**
  * TODO.mdx Worker
  * GitHub App backend for syncing issues, milestones, and projects
- * Using Payload RPC for data access
+ * Using Payload Local API for data access
  */
 
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { cors } from 'hono/cors'
 import { voice } from './voice'
 import { mcp, TodoMCP } from './mcp'
@@ -13,10 +14,23 @@ import sandbox from './api/sandbox'
 import terminal from './api/terminal'
 import stdio from './api/stdio'
 import auth from './api/auth'
+import workflows from './api/workflows'
 import { authMiddleware, type AuthContext } from './auth'
 import { validateWorkosJwt, mightBeWorkosJwt } from './mcp/workos-jwt'
 import { getSessionFromRequest } from './auth/session'
+import { getPayloadClient } from './payload'
+import { handlePRApproval } from './workflows/webhook-handlers'
 import type { Env } from './types'
+import type {
+  InstallationEvent,
+  IssuesEvent,
+  MilestoneEvent,
+  PushEvent,
+  ProjectsV2Event,
+  ProjectsV2ItemEvent,
+  PullRequestEvent,
+  PullRequestReviewEvent,
+} from './types/github'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
@@ -248,30 +262,34 @@ app.all('/mcp/*', async (c) => {
           try {
             const workosUserId = props.user?.id
             if (workosUserId) {
+              const payload = await getPayloadClient(c.env)
               // Get user's repos
-              const userResult = await c.env.PAYLOAD.find({
+              const userResult = await payload.find({
                 collection: 'users',
                 where: { workosUserId: { equals: workosUserId } },
                 limit: 1,
+                overrideAccess: true,
               })
 
               if (userResult.docs?.length) {
                 const payloadUserId = userResult.docs[0].id
-                const installationsResult = await c.env.PAYLOAD.find({
+                const installationsResult = await payload.find({
                   collection: 'installations',
                   where: { 'users.id': { equals: payloadUserId } },
                   limit: 100,
+                  overrideAccess: true,
                 })
 
                 if (installationsResult.docs?.length) {
-                  const installationIds = installationsResult.docs.map((i: any) => i.id)
-                  const reposResult = await c.env.PAYLOAD.find({
+                  const installationIds = installationsResult.docs.map((i) => i.id)
+                  const reposResult = await payload.find({
                     collection: 'repos',
                     where: { installation: { in: installationIds } },
                     limit: 100,
+                    overrideAccess: true,
                   })
 
-                  const resources = (reposResult.docs || []).map((repo: any) => ({
+                  const resources = (reposResult.docs || []).map((repo) => ({
                     uri: `todo://${repo.fullName}/issues`,
                     name: repo.fullName,
                     description: `Issues for ${repo.fullName}`,
@@ -297,9 +315,10 @@ app.all('/mcp/*', async (c) => {
             const { handleMcpToolCall } = await import('./mcp/tool-handler')
             const result = await handleMcpToolCall(name, args, props, c.env, c.executionCtx)
             return c.json(result)
-          } catch (e: any) {
+          } catch (e) {
+            const error = e as Error
             return c.json({
-              content: [{ type: 'text', text: `Error: ${e.message}` }],
+              content: [{ type: 'text', text: `Error: ${error.message}` }],
               isError: true,
             })
           }
@@ -325,6 +344,12 @@ app.all('/mcp', async (c) => {
 app.route('/api/sandbox', sandbox)
 
 // ============================================
+// Workflows API routes (trigger/manage DevelopWorkflow)
+// ============================================
+
+app.route('/api/workflows', workflows)
+
+// ============================================
 // Terminal WebSocket routes
 // ============================================
 
@@ -337,9 +362,10 @@ app.route('/terminal', terminal)
 // Get current user (requires auth)
 app.get('/api/me', authMiddleware, async (c) => {
   const auth = c.get('auth') as AuthContext
+  const payload = await getPayloadClient(c.env)
 
   // Lookup user from Payload based on auth context
-  const users = await c.env.PAYLOAD.find({
+  const users = await payload.find({
     collection: 'users',
     where: {
       or: [
@@ -348,6 +374,7 @@ app.get('/api/me', authMiddleware, async (c) => {
       ],
     },
     limit: 1,
+    overrideAccess: true,
   })
 
   if (!users.docs?.length) {
@@ -372,24 +399,27 @@ app.get('/github/callback', async (c) => {
     if (state) {
       try {
         const userId = state // The state parameter contains the user ID
+        const payload = await getPayloadClient(c.env)
 
         // Find the installation and add the user
-        const installations = await c.env.PAYLOAD.find({
+        const installations = await payload.find({
           collection: 'installations',
           where: { installationId: { equals: parseInt(installationId) } },
           limit: 1,
+          overrideAccess: true,
         })
 
         if (installations.docs?.length > 0) {
           const installation = installations.docs[0]
-          const existingUsers = installation.users || []
+          const existingUsers = (installation.users as Array<{ id: string }> || []).map(u => u.id)
           if (!existingUsers.includes(userId)) {
-            await c.env.PAYLOAD.update({
+            await payload.update({
               collection: 'installations',
               id: installation.id,
               data: {
                 users: [...existingUsers, userId],
               },
+              overrideAccess: true,
             })
           }
         }
@@ -491,65 +521,78 @@ app.post('/github/webhook', async (c) => {
 })
 
 // Installation webhook
-async function handleInstallation(c: any, payload: any): Promise<Response> {
+async function handleInstallation(
+  c: Context<{ Bindings: Env }>,
+  webhookPayload: InstallationEvent
+): Promise<Response> {
   const t0 = Date.now()
   const timing: Record<string, number> = {}
 
-  console.log(`[Installation] action=${payload.action} account=${payload.installation?.account?.login}`)
+  console.log(`[Installation] action=${webhookPayload.action} account=${webhookPayload.installation?.account?.login}`)
 
-  if (payload.action === 'created') {
+  // Get Payload instance (Local API with overrideAccess)
+  const payload = await getPayloadClient(c.env)
+
+  if (webhookPayload.action === 'created') {
     try {
-      const installation = payload.installation
+      const installation = webhookPayload.installation
       timing.setup = Date.now() - t0
 
       const installData = {
         installationId: installation.id,
-        accountType: installation.account.type,
+        accountType: installation.account.type as 'User' | 'Organization',
         accountId: installation.account.id,
         accountLogin: installation.account.login,
         accountAvatarUrl: installation.account.avatar_url,
         permissions: installation.permissions,
         events: installation.events,
-        repositorySelection: installation.repository_selection,
+        repositorySelection: installation.repository_selection as 'all' | 'selected',
       }
 
       // Try to find existing installation first
       const t1 = Date.now()
-      const existing = await c.env.PAYLOAD.find({
+      const existing = await payload.find({
         collection: 'installations',
         where: { installationId: { equals: installation.id } },
         limit: 1,
+        overrideAccess: true,
       })
       timing.findExisting = Date.now() - t1
 
       let installResult
       const t2 = Date.now()
       if (existing.docs?.length > 0) {
-        // Installation already exists, just use it
-        // (Payload REST API UPDATE doesn't work in Workers environment)
-        installResult = existing.docs[0]
-        timing.installSkip = Date.now() - t2
-        console.log(`[Installation] Using existing installation id=${installResult.id} (${timing.installSkip}ms)`)
+        // Update existing installation
+        installResult = await payload.update({
+          collection: 'installations',
+          id: existing.docs[0].id,
+          data: installData,
+          overrideAccess: true,
+        })
+        timing.installUpdate = Date.now() - t2
+        console.log(`[Installation] Updated installation id=${installResult.id} (${timing.installUpdate}ms)`)
       } else {
         // Create new installation
-        installResult = await c.env.PAYLOAD.create({
+        installResult = await payload.create({
           collection: 'installations',
           data: installData,
+          overrideAccess: true,
         })
         timing.installCreate = Date.now() - t2
         console.log(`[Installation] Created new installation id=${installResult.id} (${timing.installCreate}ms)`)
       }
 
-      // Upsert repos via Payload RPC
-      const repos = payload.repositories || []
+      // Upsert repos via Payload Local API
+      const repos = webhookPayload.repositories || []
       if (repos.length > 0) {
         const t3 = Date.now()
         let created = 0, updated = 0
         for (const repo of repos) {
-          const existingRepo = await c.env.PAYLOAD.find({
+          const existingRepo = await payload.find({
             collection: 'repos',
             where: { githubId: { equals: repo.id } },
             limit: 1,
+            overrideAccess: true,
           })
           const repoData = {
             githubId: repo.id,
@@ -560,51 +603,61 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
             installation: installResult.id,
           }
           if (existingRepo.docs?.length > 0) {
-            // Repo already exists, skip
-            // (Payload REST API UPDATE doesn't work in Workers environment)
+            // Update existing repo
+            await payload.update({
+              collection: 'repos',
+              id: existingRepo.docs[0].id,
+              data: repoData,
+              overrideAccess: true,
+            })
             updated++
           } else {
-            await c.env.PAYLOAD.create({
+            await payload.create({
               collection: 'repos',
               data: repoData,
+              overrideAccess: true,
             })
             created++
           }
         }
         timing.reposSync = Date.now() - t3
-        console.log(`[Installation] Synced ${repos.length} repos (${created} created, ${updated} skipped existing) (${timing.reposSync}ms)`)
+        console.log(`[Installation] Synced ${repos.length} repos (${created} created, ${updated} updated) (${timing.reposSync}ms)`)
       }
 
       timing.total = Date.now() - t0
       console.log(`[Installation] Complete: ${JSON.stringify(timing)}`)
       return c.json({ status: 'installed', installationId: installResult.id, repos: repos.length, timing })
-    } catch (error: any) {
+    } catch (error) {
+      const err = error as Error
       timing.total = Date.now() - t0
-      console.error(`[Installation] Error after ${timing.total}ms:`, error.message, error.stack)
-      return c.json({ error: 'Failed to process installation', message: error.message, timing }, 500)
+      console.error(`[Installation] Error after ${timing.total}ms:`, err.message, err.stack)
+      return c.json({ error: 'Failed to process installation', message: err.message, timing }, 500)
     }
   }
 
-  if (payload.action === 'deleted') {
+  if (webhookPayload.action === 'deleted') {
     try {
-      // Find and delete installation via Payload RPC
-      const installations = await c.env.PAYLOAD.find({
+      // Find and delete installation via Payload Local API
+      const installations = await payload.find({
         collection: 'installations',
-        where: { installationId: { equals: payload.installation.id } },
+        where: { installationId: { equals: webhookPayload.installation.id } },
         limit: 1,
+        overrideAccess: true,
       })
 
       if (installations.docs?.length > 0) {
-        await c.env.PAYLOAD.delete({
+        await payload.delete({
           collection: 'installations',
           id: installations.docs[0].id,
+          overrideAccess: true,
         })
       }
 
       return c.json({ status: 'uninstalled' })
-    } catch (error: any) {
-      console.error(`[Installation] Delete error:`, error.message)
-      return c.json({ error: 'Failed to delete installation', message: error.message }, 500)
+    } catch (error) {
+      const err = error as Error
+      console.error(`[Installation] Delete error:`, err.message)
+      return c.json({ error: 'Failed to delete installation', message: err.message }, 500)
     }
   }
 
@@ -612,7 +665,10 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
 }
 
 // Issues webhook
-async function handleIssues(c: any, payload: any): Promise<Response> {
+async function handleIssues(
+  c: Context<{ Bindings: Env }>,
+  payload: IssuesEvent
+): Promise<Response> {
   const repo = payload.repository
   const issue = payload.issue
   const action = payload.action
@@ -681,7 +737,7 @@ async function handleIssues(c: any, payload: any): Promise<Response> {
           body: issue.body || '',
           status: issue.state,
           url: issue.html_url,
-          labels: issue.labels?.map((l: any) => l.name),
+          labels: issue.labels?.map((l) => l.name),
         },
       })
       console.log(`Dispatched embedding workflow for issue ${issue.number}`)
@@ -694,7 +750,10 @@ async function handleIssues(c: any, payload: any): Promise<Response> {
 }
 
 // Milestone webhook
-async function handleMilestone(c: any, payload: any): Promise<Response> {
+async function handleMilestone(
+  c: Context<{ Bindings: Env }>,
+  payload: MilestoneEvent
+): Promise<Response> {
   const repo = payload.repository
   const milestone = payload.milestone
   const action = payload.action
@@ -758,7 +817,10 @@ async function handleMilestone(c: any, payload: any): Promise<Response> {
 }
 
 // Push webhook (for .beads/, .todo/, TODO.md file changes)
-async function handlePush(c: any, payload: any): Promise<Response> {
+async function handlePush(
+  c: Context<{ Bindings: Env }>,
+  payload: PushEvent
+): Promise<Response> {
   const repo = payload.repository
   const installationId = payload.installation?.id
 
@@ -819,7 +881,10 @@ async function handlePush(c: any, payload: any): Promise<Response> {
 }
 
 // GitHub Projects v2 webhook (project-level events)
-async function handleProject(c: any, payload: any): Promise<Response> {
+async function handleProject(
+  c: Context<{ Bindings: Env }>,
+  payload: ProjectsV2Event
+): Promise<Response> {
   const project = payload.projects_v2
 
   if (!project?.node_id) {
@@ -853,7 +918,10 @@ async function handleProject(c: any, payload: any): Promise<Response> {
 }
 
 // GitHub Projects v2 item webhook
-async function handleProjectItem(c: any, payload: any): Promise<Response> {
+async function handleProjectItem(
+  c: Context<{ Bindings: Env }>,
+  payload: ProjectsV2ItemEvent
+): Promise<Response> {
   const projectNodeId = payload.projects_v2_item?.project_node_id
 
   if (!projectNodeId) {
@@ -864,7 +932,7 @@ async function handleProjectItem(c: any, payload: any): Promise<Response> {
   const stub = c.env.PROJECT.get(doId)
 
   // Extract field values from the payload if present
-  const fieldValues: Record<string, any> = {}
+  const fieldValues: Record<string, unknown> = {}
 
   if (payload.changes?.field_value) {
     const change = payload.changes.field_value
@@ -903,7 +971,10 @@ async function handleProjectItem(c: any, payload: any): Promise<Response> {
 }
 
 // Pull Request webhook
-async function handlePullRequest(c: any, payload: any): Promise<Response> {
+async function handlePullRequest(
+  c: Context<{ Bindings: Env }>,
+  payload: PullRequestEvent
+): Promise<Response> {
   const repo = payload.repository
   const pr = payload.pull_request
   const action = payload.action
@@ -938,11 +1009,12 @@ async function handlePullRequest(c: any, payload: any): Promise<Response> {
 
     case 'synchronize':
       // Send FIX_COMPLETE event (new commits pushed)
+      // Note: PullRequestSynchronizeEvent doesn't have commits field
       return stub.fetch(new Request('http://do/event', {
         method: 'POST',
         body: JSON.stringify({
           type: 'FIX_COMPLETE',
-          commits: payload.commits || [],
+          commits: [],
         }),
         headers: { 'Content-Type': 'application/json' },
       }))
@@ -964,7 +1036,10 @@ async function handlePullRequest(c: any, payload: any): Promise<Response> {
 }
 
 // Pull Request Review webhook
-async function handlePullRequestReview(c: any, payload: any): Promise<Response> {
+async function handlePullRequestReview(
+  c: Context<{ Bindings: Env }>,
+  payload: PullRequestReviewEvent
+): Promise<Response> {
   const repo = payload.repository
   const pr = payload.pull_request
   const review = payload.review
@@ -985,8 +1060,8 @@ async function handlePullRequestReview(c: any, payload: any): Promise<Response> 
   const doId = c.env.PRDO.idFromName(`${repo.full_name}#${pr.number}`)
   const stub = c.env.PRDO.get(doId)
 
-  // Send REVIEW_COMPLETE event
-  return stub.fetch(new Request('http://do/event', {
+  // Send REVIEW_COMPLETE event to PRDO
+  const prdoResponse = await stub.fetch(new Request('http://do/event', {
     method: 'POST',
     body: JSON.stringify({
       type: 'REVIEW_COMPLETE',
@@ -996,6 +1071,29 @@ async function handlePullRequestReview(c: any, payload: any): Promise<Response> 
     }),
     headers: { 'Content-Type': 'application/json' },
   }))
+
+  // If PR is approved, also notify any waiting DevelopWorkflow
+  if (reviewState === 'approved') {
+    try {
+      await handlePRApproval(
+        c.env,
+        {
+          number: pr.number,
+          title: pr.title,
+          body: pr.body || '',
+          branch: pr.head.ref,
+          url: pr.html_url,
+          state: pr.state as 'open' | 'closed',
+        },
+        review.user.login
+      )
+    } catch (err) {
+      console.error('[Webhook] Failed to notify workflow of PR approval:', err)
+      // Don't fail the webhook if workflow notification fails
+    }
+  }
+
+  return prdoResponse
 }
 
 // ============================================
@@ -1005,14 +1103,16 @@ async function handlePullRequestReview(c: any, payload: any): Promise<Response> 
 // Get user's installations
 app.get('/api/user/installations', authMiddleware, async (c) => {
   const auth = c.get('auth') as AuthContext
+  const payload = await getPayloadClient(c.env)
 
   // Get installations where this user is in the users array
-  const result = await c.env.PAYLOAD.find({
+  const result = await payload.find({
     collection: 'installations',
     where: {
       'users.workosUserId': { equals: auth.userId },
     },
     depth: 1,
+    overrideAccess: true,
   })
 
   return c.json(result.docs || [])
@@ -1021,14 +1121,16 @@ app.get('/api/user/installations', authMiddleware, async (c) => {
 // Get user's repos
 app.get('/api/user/repos', authMiddleware, async (c) => {
   const auth = c.get('auth') as AuthContext
+  const payload = await getPayloadClient(c.env)
 
   // Get repos where user has access via installation
-  const result = await c.env.PAYLOAD.find({
+  const result = await payload.find({
     collection: 'repos',
     where: {
       'installation.users.workosUserId': { equals: auth.userId },
     },
     depth: 1,
+    overrideAccess: true,
   })
 
   return c.json(result.docs || [])
@@ -1036,9 +1138,11 @@ app.get('/api/user/repos', authMiddleware, async (c) => {
 
 // API: List all installations (admin - requires auth)
 app.get('/api/installations', authMiddleware, async (c) => {
-  const result = await c.env.PAYLOAD.find({
+  const payload = await getPayloadClient(c.env)
+  const result = await payload.find({
     collection: 'installations',
     limit: 100,
+    overrideAccess: true,
   })
   return c.json(result.docs || [])
 })
@@ -1046,11 +1150,13 @@ app.get('/api/installations', authMiddleware, async (c) => {
 // API: List repos for an installation (requires auth)
 app.get('/api/installations/:id/repos', authMiddleware, async (c) => {
   const installationId = c.req.param('id')
-  const result = await c.env.PAYLOAD.find({
+  const payload = await getPayloadClient(c.env)
+  const result = await payload.find({
     collection: 'repos',
     where: {
       installation: { equals: installationId },
     },
+    overrideAccess: true,
   })
   return c.json(result.docs || [])
 })

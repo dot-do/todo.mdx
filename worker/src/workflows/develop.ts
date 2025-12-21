@@ -224,4 +224,6 @@ interface WorkflowInstance {
   pause(): Promise<void>
   resume(): Promise<void>
   terminate(): Promise<void>
+  /** Send an event to a waiting workflow step */
+  sendEvent(event: { type: string; payload?: unknown }): Promise<void>
 }

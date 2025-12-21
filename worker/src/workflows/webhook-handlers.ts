@@ -7,9 +7,19 @@
  * 3. Integrate with beads, GitHub, and Payload
  */
 
-import type { Env, WorkflowInstance } from '../types'
+import type { Env } from '../types'
 import type { DevelopWorkflowPayload } from './develop'
 import type { Repo, Issue, PR } from 'agents.mdx'
+
+// Extended WorkflowInstance with sendEvent for Cloudflare Workflows
+interface WorkflowInstance {
+  id: string
+  status: 'running' | 'complete' | 'failed' | 'paused'
+  pause(): Promise<void>
+  resume(): Promise<void>
+  terminate(): Promise<void>
+  sendEvent(event: { type: string; payload?: unknown }): Promise<void>
+}
 
 // ============================================================================
 // Issue Ready Handler
@@ -28,14 +38,14 @@ export async function handleIssueReady(
   issue: Issue,
   repo: Repo,
   installationId: number
-): Promise<WorkflowInstance<DevelopWorkflowPayload>> {
+): Promise<WorkflowInstance> {
   console.log(`[Workflows] Issue ready: ${issue.id} - ${issue.title}`)
 
   // Check if workflow already exists for this issue
   const existingId = `develop-${issue.id}`
 
   try {
-    const existing = await env.DEVELOP_WORKFLOW.get(existingId)
+    const existing = await env.DEVELOP_WORKFLOW.get(existingId) as unknown as WorkflowInstance
 
     if (existing.status === 'running' || existing.status === 'paused') {
       console.log(`[Workflows] Workflow already running: ${existingId}`)
@@ -55,7 +65,7 @@ export async function handleIssueReady(
   const instance = await env.DEVELOP_WORKFLOW.create({
     id: existingId,
     params: payload,
-  })
+  }) as unknown as WorkflowInstance
 
   console.log(`[Workflows] Started workflow: ${existingId}`)
 
@@ -89,7 +99,7 @@ export async function handlePRApproval(
   const workflowId = `develop-${issueId}`
 
   try {
-    const workflow = await env.DEVELOP_WORKFLOW.get(workflowId)
+    const workflow = await env.DEVELOP_WORKFLOW.get(workflowId) as unknown as WorkflowInstance
 
     // Workflow should be paused waiting for approval
     if (workflow.status !== 'paused') {
@@ -99,16 +109,24 @@ export async function handlePRApproval(
       return
     }
 
-    // Resume workflow by sending the approval event
-    // The workflow is waiting for this via step.waitForEvent('pr.123.approved')
-    // Note: Actual event sending mechanism depends on Workflows API
-    // This is a placeholder showing the pattern
+    // Send the approval event to resume the workflow
+    // The workflow is waiting for this via step.waitForEvent('pr_approval', ...)
+    // Event type must match what was passed to waitForEvent
+    await workflow.sendEvent({
+      type: 'pr_approval',
+      payload: {
+        prNumber: pr.number,
+        reviewer,
+        approvedAt: new Date().toISOString(),
+      },
+    })
 
     console.log(
       `[Workflows] Sent approval event to workflow ${workflowId} for PR #${pr.number}`
     )
   } catch (err) {
-    console.log(`[Workflows] Workflow not found: ${workflowId}`)
+    const error = err as Error
+    console.log(`[Workflows] Failed to send event to ${workflowId}: ${error.message}`)
   }
 }
 
