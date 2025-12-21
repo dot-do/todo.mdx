@@ -134,20 +134,18 @@ describe('embed endpoint', () => {
     expect(html).toContain('WebSocket')
   })
 
-  test('returns error without token', async () => {
+  test('returns redirect without token', async () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
 
     const response = await fetch(
-      `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed`
+      `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed`,
+      { redirect: 'manual' }
     )
 
-    // Should return 401 for missing token (or 426 if embed endpoint not deployed yet)
-    expect([401, 426]).toContain(response.status)
-    if (response.status === 401) {
-      const html = await response.text()
-      expect(html).toContain('Authentication Required')
-    }
+    // Should return 302 redirect to login page when no token provided
+    expect(response.status).toBe(302)
+    expect(response.headers.get('location')).toContain('/api/auth/login')
   })
 
   test('returns error with invalid token', async () => {
@@ -158,12 +156,10 @@ describe('embed endpoint', () => {
       `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed?token=invalid-token`
     )
 
-    // Should return 401 for invalid token (or 426 if embed endpoint not deployed yet)
-    expect([401, 426]).toContain(response.status)
-    if (response.status === 401) {
-      const html = await response.text()
-      expect(html).toContain('Invalid Token')
-    }
+    // Should return 401 for invalid token
+    expect(response.status).toBe(401)
+    const body = await response.json() as { error: string }
+    expect(body.error).toBe('Invalid token')
   })
 
   test('includes cmd and args in WebSocket URL', async () => {

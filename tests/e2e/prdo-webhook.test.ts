@@ -9,6 +9,10 @@
  *
  * These tests simulate GitHub webhook events and verify the PRDO
  * state transitions correctly.
+ *
+ * NOTE: These tests require the real GITHUB_WEBHOOK_SECRET when running
+ * against production. They are skipped if running against production
+ * without the real secret.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'vitest'
@@ -18,10 +22,19 @@ import * as worker from '../helpers/worker'
 const TEST_OWNER = 'test-org'
 const TEST_REPO = 'test-repo'
 
+// Skip webhook simulation tests when running against production without the real secret
+// (The test-secret default won't match production's actual webhook secret)
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
+const hasRealSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
+const skipWebhookTests = isProduction && !hasRealSecret
+
 describe('PRDO webhook integration', () => {
   let prNumber: number
 
-  beforeEach(() => {
+  beforeEach((ctx) => {
+    // Skip tests when running against production without real webhook secret
+    if (skipWebhookTests) ctx.skip()
     // Generate unique PR number for each test to avoid conflicts
     prNumber = Math.floor(Math.random() * 1000000)
   })
@@ -562,7 +575,9 @@ describe('PRDO webhook integration', () => {
 describe('PRDO error handling', () => {
   let prNumber: number
 
-  beforeEach(() => {
+  beforeEach((ctx) => {
+    // Skip tests when running against production without real webhook secret
+    if (skipWebhookTests) ctx.skip()
     prNumber = Math.floor(Math.random() * 1000000)
   })
 
