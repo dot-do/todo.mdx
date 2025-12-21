@@ -46,7 +46,8 @@ jobs:
         run: pnpm turbo run build --filter='!@todo.mdx/admin' --filter='!todo-mdx-worker'
 
       - name: Test (Unit)
-        run: pnpm test
+        # Skip admin and worker - admin requires wrangler auth, worker depends on admin
+        run: pnpm turbo run test --filter='!@todo.mdx/admin' --filter='!todo-mdx-worker'
 
   e2e:
     name: E2E Tests
