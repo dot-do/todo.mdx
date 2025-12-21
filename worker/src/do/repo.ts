@@ -837,11 +837,12 @@ export class RepoDO extends DurableObject<Env> {
 
     this.upsertIssue(issue)
 
-    // Store GitHub metadata
+    // Store GitHub metadata (including external_ref for JSONL export)
     this.sql.exec(
-      'UPDATE issues SET github_number = ?, github_id = ?, last_sync_at = ? WHERE id = ?',
+      'UPDATE issues SET github_number = ?, github_id = ?, external_ref = ?, last_sync_at = ? WHERE id = ?',
       ghIssue.number,
       ghIssue.id,
+      `gh-${ghIssue.number}`,
       now,
       id
     )
@@ -916,10 +917,12 @@ export class RepoDO extends DurableObject<Env> {
     const ghIssue = (await response.json()) as { id: number; number: number }
 
     // Update local issue with GitHub metadata
+    // Set external_ref so it's included in JSONL export (e.g., "gh-123")
     this.sql.exec(
-      'UPDATE issues SET github_number = ?, github_id = ?, last_sync_at = ? WHERE id = ?',
+      'UPDATE issues SET github_number = ?, github_id = ?, external_ref = ?, last_sync_at = ? WHERE id = ?',
       ghIssue.number,
       ghIssue.id,
+      `gh-${ghIssue.number}`,
       new Date().toISOString(),
       issueId
     )
