@@ -169,6 +169,11 @@
       "binding": "AI_SDK_AGENT",
       "service": "todo-mdx",
       "entrypoint": "AiSdkAgentRPC"
+    },
+    {
+      "binding": "CLAUDE_AGENT",
+      "service": "todo-mdx",
+      "entrypoint": "ClaudeAgentSdkAgentRPC"
     }
   ],
 

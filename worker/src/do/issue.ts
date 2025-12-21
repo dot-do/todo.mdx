@@ -13,6 +13,8 @@ import { createActor } from 'xstate'
 import { StatefulDO } from './base'
 import { issueMachine, type IssueContext, type IssueEvent } from './machines/issue'
 import type { Env } from '../types/env'
+import type { Agent, AgentEvent, DoResult } from '../agents/base'
+import { serializeYaml } from '../../../packages/shared/src/yaml'
 
 // =============================================================================
 // IssueDO Class
@@ -25,6 +27,8 @@ export class IssueDO extends StatefulDO {
   private sql: SqlStorage
   private initialized = false
   private issueActor: ReturnType<typeof createActor<typeof issueMachine>> | null = null
+  private agentSession?: Agent
+  private webSockets: Set<WebSocket> = new Set()
 
   constructor(state: DurableObjectState, env: Env) {
     super(state, env)
@@ -52,6 +56,15 @@ export class IssueDO extends StatefulDO {
         pr_number INTEGER,
         commits TEXT, -- JSON array
         test_results TEXT -- JSON object
+      );
+
+      -- Agent events log (streaming events during execution)
+      CREATE TABLE IF NOT EXISTS agent_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        event_type TEXT NOT NULL, -- 'thinking' | 'tool_call' | 'tool_result' | 'message' | 'error' | 'done'
+        event_data TEXT NOT NULL, -- JSON event payload
+        timestamp TEXT NOT NULL
       );
 
       -- Tool availability checks
@@ -84,6 +97,7 @@ export class IssueDO extends StatefulDO {
       );
 
       CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON execution_sessions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_agent_events_session ON agent_events(session_id);
       CREATE INDEX IF NOT EXISTS idx_verifications_pr ON verifications(pr_number);
     `)
 
@@ -195,7 +209,7 @@ export class IssueDO extends StatefulDO {
   }
 
   /**
-   * Handle task execution dispatch
+   * Handle task execution dispatch via agent
    */
   private async handleExecuteTask(params: {
     issueId: string
@@ -205,6 +219,10 @@ export class IssueDO extends StatefulDO {
     installationId: number
     prompt: string
   }): Promise<void> {
+    if (!this.agentSession) {
+      throw new Error('Agent session not initialized - call assignAgent() first')
+    }
+
     // Generate session ID
     const sessionId = crypto.randomUUID()
     const now = new Date().toISOString()
@@ -222,38 +240,155 @@ export class IssueDO extends StatefulDO {
     // Send START_EXECUTION event
     this.issueActor?.send({ type: 'START_EXECUTION', sessionId })
 
-    // TODO: Dispatch actual execution via sandbox/container
-    // For now, simulate execution completion after 5 seconds
-    // In production, this would call env.CLAUDE_SANDBOX or similar
-    console.log('[IssueDO] Simulating task execution for session:', sessionId)
+    console.log('[IssueDO] Starting agent execution for session:', sessionId)
 
-    // Simulate async execution (in real implementation, this would be handled by sandbox callbacks)
-    setTimeout(() => {
-      // Simulate successful completion
-      const prNumber = Math.floor(Math.random() * 1000) + 1
-      const commits = [{ sha: 'abc123', message: 'Implement feature' }]
-      const testResults = { passed: 10, failed: 0, skipped: 0 }
+    try {
+      // Format task as YAML with repo context
+      const context = this.issueActor?.getSnapshot().context
+      const taskYaml = serializeYaml({
+        issueId: params.issueId,
+        repo: params.repo,
+        title: context?.title || '',
+        description: context?.description || '',
+        acceptanceCriteria: context?.acceptanceCriteria || '',
+        design: context?.design || '',
+      })
 
-      // Update session
+      const taskPrompt = `${taskYaml}\n\n${params.prompt}`
+
+      // Execute task via agent with streaming
+      const result = await this.agentSession.do(taskPrompt, {
+        stream: true,
+        onEvent: (event: AgentEvent) => {
+          // Log event to SQL storage
+          this.logAgentEvent(sessionId, event)
+
+          // Broadcast to WebSocket clients
+          this.broadcastEvent({
+            type: 'agent_event',
+            sessionId,
+            event,
+          })
+        },
+        timeout: 600000, // 10 minutes
+        maxSteps: 50,
+      })
+
+      // Extract artifacts from result
+      const prNumber = this.extractPRNumber(result)
+      const commits = this.extractCommits(result)
+      const testResults = this.extractTestResults(result)
+
+      // Update session with results
       this.sql.exec(
-        `UPDATE execution_sessions SET completed_at = ?, status = ?, pr_number = ?, commits = ?, test_results = ?
+        `UPDATE execution_sessions
+         SET completed_at = ?, status = ?, pr_number = ?, commits = ?, test_results = ?
          WHERE session_id = ?`,
         new Date().toISOString(),
-        'completed',
-        prNumber,
+        result.success ? 'completed' : 'failed',
+        prNumber || null,
         JSON.stringify(commits),
         JSON.stringify(testResults),
         sessionId
       )
 
-      // Send COMPLETED event
+      if (result.success) {
+        // Send COMPLETED event
+        this.issueActor?.send({
+          type: 'COMPLETED',
+          prNumber: prNumber || 0,
+          commits,
+          testResults,
+        })
+      } else {
+        // Send FAILED event
+        this.issueActor?.send({
+          type: 'FAILED',
+          error: result.output,
+        })
+      }
+    } catch (error) {
+      console.error('[IssueDO] Agent execution failed:', error)
+
+      // Update session with error
+      this.sql.exec(
+        `UPDATE execution_sessions SET completed_at = ?, status = ?, error = ?
+         WHERE session_id = ?`,
+        new Date().toISOString(),
+        'failed',
+        String(error),
+        sessionId
+      )
+
+      // Send FAILED event
       this.issueActor?.send({
-        type: 'COMPLETED',
-        prNumber,
-        commits,
-        testResults,
+        type: 'FAILED',
+        error: String(error),
       })
-    }, 5000)
+    }
+  }
+
+  /**
+   * Log agent event to SQL storage
+   */
+  private logAgentEvent(sessionId: string, event: AgentEvent): void {
+    this.sql.exec(
+      `INSERT INTO agent_events (session_id, event_type, event_data, timestamp)
+       VALUES (?, ?, ?, ?)`,
+      sessionId,
+      event.type,
+      JSON.stringify(event),
+      new Date().toISOString()
+    )
+  }
+
+  /**
+   * Broadcast event to all connected WebSocket clients
+   */
+  private broadcastEvent(event: any): void {
+    const message = JSON.stringify(event)
+    for (const ws of this.webSockets) {
+      try {
+        ws.send(message)
+      } catch (error) {
+        console.error('[IssueDO] Failed to send WebSocket message:', error)
+        this.webSockets.delete(ws)
+      }
+    }
+  }
+
+  /**
+   * Extract PR number from DoResult artifacts
+   */
+  private extractPRNumber(result: DoResult): number | null {
+    if (!result.artifacts) return null
+    const prArtifact = result.artifacts.find((a) => a.type === 'pr')
+    if (!prArtifact) return null
+    // Parse PR number from ref (e.g., "owner/repo#123" → 123)
+    const match = prArtifact.ref.match(/#(\d+)$/)
+    return match ? parseInt(match[1], 10) : null
+  }
+
+  /**
+   * Extract commits from DoResult artifacts
+   */
+  private extractCommits(result: DoResult): any[] {
+    if (!result.artifacts) return []
+    return result.artifacts
+      .filter((a) => a.type === 'commit')
+      .map((a) => ({
+        sha: a.ref,
+        message: a.url || '',
+      }))
+  }
+
+  /**
+   * Extract test results from DoResult events
+   */
+  private extractTestResults(result: DoResult): any {
+    // Look for test results in events or output
+    // This is a simplified implementation - in practice you'd parse agent output
+    return { passed: 0, failed: 0, skipped: 0 }
   }
 
   /**
@@ -375,6 +510,11 @@ export class IssueDO extends StatefulDO {
     const path = url.pathname
 
     try {
+      // WebSocket upgrade for real-time event streaming
+      if (path === '/ws' && request.headers.get('Upgrade') === 'websocket') {
+        return this.handleWebSocket(request)
+      }
+
       // POST /assign-agent - Trigger agent assignment
       if (path === '/assign-agent' && request.method === 'POST') {
         return this.assignAgent(request)
@@ -400,6 +540,12 @@ export class IssueDO extends StatefulDO {
         return this.getTransitions()
       }
 
+      // GET /events/:sessionId - Get agent events for a session
+      if (path.startsWith('/events/') && request.method === 'GET') {
+        const sessionId = path.split('/')[2]
+        return this.getAgentEvents(sessionId)
+      }
+
       return new Response('Not Found', { status: 404 })
     } catch (error) {
       console.error('[IssueDO] Error:', error)
@@ -408,6 +554,56 @@ export class IssueDO extends StatefulDO {
         headers: { 'Content-Type': 'application/json' },
       })
     }
+  }
+
+  /**
+   * Handle WebSocket connection for real-time event streaming
+   */
+  private handleWebSocket(request: Request): Response {
+    const { 0: client, 1: server } = new WebSocketPair()
+
+    // Accept the WebSocket connection
+    server.accept()
+
+    // Add to active connections
+    this.webSockets.add(server)
+
+    // Send current state on connection
+    const state = this.issueActor?.getSnapshot()
+    if (state) {
+      server.send(
+        JSON.stringify({
+          type: 'state',
+          state: state.value,
+          context: state.context,
+        })
+      )
+    }
+
+    // Handle client disconnect
+    server.addEventListener('close', () => {
+      this.webSockets.delete(server)
+    })
+
+    server.addEventListener('error', () => {
+      this.webSockets.delete(server)
+    })
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+    })
+  }
+
+  /**
+   * Get agent events for a specific session
+   */
+  private getAgentEvents(sessionId: string): Response {
+    const events = this.sql
+      .exec('SELECT * FROM agent_events WHERE session_id = ? ORDER BY timestamp ASC', sessionId)
+      .toArray()
+
+    return Response.json({ events })
   }
 
   /**
@@ -429,26 +625,58 @@ export class IssueDO extends StatefulDO {
       acceptanceCriteria?: string
       design?: string
       requiredTools?: string[]
+      orgId?: string
+      repoId?: string
     }
 
     // Initialize context if this is first time
     const currentState = this.issueActor.getSnapshot()
     if (currentState.value === 'idle') {
-      // Update context with issue details
-      this.issueActor.send({
-        type: 'ASSIGN_AGENT',
-        agent: body.agent,
-        pat: body.pat,
-      })
+      try {
+        // Get agent via RPC with context-based resolution
+        const agentContext = {
+          orgId: body.orgId,
+          repoId: body.repoId,
+        }
 
-      // Set the ref for persistence
-      this.ref = body.issueId
+        console.log('[IssueDO] Resolving agent:', body.agent, 'with context:', agentContext)
+        this.agentSession = await this.env.AGENT.get(body.agent, agentContext)
 
-      return Response.json({
-        ok: true,
-        message: 'Agent assigned, preparing execution',
-        state: this.issueActor.getSnapshot().value,
-      })
+        console.log('[IssueDO] Agent resolved:', this.agentSession.def.name)
+
+        // Update context with issue details
+        this.issueActor.send({
+          type: 'ASSIGN_AGENT',
+          agent: body.agent,
+          pat: body.pat,
+        })
+
+        // Set the ref for persistence
+        this.ref = body.issueId
+
+        return Response.json({
+          ok: true,
+          message: 'Agent assigned, preparing execution',
+          state: this.issueActor.getSnapshot().value,
+          agent: this.agentSession
+            ? {
+                id: this.agentSession.def.id,
+                name: this.agentSession.def.name,
+                tier: this.agentSession.def.tier,
+                framework: this.agentSession.def.framework,
+              }
+            : undefined,
+        })
+      } catch (error) {
+        console.error('[IssueDO] Failed to assign agent:', error)
+        return Response.json(
+          {
+            ok: false,
+            error: `Failed to assign agent: ${error}`,
+          },
+          { status: 500 }
+        )
+      }
     }
 
     return Response.json({

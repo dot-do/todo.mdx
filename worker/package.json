@@ -12,6 +12,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "@cloudflare/sandbox": "^0.6.7",
     "@cloudflare/workers-oauth-provider": "^0.1.0",
     "@composio/core": "^0.3.1",

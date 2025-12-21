@@ -46,7 +46,7 @@ export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { BeadsSyncWorkflow } from './workflows/sync'
 export { TodoMCP }
 export { PersistenceRPC } from './rpc'
-export { AgentRPC, AiSdkAgentRPC } from './agents'
+export { AgentRPC, AiSdkAgentRPC, ClaudeAgentSdkAgentRPC } from './agents'
 
 // Re-export Env type for external use
 export type { Env }
