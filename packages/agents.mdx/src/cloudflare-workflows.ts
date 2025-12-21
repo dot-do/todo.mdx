@@ -186,7 +186,7 @@ export function durableTransport(
         case 'epics':
           return durableCall(
             stepName(namespace, action),
-            () => callPayload(payloadBinding, apiBaseUrl, method, args)
+            () => callPayload(payloadBinding, apiBaseUrl, method, args, repo)
           )
 
         case 'pr':
@@ -337,7 +337,8 @@ async function callPayload(
   binding: unknown,
   apiBaseUrl: string,
   method: string,
-  args: unknown[]
+  args: unknown[],
+  repo?: Repo
 ): Promise<unknown> {
   // If we have a service binding, use RPC
   if (binding) {
@@ -347,10 +348,11 @@ async function callPayload(
   }
 
   // Otherwise, fall back to HTTP API
+  // Include repo context for routing to correct RepoDO
   const response = await fetch(`${apiBaseUrl}/rpc`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ method, args }),
+    body: JSON.stringify({ method, args, repo }),
   })
 
   if (!response.ok) {

@@ -8,12 +8,25 @@
 import { DurableObject } from 'cloudflare:workers'
 import { SignJWT, importPKCS8 } from 'jose'
 
+// Workflow types for triggering autonomous development
+interface WorkflowNamespace {
+  create<T = unknown>(options: { id: string; params: T }): Promise<WorkflowInstance<T>>
+  get<T = unknown>(id: string): Promise<WorkflowInstance<T>>
+}
+
+interface WorkflowInstance<T = unknown> {
+  id: string
+  status: 'running' | 'complete' | 'failed' | 'paused'
+}
+
 export interface Env {
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
+  // Workflow binding for auto-triggering development
+  DEVELOP_WORKFLOW?: WorkflowNamespace
 }
 
 // =============================================================================
@@ -241,7 +254,7 @@ function buildGitHubLabels(
 // RepoDO Class
 // =============================================================================
 
-export class RepoDO extends DurableObject {
+export class RepoDO extends DurableObject<Env> {
   private sql: SqlStorage
   private initialized = false
   private repoFullName: string | null = null
@@ -997,6 +1010,9 @@ export class RepoDO extends DurableObject {
       return
     }
 
+    // Capture ready issues BEFORE import (to detect newly unblocked issues)
+    const readyBefore = new Set(this.listReady().map((i) => i.id))
+
     // Fetch and import JSONL
     const jsonl = await this.fetchGitHubFile('.beads/issues.jsonl', commit)
     const result = await this.importFromJsonl(jsonl)
@@ -1048,6 +1064,73 @@ export class RepoDO extends DurableObject {
         } catch (error) {
           console.error(`[RepoDO] Failed to close GitHub issue #${github_number}:`, error)
         }
+      }
+    }
+
+    // 4. Auto-trigger DevelopWorkflow for newly ready issues
+    // Issues that weren't ready before but are ready now (their blockers were closed)
+    await this.triggerWorkflowsForReadyIssues(readyBefore, repoFullName, installationId)
+  }
+
+  /**
+   * Trigger DevelopWorkflow for issues that just became ready (no blockers)
+   */
+  private async triggerWorkflowsForReadyIssues(
+    readyBefore: Set<string>,
+    repoFullName: string,
+    installationId: number
+  ): Promise<void> {
+    if (!this.env.DEVELOP_WORKFLOW) {
+      console.log('[RepoDO] DEVELOP_WORKFLOW not bound, skipping auto-trigger')
+      return
+    }
+
+    const readyNow = this.listReady()
+    const newlyReady = readyNow.filter((issue) => !readyBefore.has(issue.id))
+
+    if (newlyReady.length === 0) {
+      return
+    }
+
+    console.log(`[RepoDO] Found ${newlyReady.length} newly ready issues to trigger`)
+
+    const [owner, name] = repoFullName.split('/')
+
+    for (const issue of newlyReady) {
+      const workflowId = `develop-${issue.id}`
+
+      try {
+        // Check if workflow already exists
+        try {
+          const existing = await this.env.DEVELOP_WORKFLOW.get(workflowId)
+          if (existing.status === 'running' || existing.status === 'paused') {
+            console.log(`[RepoDO] Workflow already active: ${workflowId}`)
+            continue
+          }
+        } catch {
+          // Workflow doesn't exist, continue to create
+        }
+
+        // Create new workflow instance
+        const instance = await this.env.DEVELOP_WORKFLOW.create({
+          id: workflowId,
+          params: {
+            repo: { owner, name },
+            issue: {
+              id: issue.id,
+              title: issue.title,
+              description: issue.description,
+              status: issue.status,
+              priority: issue.priority,
+              issue_type: issue.issue_type,
+            },
+            installationId,
+          },
+        })
+
+        console.log(`[RepoDO] Triggered DevelopWorkflow for ${issue.id}: ${instance.id}`)
+      } catch (error) {
+        console.error(`[RepoDO] Failed to trigger workflow for ${issue.id}:`, error)
       }
     }
   }

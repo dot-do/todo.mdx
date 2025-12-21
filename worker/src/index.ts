@@ -350,6 +350,59 @@ app.route('/api/sandbox', sandbox)
 app.route('/api/workflows', workflows)
 
 // ============================================
+// RPC endpoint for workflow runtime calls
+// Routes issues.* and epics.* to RepoDO
+// ============================================
+
+app.post('/api/rpc', authMiddleware, async (c) => {
+  const { method, args, repo } = await c.req.json() as {
+    method: string
+    args: unknown[]
+    repo?: { owner: string; name: string }
+  }
+
+  const [namespace, action] = method.split('.')
+
+  if (namespace === 'issues') {
+    // Get repo context from the request (passed by workflow transport)
+    if (!repo?.owner || !repo?.name) {
+      return c.json({ error: 'Missing repo context in RPC call' }, 400)
+    }
+
+    const repoFullName = `${repo.owner}/${repo.name}`
+    const doId = c.env.REPO.idFromName(repoFullName)
+    const stub = c.env.REPO.get(doId)
+
+    switch (action) {
+      case 'close': {
+        const [id, reason] = args as [string, string?]
+        const response = await stub.fetch(new Request(`http://do/issues/${id}/close`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: reason || 'Completed' }),
+        }))
+        return c.json(await response.json())
+      }
+
+      case 'update': {
+        const [id, updates] = args as [string, Record<string, unknown>]
+        const response = await stub.fetch(new Request(`http://do/issues/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        }))
+        return c.json(await response.json())
+      }
+
+      default:
+        return c.json({ error: `Unknown issues action: ${action}` }, 400)
+    }
+  }
+
+  return c.json({ error: `Unknown RPC method: ${method}` }, 400)
+})
+
+// ============================================
 // Terminal WebSocket routes
 // ============================================
 
