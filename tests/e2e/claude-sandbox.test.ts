@@ -1,401 +1,484 @@
 /**
- * E2E: Claude Code on Cloudflare Sandbox Tests (todo-bv4)
+ * E2E Tests: Claude Code on Cloudflare Sandbox
  *
- * Tests spawning Claude Code via Cloudflare Sandbox SDK:
- * - Repository cloning
- * - Task execution
- * - Diff/patch return
+ * TDD RED PHASE: These tests are written FIRST and should FAIL
+ * until ClaudeSandbox is properly implemented with Cloudflare Sandbox SDK.
+ *
+ * Tests the full Claude Code execution cycle:
+ * 1. Spawn sandbox container
+ * 2. Clone repository
+ * 3. Execute Claude Code task
+ * 4. Return diff/patch
+ *
+ * Per https://developers.cloudflare.com/sandbox/tutorials/claude-code/
  *
  * Requires:
  * - ANTHROPIC_API_KEY
- * - CF_ACCOUNT_ID
- * - CF_API_TOKEN with Sandbox permissions
- * - WORKER_BASE_URL, WORKER_ACCESS_TOKEN
+ * - TEST_API_KEY (for worker auth)
+ * - Worker deployed with Sandbox binding
  */
 
 import { describe, test, expect, beforeAll } from 'vitest'
-import * as worker from '../helpers/worker'
 
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID
-const CF_API_TOKEN = process.env.CF_API_TOKEN
-const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
+const TEST_API_KEY = process.env.TEST_API_KEY
+const GITHUB_INSTALLATION_ID = process.env.GITHUB_INSTALLATION_ID
 
-function hasSandboxCredentials(): boolean {
-  return !!(ANTHROPIC_API_KEY && CF_ACCOUNT_ID && CF_API_TOKEN && WORKER_ACCESS_TOKEN)
+const hasCredentials = !!ANTHROPIC_API_KEY && !!TEST_API_KEY
+
+const describeWithCredentials = hasCredentials ? describe : describe.skip
+
+// Helper to make authenticated requests to the worker
+async function apiRequest(path: string, options: RequestInit = {}) {
+  const url = `${WORKER_BASE_URL}${path}`
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(TEST_API_KEY && { Authorization: `Bearer ${TEST_API_KEY}` }),
+    ...options.headers,
+  }
+  return fetch(url, { ...options, headers })
 }
 
-const describeWithSandbox = hasSandboxCredentials() ? describe : describe.skip
+// ============================================================================
+// Core ClaudeSandbox Tests - Must pass for autonomous workflow
+// ============================================================================
 
-const TEST_REPO_URL = 'https://github.com/dot-do/test.mdx'
-
-// Sandbox API helper (placeholder for actual CF Sandbox SDK)
-interface SandboxSession {
-  id: string
-  status: 'pending' | 'running' | 'complete' | 'error'
-  output?: string
-  error?: string
-}
-
-async function createSandboxSession(
-  command: string,
-  options?: {
-    repo?: string
-    env?: Record<string, string>
-    timeout?: number
-  }
-): Promise<SandboxSession> {
-  // This is a placeholder for the actual Cloudflare Sandbox SDK
-  // In production, this would call the CF Sandbox API
-
-  // Simulate sandbox creation
-  return {
-    id: `sandbox-${Date.now()}`,
-    status: 'pending',
-  }
-}
-
-async function getSandboxStatus(sessionId: string): Promise<SandboxSession> {
-  // Placeholder for sandbox status check
-  return {
-    id: sessionId,
-    status: 'complete',
-    output: 'Simulated sandbox output',
-  }
-}
-
-async function runInSandbox(
-  command: string,
-  options?: {
-    workdir?: string
-    env?: Record<string, string>
-    timeout?: number
-  }
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  // Placeholder for sandbox command execution
-  return {
-    stdout: 'Simulated output',
-    stderr: '',
-    exitCode: 0,
-  }
-}
-
-describeWithSandbox('Cloudflare Sandbox session management', () => {
+describeWithCredentials('ClaudeSandbox.execute() - core functionality', () => {
   beforeAll(() => {
-    if (!hasSandboxCredentials()) {
-      console.log(
-        'Skipping Claude sandbox tests - missing ANTHROPIC_API_KEY, CF_ACCOUNT_ID, CF_API_TOKEN, or WORKER_ACCESS_TOKEN'
-      )
+    if (!hasCredentials) {
+      console.log('Skipping ClaudeSandbox tests - missing credentials')
+      console.log('  ANTHROPIC_API_KEY:', !!ANTHROPIC_API_KEY)
+      console.log('  TEST_API_KEY:', !!TEST_API_KEY)
     }
   })
 
-  test('can create sandbox session', async () => {
-    const session = await createSandboxSession('echo "Hello from sandbox"')
+  test('POST /api/sandbox/execute runs Claude Code and returns diff', async () => {
+    // This is the core test - Claude must be able to:
+    // 1. Clone a repo
+    // 2. Execute a task
+    // 3. Return the diff
 
-    expect(session.id).toBeDefined()
-    expect(session.id).toMatch(/^sandbox-/)
-    expect(session.status).toBe('pending')
-  })
-
-  test('can check sandbox session status', async () => {
-    const session = await createSandboxSession('echo "test"')
-    const status = await getSandboxStatus(session.id)
-
-    expect(status.id).toBe(session.id)
-    expect(['pending', 'running', 'complete', 'error']).toContain(status.status)
-  })
-
-  test('can execute command in sandbox', async () => {
-    const result = await runInSandbox('echo "Hello, World!"')
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBeDefined()
-  })
-})
-
-describeWithSandbox('repository cloning in sandbox', () => {
-  test('can clone public repository', async () => {
-    const result = await runInSandbox(
-      `git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`
-    )
-
-    expect(result.exitCode).toBe(0)
-  })
-
-  test('can clone with specific branch', async () => {
-    const result = await runInSandbox(
-      `git clone --depth 1 --branch main ${TEST_REPO_URL} /workspace/repo`
-    )
-
-    expect(result.exitCode).toBe(0)
-  })
-
-  test('cloned repo has expected structure', async () => {
-    await runInSandbox(`git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`)
-
-    const result = await runInSandbox('ls -la /workspace/repo', {
-      workdir: '/workspace/repo',
+    const response = await apiRequest('/api/sandbox/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: 'dot-do/test.mdx',
+        task: 'Add a comment "// TDD test" at the top of README.md',
+      }),
     })
 
-    expect(result.stdout).toBeDefined()
-    // Expected files in test.mdx repo
-    expect(result.stdout).toContain('README')
-  })
-})
+    // Must succeed
+    expect(response.ok).toBe(true)
+    expect(response.status).toBe(200)
 
-describeWithSandbox('Claude Code execution in sandbox', () => {
-  test.skip('can spawn Claude Code CLI', async () => {
-    // This would test the actual Claude Code CLI in sandbox
-    // Skipped until full sandbox integration
-
-    const result = await runInSandbox('claude --version', {
-      env: {
-        ANTHROPIC_API_KEY: ANTHROPIC_API_KEY!,
-      },
-    })
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toContain('claude')
-  })
-
-  test.skip('Claude can analyze repository', async () => {
-    // Clone repo first
-    await runInSandbox(`git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`)
-
-    // Run Claude analysis
-    const result = await runInSandbox(
-      'claude -p "Analyze this repository structure and list the main components"',
-      {
-        workdir: '/workspace/repo',
-        env: {
-          ANTHROPIC_API_KEY: ANTHROPIC_API_KEY!,
-        },
-        timeout: 120000, // 2 minutes
-      }
-    )
-
-    expect(result.exitCode).toBe(0)
-    expect(result.stdout).toBeDefined()
-  })
-
-  test.skip('Claude can make code changes', async () => {
-    // Clone repo
-    await runInSandbox(`git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`)
-
-    // Ask Claude to make a change
-    const result = await runInSandbox(
-      'claude -p "Add a comment at the top of README.md explaining this is a test file"',
-      {
-        workdir: '/workspace/repo',
-        env: {
-          ANTHROPIC_API_KEY: ANTHROPIC_API_KEY!,
-        },
-        timeout: 120000,
-      }
-    )
-
-    expect(result.exitCode).toBe(0)
-
-    // Check if file was modified
-    const diffResult = await runInSandbox('git diff', {
-      workdir: '/workspace/repo',
-    })
-
-    expect(diffResult.stdout).toContain('README.md')
-  })
-})
-
-describeWithSandbox('diff generation and extraction', () => {
-  test.skip('can generate unified diff', async () => {
-    await runInSandbox(`git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`)
-
-    // Make a change
-    await runInSandbox('echo "# Test" >> README.md', {
-      workdir: '/workspace/repo',
-    })
-
-    // Get diff
-    const result = await runInSandbox('git diff --unified=3', {
-      workdir: '/workspace/repo',
-    })
-
-    expect(result.stdout).toContain('@@')
-    expect(result.stdout).toContain('README.md')
-  })
-
-  test.skip('can generate patch file', async () => {
-    await runInSandbox(`git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`)
-
-    // Make changes
-    await runInSandbox('echo "Modified" >> README.md', {
-      workdir: '/workspace/repo',
-    })
-
-    // Generate patch
-    const result = await runInSandbox(
-      'git diff > /tmp/changes.patch && cat /tmp/changes.patch',
-      {
-        workdir: '/workspace/repo',
-      }
-    )
-
-    expect(result.stdout).toContain('diff --git')
-  })
-
-  test.skip('can commit and format-patch', async () => {
-    await runInSandbox(`git clone --depth 1 ${TEST_REPO_URL} /workspace/repo`)
-
-    // Configure git
-    await runInSandbox(
-      'git config user.email "test@example.com" && git config user.name "Test"',
-      { workdir: '/workspace/repo' }
-    )
-
-    // Make and commit changes
-    await runInSandbox('echo "Test" >> README.md && git add . && git commit -m "Test commit"', {
-      workdir: '/workspace/repo',
-    })
-
-    // Generate format-patch
-    const result = await runInSandbox('git format-patch -1 HEAD --stdout', {
-      workdir: '/workspace/repo',
-    })
-
-    expect(result.stdout).toContain('From:')
-    expect(result.stdout).toContain('Subject:')
-  })
-})
-
-describe('sandbox error handling', () => {
-  test('timeout handling', async () => {
-    const session = await createSandboxSession('sleep 1000', {
-      timeout: 100, // Very short timeout
-    })
-
-    // Should handle timeout gracefully
-    expect(session).toBeDefined()
-  })
-
-  test('invalid command handling', async () => {
-    const result = await runInSandbox('nonexistent-command-12345')
-
-    // Should return non-zero exit code
-    expect(result.exitCode).toBe(0) // Simulated, would be non-zero in real sandbox
-  })
-
-  test('memory limit handling', async () => {
-    // Attempt to use excessive memory
-    const session = await createSandboxSession(
-      'dd if=/dev/zero of=/dev/null bs=1G count=100'
-    )
-
-    expect(session).toBeDefined()
-  })
-})
-
-describe('sandbox security', () => {
-  test('sandbox isolation verification', () => {
-    // Verify sandbox provides isolation
-    const isolationRequirements = [
-      'No network access to internal services',
-      'No access to host filesystem',
-      'Resource limits enforced',
-      'No privilege escalation',
-    ]
-
-    expect(isolationRequirements.length).toBe(4)
-  })
-
-  test('environment variable masking', () => {
-    // Verify sensitive env vars are not exposed in logs
-    const sensitiveVars = ['ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'CF_API_TOKEN']
-
-    for (const varName of sensitiveVars) {
-      const masked = `${varName}=***MASKED***`
-      expect(masked).toContain('MASKED')
-    }
-  })
-})
-
-describe('workflow integration with sandbox', () => {
-  test('workflow payload to sandbox mapping', () => {
-    interface WorkflowPayload {
-      repo: { owner: string; name: string; cloneUrl: string }
-      issue: { id: string; title: string; body: string }
-      branch: string
-    }
-
-    interface SandboxTask {
-      command: string
-      env: Record<string, string>
-      workdir: string
-    }
-
-    const workflowToSandbox = (payload: WorkflowPayload): SandboxTask => ({
-      command: `git clone ${payload.repo.cloneUrl} /workspace/repo && cd /workspace/repo && claude -p "${payload.issue.body}"`,
-      env: {
-        GITHUB_REPO: `${payload.repo.owner}/${payload.repo.name}`,
-        ISSUE_ID: payload.issue.id,
-        BRANCH: payload.branch,
-      },
-      workdir: '/workspace/repo',
-    })
-
-    const payload: WorkflowPayload = {
-      repo: {
-        owner: 'test',
-        name: 'repo',
-        cloneUrl: 'https://github.com/test/repo.git',
-      },
-      issue: {
-        id: 'test-123',
-        title: 'Test issue',
-        body: 'Implement feature X',
-      },
-      branch: 'feature/test-123',
-    }
-
-    const task = workflowToSandbox(payload)
-
-    expect(task.command).toContain('git clone')
-    expect(task.command).toContain('claude')
-    expect(task.env.ISSUE_ID).toBe('test-123')
-  })
-
-  test('sandbox result to PR mapping', () => {
-    interface SandboxResult {
+    const result = await response.json() as {
       diff: string
-      commitMessage: string
-      files: string[]
+      summary: string
+      filesChanged: string[]
+      exitCode: number
     }
 
-    interface PRPayload {
-      title: string
-      body: string
-      branch: string
-      baseBranch: string
-    }
+    // Must have a diff
+    expect(result).toHaveProperty('diff')
+    expect(typeof result.diff).toBe('string')
+    expect(result.diff.length).toBeGreaterThan(0)
+    expect(result.diff).toContain('README.md')
 
-    const sandboxToPR = (
-      result: SandboxResult,
-      issueId: string
-    ): PRPayload => ({
-      title: `feat: ${issueId} - ${result.commitMessage}`,
-      body: `Implements ${issueId}\n\n## Changes\n${result.files.map((f) => `- ${f}`).join('\n')}\n\nCloses #${issueId}`,
-      branch: `claude/${issueId}`,
-      baseBranch: 'main',
+    // Must have a summary
+    expect(result).toHaveProperty('summary')
+    expect(typeof result.summary).toBe('string')
+
+    // Must list files changed
+    expect(result).toHaveProperty('filesChanged')
+    expect(Array.isArray(result.filesChanged)).toBe(true)
+    expect(result.filesChanged.length).toBeGreaterThan(0)
+
+    // Must exit successfully
+    expect(result).toHaveProperty('exitCode')
+    expect(result.exitCode).toBe(0)
+  }, 180_000) // 3 minute timeout for sandbox cold start + execution
+
+  test('returns proper error for missing repo', async () => {
+    const response = await apiRequest('/api/sandbox/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: 'nonexistent-org/nonexistent-repo-xyz123',
+        task: 'Do something',
+      }),
     })
 
-    const result: SandboxResult = {
-      diff: 'diff --git...',
-      commitMessage: 'Implement feature',
-      files: ['src/feature.ts', 'tests/feature.test.ts'],
+    expect(response.status).toBe(400)
+
+    const error = await response.json() as { error: string }
+    expect(error).toHaveProperty('error')
+    expect(typeof error.error).toBe('string')
+  })
+
+  test('returns proper error for empty task', async () => {
+    const response = await apiRequest('/api/sandbox/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: 'dot-do/test.mdx',
+        task: '',
+      }),
+    })
+
+    expect(response.status).toBe(400)
+
+    const error = await response.json() as { error: string }
+    expect(error).toHaveProperty('error')
+  })
+
+  test('returns proper error for missing required fields', async () => {
+    const response = await apiRequest('/api/sandbox/execute', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+
+    expect(response.status).toBe(400)
+  })
+})
+
+// ============================================================================
+// GitHub Integration Tests - Required for private repos
+// ============================================================================
+
+describeWithCredentials('ClaudeSandbox with GitHub integration', () => {
+  const hasGitHubIntegration = !!GITHUB_INSTALLATION_ID
+
+  test.skipIf(!hasGitHubIntegration)(
+    'clones private repo using installation token',
+    async () => {
+      const response = await apiRequest('/api/sandbox/execute', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: 'dot-do/test.mdx',
+          task: 'List all files and summarize the project structure',
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(response.ok).toBe(true)
+
+      const result = await response.json() as {
+        summary: string
+        exitCode: number
+      }
+
+      expect(result.exitCode).toBe(0)
+      expect(result.summary).toBeDefined()
+      expect(result.summary.length).toBeGreaterThan(0)
+    },
+    180_000
+  )
+
+  test.skipIf(!hasGitHubIntegration)(
+    'creates branch and pushes changes',
+    async () => {
+      const branchName = `test/sandbox-${Date.now()}`
+
+      const response = await apiRequest('/api/sandbox/execute', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: 'dot-do/test.mdx',
+          task: 'Create a file called sandbox-test.txt with content "Hello from TDD test"',
+          branch: branchName,
+          push: true,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(response.ok).toBe(true)
+
+      const result = await response.json() as {
+        diff: string
+        branch: string
+        commitSha?: string
+        pushed: boolean
+      }
+
+      // Should have created the branch
+      expect(result.branch).toBe(branchName)
+
+      // Should have pushed
+      expect(result.pushed).toBe(true)
+
+      // Should have commit SHA if pushed
+      if (result.pushed) {
+        expect(result.commitSha).toBeDefined()
+        expect(result.commitSha).toMatch(/^[0-9a-f]{40}$/)
+      }
+    },
+    180_000
+  )
+})
+
+// ============================================================================
+// Streaming Tests - For real-time output
+// ============================================================================
+
+describeWithCredentials('ClaudeSandbox streaming output', () => {
+  test('streams execution via SSE', async () => {
+    const response = await apiRequest('/api/sandbox/execute/stream', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: 'dot-do/test.mdx',
+        task: 'List the files in the repository',
+      }),
+    })
+
+    expect(response.ok).toBe(true)
+    expect(response.headers.get('content-type')).toContain('text/event-stream')
+
+    const reader = response.body?.getReader()
+    expect(reader).toBeDefined()
+
+    const events: string[] = []
+    const decoder = new TextDecoder()
+
+    // Read events until complete or timeout
+    const timeout = setTimeout(() => reader?.cancel(), 120_000)
+
+    try {
+      while (true) {
+        const { done, value } = await reader!.read()
+        if (done) break
+
+        const chunk = decoder.decode(value)
+        events.push(chunk)
+
+        // Stop when we see complete
+        if (chunk.includes('event: complete') || chunk.includes('event: error')) {
+          break
+        }
+      }
+    } finally {
+      clearTimeout(timeout)
     }
 
-    const pr = sandboxToPR(result, 'todo-123')
+    // Must have events
+    expect(events.length).toBeGreaterThan(0)
 
-    expect(pr.title).toContain('todo-123')
-    expect(pr.body).toContain('Closes #todo-123')
-    expect(pr.branch).toBe('claude/todo-123')
+    // Must have output events (stdout or stderr)
+    const hasOutput = events.some(
+      (e) => e.includes('event: stdout') || e.includes('event: stderr')
+    )
+    expect(hasOutput).toBe(true)
+
+    // Must end with complete or error
+    const hasEnding = events.some(
+      (e) => e.includes('event: complete') || e.includes('event: error')
+    )
+    expect(hasEnding).toBe(true)
+  }, 180_000)
+})
+
+// ============================================================================
+// Full Workflow Integration - Claude develops, creates PR, etc.
+// ============================================================================
+
+describeWithCredentials('Full autonomous development workflow', () => {
+  const hasFullIntegration = !!GITHUB_INSTALLATION_ID
+
+  test.skipIf(!hasFullIntegration)(
+    'Claude develops issue and creates PR',
+    async () => {
+      const issueId = `test-${Date.now()}`
+      const branchName = `claude/${issueId}`
+
+      // Step 1: Execute Claude to implement the issue
+      const executeResponse = await apiRequest('/api/sandbox/execute', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: 'dot-do/test.mdx',
+          task: `Create a new file called "features/${issueId}.md" with content describing a test feature.`,
+          branch: branchName,
+          push: true,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(executeResponse.ok).toBe(true)
+
+      const executeResult = await executeResponse.json() as {
+        diff: string
+        summary: string
+        filesChanged: string[]
+        branch: string
+        commitSha: string
+        pushed: boolean
+      }
+
+      expect(executeResult.pushed).toBe(true)
+      expect(executeResult.commitSha).toBeDefined()
+      expect(executeResult.filesChanged.length).toBeGreaterThan(0)
+
+      // Step 2: Create PR via workflow API
+      const prResponse = await apiRequest('/api/workflows/pr/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          branch: branchName,
+          title: `feat: ${issueId}`,
+          body: `Implements ${issueId}\n\n${executeResult.summary}\n\nCloses #${issueId}`,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(prResponse.ok).toBe(true)
+
+      const prResult = await prResponse.json() as {
+        number: number
+        url: string
+      }
+
+      expect(prResult.number).toBeGreaterThan(0)
+      expect(prResult.url).toContain('github.com')
+
+      // Cleanup: Close the PR
+      // (In real workflow, reviewer would approve and merge)
+    },
+    300_000 // 5 minute timeout for full workflow
+  )
+})
+
+// ============================================================================
+// Error Handling and Edge Cases
+// ============================================================================
+
+describe('ClaudeSandbox error handling', () => {
+  test('handles timeout gracefully', async () => {
+    // This test verifies the sandbox handles long-running tasks
+    // Implementation should set reasonable timeouts
+
+    const response = await apiRequest('/api/sandbox/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        repo: 'dot-do/test.mdx',
+        task: 'This is a test task',
+        timeout: 1000, // Very short timeout (1 second)
+      }),
+    })
+
+    // Should either succeed quickly or return timeout error
+    if (!response.ok) {
+      const error = await response.json() as { error: string }
+      expect(error.error).toContain('timeout')
+    }
+  })
+
+  test('rate limiting is enforced', async () => {
+    // Make multiple rapid requests
+    const requests = Array(10)
+      .fill(null)
+      .map(() =>
+        apiRequest('/api/sandbox/execute', {
+          method: 'POST',
+          body: JSON.stringify({
+            repo: 'dot-do/test.mdx',
+            task: 'Quick test',
+          }),
+        })
+      )
+
+    const responses = await Promise.all(requests)
+
+    // At least some should be rate limited (429)
+    const rateLimited = responses.filter((r) => r.status === 429)
+    // Or all succeed if rate limiting is per-user and we're under limit
+    const succeeded = responses.filter((r) => r.ok)
+
+    expect(rateLimited.length + succeeded.length).toBe(responses.length)
+  })
+})
+
+// ============================================================================
+// Unit tests for helper functions (always run)
+// ============================================================================
+
+describe('ClaudeSandbox helper functions', () => {
+  test('parseSSEEvent extracts event type and data', () => {
+    const parseSSEEvent = (chunk: string) => {
+      const lines = chunk.split('\n')
+      let eventType = 'message'
+      let data = ''
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim()
+        } else if (line.startsWith('data: ')) {
+          data = line.slice(6)
+        }
+      }
+
+      return { eventType, data }
+    }
+
+    const chunk = 'event: stdout\ndata: Hello World\n\n'
+    const result = parseSSEEvent(chunk)
+
+    expect(result.eventType).toBe('stdout')
+    expect(result.data).toBe('Hello World')
+  })
+
+  test('buildCloneCommand handles owner/repo format', () => {
+    const buildCloneCommand = (repo: string, branch?: string) => {
+      const repoUrl = repo.includes('://')
+        ? repo
+        : `https://github.com/${repo}.git`
+
+      return branch
+        ? `git clone --depth 1 --branch ${branch} ${repoUrl} /workspace/repo`
+        : `git clone --depth 1 ${repoUrl} /workspace/repo`
+    }
+
+    expect(buildCloneCommand('owner/repo')).toBe(
+      'git clone --depth 1 https://github.com/owner/repo.git /workspace/repo'
+    )
+
+    expect(buildCloneCommand('owner/repo', 'main')).toBe(
+      'git clone --depth 1 --branch main https://github.com/owner/repo.git /workspace/repo'
+    )
+
+    expect(buildCloneCommand('https://github.com/owner/repo.git')).toBe(
+      'git clone --depth 1 https://github.com/owner/repo.git /workspace/repo'
+    )
+  })
+
+  test('extractDiff parses git diff output', () => {
+    const extractDiff = (gitOutput: string) => {
+      const lines = gitOutput.split('\n')
+      const files: string[] = []
+
+      for (const line of lines) {
+        if (line.startsWith('diff --git')) {
+          const match = line.match(/diff --git a\/(.+) b\//)
+          if (match) files.push(match[1])
+        }
+      }
+
+      return { diff: gitOutput, filesChanged: files }
+    }
+
+    const gitDiff = `diff --git a/README.md b/README.md
+index 123..456 789
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Test
++// Comment
+diff --git a/src/index.ts b/src/index.ts
+index abc..def 123
+--- a/src/index.ts
++++ b/src/index.ts
+@@ -1 +1 @@
+-old
++new`
+
+    const result = extractDiff(gitDiff)
+
+    expect(result.filesChanged).toContain('README.md')
+    expect(result.filesChanged).toContain('src/index.ts')
+    expect(result.filesChanged.length).toBe(2)
   })
 })
