@@ -11,11 +11,13 @@ export type AuthType = 'oauth' | 'api_key'
 
 export interface AuthContext {
   userId: string
-  authType: AuthType
+  authType?: AuthType
   email?: string
+  name?: string
   scopes?: string[]
   organizationId?: string
   keyName?: string
+  source?: string  // Auth source: oauth, jwt, cookie, workos, session, api_key
 }
 
 declare module 'hono' {
