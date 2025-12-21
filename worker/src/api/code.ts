@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono'
 import type { Env } from '../types.js'
+import { getPayloadClient } from '../payload.js'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -39,11 +40,13 @@ app.post('/:org/:repo/start', async (c) => {
 
   try {
     // Look up the repo to get installation ID
-    const repoResult = await c.env.PAYLOAD.find({
+    const payload = await getPayloadClient(c.env)
+    const repoResult = await payload.find({
       collection: 'repos',
       where: { fullName: { equals: fullName } },
       limit: 1,
       depth: 1,
+      overrideAccess: true,
     })
 
     if (!repoResult.docs?.length) {

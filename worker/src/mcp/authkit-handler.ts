@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import * as jose from "jose";
 import type { Props } from "./props";
 import type { Env } from "../types";
+import { getPayloadClient } from "../payload";
 import {
 	addApprovedClient,
 	bindStateToSession,
@@ -175,15 +176,17 @@ app.get("/callback", async (c) => {
 
 	// Ensure user exists in Payload (create or update)
 	try {
-		const existingUser = await c.env.PAYLOAD.find({
+		const payload = await getPayloadClient(c.env);
+		const existingUser = await payload.find({
 			collection: "users",
 			where: { workosUserId: { equals: user.id } },
 			limit: 1,
+			overrideAccess: true,
 		});
 
 		if (!existingUser.docs?.length) {
 			// Create new user in Payload
-			await c.env.PAYLOAD.create({
+			await payload.create({
 				collection: "users",
 				data: {
 					email: user.email,
@@ -191,6 +194,7 @@ app.get("/callback", async (c) => {
 					name: `${user.firstName || ""} ${user.lastName || ""}`.trim() || user.email,
 					roles: ["user"],
 				},
+				overrideAccess: true,
 			});
 			console.log(`Created Payload user for WorkOS user ${user.id}`);
 		} else {
@@ -198,13 +202,14 @@ app.get("/callback", async (c) => {
 			const payloadUser = existingUser.docs[0] as any;
 			const newName = `${user.firstName || ""} ${user.lastName || ""}`.trim();
 			if (payloadUser.email !== user.email || (newName && payloadUser.name !== newName)) {
-				await c.env.PAYLOAD.update({
+				await payload.update({
 					collection: "users",
 					id: payloadUser.id,
 					data: {
 						email: user.email,
 						...(newName ? { name: newName } : {}),
 					},
+					overrideAccess: true,
 				});
 			}
 		}

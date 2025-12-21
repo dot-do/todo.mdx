@@ -13,6 +13,7 @@ import { AuthkitHandler } from "./authkit-handler";
 import type { Props } from "./props";
 import type { Env } from "../types";
 import { executeSandboxedWorkflow } from "../sandbox";
+import { getPayloadClient } from "../payload";
 
 export class TodoMCP extends McpAgent<Env, unknown, Props> {
 	server = new McpServer({
@@ -25,11 +26,14 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 	 * Uses two-step query since nested relationship queries aren't supported.
 	 */
 	private async getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
+		const payload = await getPayloadClient(env);
+
 		// Step 1: Find the Payload user by WorkOS ID
-		const userResult = await env.PAYLOAD.find({
+		const userResult = await payload.find({
 			collection: "users",
 			where: { workosUserId: { equals: workosUserId } },
 			limit: 1,
+			overrideAccess: true,
 		});
 
 		if (!userResult.docs?.length) {
@@ -39,10 +43,11 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		const payloadUserId = userResult.docs[0].id;
 
 		// Step 2: Find installations the user has access to
-		const installationsResult = await env.PAYLOAD.find({
+		const installationsResult = await payload.find({
 			collection: "installations",
 			where: { 'users.id': { equals: payloadUserId } },
 			limit: 100,
+			overrideAccess: true,
 		});
 
 		if (!installationsResult.docs?.length) {
@@ -52,10 +57,11 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		const installationIds = installationsResult.docs.map((i: any) => i.id);
 
 		// Step 3: Find repos for those installations
-		const reposResult = await env.PAYLOAD.find({
+		const reposResult = await payload.find({
 			collection: "repos",
 			where: { installation: { in: installationIds } },
 			limit: 100,
+			overrideAccess: true,
 		});
 
 		return reposResult.docs || [];
@@ -556,9 +562,11 @@ Examples:
 					const stub = env.REPO.get(doId);
 
 					// Get installation ID
-					const installationResult = await env.PAYLOAD.findByID({
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
 						collection: "installations",
 						id: repoDoc.installation,
+						overrideAccess: true,
 					});
 					const installationId = (installationResult as any)?.installationId;
 
@@ -634,9 +642,11 @@ Examples:
 					const stub = env.REPO.get(doId);
 
 					// Set context
-					const installationResult = await env.PAYLOAD.findByID({
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
 						collection: "installations",
 						id: repoDoc.installation,
+						overrideAccess: true,
 					});
 					const installationId = (installationResult as any)?.installationId;
 
@@ -714,9 +724,11 @@ Examples:
 					const stub = env.REPO.get(doId);
 
 					// Set context
-					const installationResult = await env.PAYLOAD.findByID({
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
 						collection: "installations",
 						id: repoDoc.installation,
+						overrideAccess: true,
 					});
 					const installationId = (installationResult as any)?.installationId;
 
@@ -936,9 +948,11 @@ Examples:
 					}
 
 					// Get installation ID - need to fetch the installation relationship
-					const installationResult = await env.PAYLOAD.findByID({
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
 						collection: "installations",
 						id: repoDoc.installation,
+						overrideAccess: true,
 					});
 
 					const installationId = (installationResult as any)?.installationId;

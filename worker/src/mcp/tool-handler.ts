@@ -8,6 +8,7 @@
 import type { Props } from "./props";
 import type { Env } from "../types";
 import { executeSandboxedWorkflow } from "../sandbox";
+import { getPayloadClient } from "../payload";
 
 interface ToolResult {
   content: Array<{ type: string; text: string }>;
@@ -18,10 +19,13 @@ interface ToolResult {
  * Get repos the authenticated user has access to
  */
 async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
-  const userResult = await env.PAYLOAD.find({
+  const payload = await getPayloadClient(env);
+
+  const userResult = await payload.find({
     collection: "users",
     where: { workosUserId: { equals: workosUserId } },
     limit: 1,
+    overrideAccess: true,
   });
 
   if (!userResult.docs?.length) {
@@ -30,10 +34,11 @@ async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
 
   const payloadUserId = userResult.docs[0].id;
 
-  const installationsResult = await env.PAYLOAD.find({
+  const installationsResult = await payload.find({
     collection: "installations",
     where: { 'users.id': { equals: payloadUserId } },
     limit: 100,
+    overrideAccess: true,
   });
 
   if (!installationsResult.docs?.length) {
@@ -42,10 +47,11 @@ async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
 
   const installationIds = installationsResult.docs.map((i: any) => i.id);
 
-  const reposResult = await env.PAYLOAD.find({
+  const reposResult = await payload.find({
     collection: "repos",
     where: { installation: { in: installationIds } },
     limit: 100,
+    overrideAccess: true,
   });
 
   return reposResult.docs || [];

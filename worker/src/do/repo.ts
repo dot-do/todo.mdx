@@ -1553,6 +1553,9 @@ export class RepoDO extends DurableObject<Env> {
         const issueCount = this.sql
           .exec('SELECT COUNT(*) as count FROM issues')
           .toArray()[0] as { count: number }
+        const unsyncedCount = this.sql
+          .exec('SELECT COUNT(*) as count FROM issues WHERE github_number IS NULL')
+          .toArray()[0] as { count: number }
         const recentLogs = this.sql
           .exec('SELECT * FROM sync_log ORDER BY created_at DESC LIMIT 10')
           .toArray()
@@ -1561,7 +1564,64 @@ export class RepoDO extends DurableObject<Env> {
           repoFullName: this.repoFullName,
           installationId: this.installationId,
           issueCount: issueCount.count,
+          unsyncedCount: unsyncedCount.count,
           recentSyncs: recentLogs,
+        })
+      }
+
+      // Bulk sync: create GitHub issues for all beads issues without github_number
+      if (path === '/sync/bulk' && request.method === 'POST') {
+        await this.initRepoContext()
+        if (!this.repoFullName || !this.installationId) {
+          return Response.json({ error: 'Repo context not initialized' }, { status: 400 })
+        }
+
+        // Get query params for pagination
+        const limit = parseInt(url.searchParams.get('limit') || '50', 10)
+        const dryRun = url.searchParams.get('dry_run') === 'true'
+
+        // Find issues without github_number
+        const unsynced = this.sql
+          .exec(
+            `SELECT id, title FROM issues
+             WHERE github_number IS NULL
+             ORDER BY created_at ASC
+             LIMIT ?`,
+            limit
+          )
+          .toArray() as Array<{ id: string; title: string }>
+
+        if (dryRun) {
+          return Response.json({
+            dryRun: true,
+            wouldSync: unsynced.length,
+            issues: unsynced,
+          })
+        }
+
+        const results: Array<{ id: string; title: string; github_number?: number; error?: string }> = []
+
+        for (const issue of unsynced) {
+          try {
+            const ghNumber = await this.createGitHubIssue(issue.id)
+            results.push({ id: issue.id, title: issue.title, github_number: ghNumber })
+            // Small delay to avoid rate limiting
+            await new Promise((r) => setTimeout(r, 500))
+          } catch (error) {
+            results.push({ id: issue.id, title: issue.title, error: String(error) })
+          }
+        }
+
+        const succeeded = results.filter((r) => r.github_number).length
+        const failed = results.filter((r) => r.error).length
+
+        this.logSync('bulk', 'sync', { total: unsynced.length, succeeded, failed })
+
+        return Response.json({
+          synced: succeeded,
+          failed,
+          total: unsynced.length,
+          results,
         })
       }
 

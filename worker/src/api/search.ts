@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono'
 import type { Env } from '../types.js'
+import { getPayloadClient } from '../payload.js'
 
 const search = new Hono<{ Bindings: Env }>()
 
@@ -33,9 +34,10 @@ async function hybridSearch(
     (async (): Promise<SearchResult[]> => {
       const results: SearchResult[] = []
       try {
+        const payload = await getPayloadClient(env)
         // Search issues
         if (!type || type === 'all' || type === 'issue') {
-          const issuesResult = await env.PAYLOAD.find({
+          const issuesResult = await payload.find({
             collection: 'issues',
             where: {
               or: [
@@ -44,6 +46,7 @@ async function hybridSearch(
               ],
             },
             limit: limit,
+            overrideAccess: true,
           })
 
           for (const issue of (issuesResult.docs || []) as any[]) {
@@ -60,7 +63,7 @@ async function hybridSearch(
 
         // Search milestones
         if (!type || type === 'all' || type === 'milestone') {
-          const milestonesResult = await env.PAYLOAD.find({
+          const milestonesResult = await payload.find({
             collection: 'milestones',
             where: {
               or: [
@@ -69,6 +72,7 @@ async function hybridSearch(
               ],
             },
             limit: limit,
+            overrideAccess: true,
           })
 
           for (const milestone of (milestonesResult.docs || []) as any[]) {

@@ -27,6 +27,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251218.0",
+    "@octokit/webhooks-types": "^7.6.1",
+    "esbuild": "^0.24.0",
     "patch-package": "^8.0.1",
     "typescript": "^5.7.0",
     "wrangler": "^4.0.0"
