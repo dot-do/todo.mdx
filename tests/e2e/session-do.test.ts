@@ -1,0 +1,275 @@
+/**
+ * E2E: SessionDO Tests
+ *
+ * Tests the SessionDO token/session storage:
+ * - Token hashing handles any length (no KV 512 byte limit)
+ * - Session creation and validation
+ * - Session expiration
+ * - Embed endpoint authentication
+ *
+ * Requires:
+ * - WORKER_BASE_URL (default: https://todo.mdx.do)
+ * - oauth.do authentication (run `oauth.do login` first)
+ */
+
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import {
+  createSession,
+  deleteSession,
+  hasSandboxCredentials,
+  getWorkerBaseUrl,
+} from '../helpers/stdio'
+
+// Track created sessions for cleanup
+const createdSessions: string[] = []
+
+// Check auth status before tests
+let hasCredentials = false
+
+beforeAll(async () => {
+  hasCredentials = await hasSandboxCredentials()
+  if (!hasCredentials) {
+    console.log('Skipping SessionDO tests - not authenticated')
+    console.log('Run `oauth.do login` to authenticate')
+    return
+  }
+
+  // Verify token is actually valid (not just present)
+  try {
+    const token = await getAuthToken()
+    const response = await fetch(`${getWorkerBaseUrl()}/`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    // Even unauthenticated endpoints return 200, so check if token works for protected endpoints
+    const testResponse = await fetch(`${getWorkerBaseUrl()}/api/stdio/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ sandboxId: `token-check-${Date.now()}` }),
+    })
+    if (testResponse.status === 401) {
+      console.log('Token expired - skipping SessionDO tests. Run `oauth.do login` to refresh.')
+      hasCredentials = false
+    } else if (testResponse.ok) {
+      // Clean up the test session
+      const session = await testResponse.json() as any
+      await fetch(`${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+    }
+  } catch (err) {
+    console.log('Failed to validate credentials:', err)
+    hasCredentials = false
+  }
+})
+
+afterAll(async () => {
+  for (const sessionId of createdSessions) {
+    try {
+      await deleteSession(sessionId)
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+})
+
+describe('SessionDO token storage', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
+  test('handles short session IDs', async () => {
+    const shortId = 'short'
+    const session = await createSession({ sandboxId: shortId })
+
+    expect(session.sandboxId).toBe(shortId)
+    expect(session.wsUrl).toContain(shortId)
+    createdSessions.push(session.sandboxId)
+  })
+
+  test('handles long session IDs', async () => {
+    // Create a very long ID that would exceed KV key limit
+    const longId = `test-${'x'.repeat(500)}-${Date.now()}`
+    const session = await createSession({ sandboxId: longId })
+
+    expect(session.sandboxId).toBe(longId)
+    createdSessions.push(session.sandboxId)
+  })
+
+  test('handles special characters in session ID', async () => {
+    const specialId = `test-special-!@#$%^&*()_+-=${Date.now()}`
+    const session = await createSession({ sandboxId: specialId })
+
+    expect(session.sandboxId).toBe(specialId)
+    createdSessions.push(session.sandboxId)
+  })
+
+  test('session includes user metadata', async () => {
+    const session = await createSession()
+    createdSessions.push(session.sandboxId)
+
+    // Fetch session status to verify metadata
+    const response = await fetch(`${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/status`, {
+      headers: {
+        Authorization: `Bearer ${await getAuthToken()}`,
+      },
+    })
+
+    expect(response.ok).toBe(true)
+    const status = await response.json() as any
+
+    // Should have user info from SessionDO
+    expect(status.session).toBeDefined()
+    expect(status.session.userId).toBeDefined()
+  })
+
+  test('session respects TTL', async () => {
+    // Create session with short TTL
+    // Note: We can't easily test expiration without waiting,
+    // but we verify the session includes expiration metadata
+    const session = await createSession()
+    createdSessions.push(session.sandboxId)
+
+    expect(session.expiresIn).toBe(3600) // Default 1 hour
+  })
+
+  test('deleted session is no longer accessible', async () => {
+    const session = await createSession()
+
+    // Delete immediately
+    await deleteSession(session.sandboxId)
+
+    // Status should now fail
+    const response = await fetch(`${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/status`, {
+      headers: {
+        Authorization: `Bearer ${await getAuthToken()}`,
+      },
+    })
+
+    expect(response.ok).toBe(false)
+    expect(response.status).toBe(404)
+  })
+})
+
+describe('embed endpoint', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
+  test('returns HTML with valid token', async () => {
+    const session = await createSession()
+    createdSessions.push(session.sandboxId)
+
+    const token = await getAuthToken()
+    const response = await fetch(
+      `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed?token=${encodeURIComponent(token!)}`,
+      { redirect: 'manual' }
+    )
+
+    expect(response.ok).toBe(true)
+    expect(response.headers.get('content-type')).toContain('text/html')
+
+    const html = await response.text()
+    expect(html).toContain('xterm')
+    expect(html).toContain('WebSocket')
+  })
+
+  test('returns 401 without token', async () => {
+    const session = await createSession()
+    createdSessions.push(session.sandboxId)
+
+    const response = await fetch(
+      `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed`
+    )
+
+    expect(response.status).toBe(401)
+    const html = await response.text()
+    expect(html).toContain('Authentication Required')
+  })
+
+  test('returns 401 with invalid token', async () => {
+    const session = await createSession()
+    createdSessions.push(session.sandboxId)
+
+    const response = await fetch(
+      `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed?token=invalid-token`
+    )
+
+    expect(response.status).toBe(401)
+    const html = await response.text()
+    expect(html).toContain('Invalid Token')
+  })
+
+  test('includes cmd and args in WebSocket URL', async () => {
+    const session = await createSession()
+    createdSessions.push(session.sandboxId)
+
+    const token = await getAuthToken()
+    const response = await fetch(
+      `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed?token=${encodeURIComponent(token!)}&cmd=node&arg=-v`
+    )
+
+    expect(response.ok).toBe(true)
+    const html = await response.text()
+
+    // Should have cmd and args in the embedded JavaScript
+    expect(html).toContain('"node"')
+    expect(html).toContain('["-v"]')
+  })
+})
+
+describe('concurrent session stress test', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials) ctx.skip()
+  })
+
+  test('can create many sessions concurrently', async () => {
+    const sessionCount = 10
+    const sessions = await Promise.all(
+      Array.from({ length: sessionCount }, () => createSession())
+    )
+
+    expect(sessions).toHaveLength(sessionCount)
+
+    // All should have unique IDs
+    const ids = new Set(sessions.map(s => s.sandboxId))
+    expect(ids.size).toBe(sessionCount)
+
+    // Add to cleanup list
+    sessions.forEach(s => createdSessions.push(s.sandboxId))
+  })
+
+  test('can delete many sessions concurrently', async () => {
+    const sessionCount = 5
+    const sessions = await Promise.all(
+      Array.from({ length: sessionCount }, () => createSession())
+    )
+
+    // Delete all concurrently
+    await Promise.all(sessions.map(s => deleteSession(s.sandboxId)))
+
+    // All should be gone
+    const statusResults = await Promise.allSettled(
+      sessions.map(s =>
+        fetch(`${getWorkerBaseUrl()}/api/stdio/${s.sandboxId}/status`, {
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+        })
+      )
+    )
+
+    for (const result of statusResults) {
+      if (result.status === 'fulfilled') {
+        expect(result.value.status).toBe(404)
+      }
+    }
+  })
+})
+
+// Helper to get auth token
+async function getAuthToken(): Promise<string | null> {
+  const { getToken } = await import('oauth.do/node')
+  return getToken() ?? null
+}
