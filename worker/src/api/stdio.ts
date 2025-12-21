@@ -149,6 +149,232 @@ app.get('/:sandboxId/warmup', async (c) => {
 })
 
 /**
+ * GET /stdio/:sandboxId/embed
+ * Embeddable terminal page with xterm.js
+ *
+ * Query params:
+ *   - token: Authentication token (required)
+ *   - cmd: Command to run (default: bash)
+ *   - arg: Arguments (repeatable)
+ *
+ * Returns an HTML page that can be embedded in an iframe.
+ */
+app.get('/:sandboxId/embed', async (c) => {
+  const sandboxId = c.req.param('sandboxId')
+  const url = new URL(c.req.url)
+
+  // Get token from query param
+  const token = url.searchParams.get('token')
+    ?? c.req.header('Authorization')?.replace('Bearer ', '')
+
+  if (!token) {
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Authentication Required</title></head>
+        <body style="background:#1e1e1e;color:#f44;font-family:monospace;padding:20px;">
+          <h2>Authentication Required</h2>
+          <p>Please provide a token via ?token=... query parameter.</p>
+        </body>
+      </html>
+    `, 401)
+  }
+
+  // Validate token
+  const auth = await validateToken(c.env, token)
+  if (!auth) {
+    return c.html(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Invalid Token</title></head>
+        <body style="background:#1e1e1e;color:#f44;font-family:monospace;padding:20px;">
+          <h2>Invalid Token</h2>
+          <p>The provided token is invalid or expired.</p>
+        </body>
+      </html>
+    `, 401)
+  }
+
+  // Build WebSocket URL with all query params
+  const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  const wsUrl = `${wsProtocol}//${url.host}/api/stdio/${sandboxId}?token=${encodeURIComponent(token)}`
+
+  // Add cmd and arg params
+  const cmd = url.searchParams.get('cmd') || 'bash'
+  const args = url.searchParams.getAll('arg')
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal - ${sandboxId}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; overflow: hidden; background: #1e1e1e; }
+    #terminal { height: 100%; width: 100%; }
+    #status {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      z-index: 100;
+    }
+    .connecting { background: #e5e510; color: #000; }
+    .connected { background: #0dbc79; color: #fff; }
+    .disconnected { background: #cd3131; color: #fff; }
+  </style>
+</head>
+<body>
+  <div id="status" class="connecting">Connecting...</div>
+  <div id="terminal"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+  <script>
+    const STREAM_STDOUT = 0x01;
+    const STREAM_STDERR = 0x02;
+
+    // Unpack binary message
+    function unpack(data) {
+      const bytes = new Uint8Array(data);
+      return { streamId: bytes[0], payload: bytes.subarray(1) };
+    }
+
+    // Initialize terminal
+    const term = new Terminal({
+      cursorBlink: true,
+      cursorStyle: 'block',
+      fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+      fontSize: 14,
+      lineHeight: 1.2,
+      theme: {
+        background: '#1e1e1e',
+        foreground: '#cccccc',
+        cursor: '#ffffff',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#ffffff',
+      },
+      scrollback: 10000,
+    });
+
+    const fitAddon = new FitAddon.FitAddon();
+    const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(webLinksAddon);
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    const statusEl = document.getElementById('status');
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    // Build WebSocket URL with cmd and args
+    let wsUrl = ${JSON.stringify(wsUrl)};
+    const cmd = ${JSON.stringify(cmd)};
+    const args = ${JSON.stringify(args)};
+    wsUrl += '&cmd=' + encodeURIComponent(cmd);
+    args.forEach(arg => wsUrl += '&arg=' + encodeURIComponent(arg));
+
+    // Connect WebSocket
+    const ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      statusEl.className = 'connected';
+      statusEl.textContent = 'Connected';
+
+      // Send resize
+      ws.send(JSON.stringify({
+        type: 'resize',
+        cols: term.cols,
+        rows: term.rows
+      }));
+
+      // Hide status after 2s
+      setTimeout(() => statusEl.style.opacity = '0', 2000);
+    };
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        // JSON control message
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'exit') {
+            term.write('\\r\\n\\x1b[32m[Process exited with code ' + msg.code + ']\\x1b[0m\\r\\n');
+            statusEl.className = 'disconnected';
+            statusEl.textContent = 'Exited: ' + msg.code;
+            statusEl.style.opacity = '1';
+          }
+        } catch {}
+      } else {
+        // Binary output
+        const { streamId, payload } = unpack(event.data);
+        const text = decoder.decode(payload);
+        term.write(text);
+      }
+    };
+
+    ws.onerror = () => {
+      statusEl.className = 'disconnected';
+      statusEl.textContent = 'Error';
+      statusEl.style.opacity = '1';
+    };
+
+    ws.onclose = (event) => {
+      if (event.code !== 1000) {
+        statusEl.className = 'disconnected';
+        statusEl.textContent = 'Disconnected';
+        statusEl.style.opacity = '1';
+        term.write('\\r\\n\\x1b[31m[Connection closed]\\x1b[0m\\r\\n');
+      }
+    };
+
+    // Handle input
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(encoder.encode(data));
+      }
+    });
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      fitAddon.fit();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'resize',
+          cols: term.cols,
+          rows: term.rows
+        }));
+      }
+    });
+  </script>
+</body>
+</html>`
+
+  return c.html(html)
+})
+
+/**
  * POST /stdio/create
  * Create a new sandbox session and return connection details
  *
