@@ -2,9 +2,23 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "todo-mdx",
   "account_id": "b6641681fe423910342b9ffa1364c76d", // .do account
-  "main": "src/index.ts",
-  "compatibility_date": "2024-12-01",
-  "compatibility_flags": ["nodejs_compat"],
+
+  // Use custom build output (with import.meta.url polyfill)
+  "main": "dist/index.js",
+
+  // Custom build command for import.meta.url polyfill
+  "build": {
+    "command": "node build.mjs"
+  },
+
+  // Skip wrangler bundling since we do our own
+  "no_bundle": true,
+
+  "compatibility_date": "2025-08-15",
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
 
   // Bundle configuration - shim packages for Workers compatibility
   "alias": {

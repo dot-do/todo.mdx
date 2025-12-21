@@ -124,31 +124,36 @@ describeWithCredentials('beads → GitHub → worker sync', () => {
   })
 
   test('pushing beads issue creates GitHub issue and syncs to worker', async () => {
-    // 1. Create unique beads issue
+    // 1. Create unique beads issue using bd create
+    // NOTE: We must use bd create instead of appending to JSONL directly,
+    // because the pre-commit hook runs `bd sync --flush-only` which overwrites
+    // the JSONL file from the SQLite database.
     const timestamp = Date.now()
-    const issueId = `e2e-${timestamp.toString(36)}`
     const issueTitle = `E2E Test ${timestamp}`
-    const issueJson = JSON.stringify({
-      id: issueId,
-      title: issueTitle,
-      description: 'Automated E2E sync test',
-      status: 'open',
-      priority: 2,
-      issue_type: 'task',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
 
-    // 2. Append to issues.jsonl
-    await execa('bash', ['-c', `echo '${issueJson}' >> .beads/issues.jsonl`], {
+    const { stdout: createOutput } = await execa('bd', [
+      'create',
+      '--title', issueTitle,
+      '--type', 'task',
+      '--priority', '2',
+    ], {
       cwd: TEST_REPO_PATH,
     })
+    console.log(`Created beads issue: ${createOutput.trim()}`)
 
-    // Verify the append worked
+    // Extract the issue ID from the output (e.g., "Created issue: e2e-abc123")
+    const issueIdMatch = createOutput.match(/issue:\s*(\S+)/) || createOutput.match(/Created:\s*(\S+)/)
+    const issueId = issueIdMatch?.[1] || `e2e-${timestamp.toString(36)}`
+    console.log(`Issue ID: ${issueId}`)
+
+    // Flush changes from SQLite to JSONL file
+    await execa('bd', ['sync', '--flush-only'], { cwd: TEST_REPO_PATH })
+
+    // Verify the issue is in the JSONL
     const { stdout: checkContent } = await execa('cat', ['.beads/issues.jsonl'], {
       cwd: TEST_REPO_PATH,
     })
-    console.log(`After append: ${checkContent.trim().split('\n').length} issues, includes ${issueId}: ${checkContent.includes(issueId)}`)
+    console.log(`After flush: ${checkContent.trim().split('\n').length} issues, includes ${issueId}: ${checkContent.includes(issueId)}`)
 
     // 3. Sync and push (handles concurrent commits from worker)
     await syncAndPush(TEST_REPO_PATH, `test: E2E sync ${timestamp}`)
@@ -194,27 +199,29 @@ describeWithCredentials('beads → GitHub → worker sync', () => {
   }, 90000) // 90s timeout
 
   test('GitHub issue shows correct labels from beads priority/type', async () => {
-    // Create issue with specific priority and type
+    // Create issue with specific priority and type using bd create
     // NOTE: Using P1 instead of P0 due to bd merge bug that strips priority:0
     // See: https://github.com/steveyegge/beads/issues/671
     const timestamp = Date.now()
-    const issueId = `e2e-labels-${timestamp.toString(36)}`
     const issueTitle = `E2E Labels Test ${timestamp}`
-    const issueJson = JSON.stringify({
-      id: issueId,
-      title: issueTitle,
-      description: 'Testing priority P1 and type bug',
-      status: 'open',
-      priority: 1, // P1 (workaround for bd merge omitempty bug with P0)
-      issue_type: 'bug',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    })
 
-    // Append to issues.jsonl
-    await execa('bash', ['-c', `echo '${issueJson}' >> .beads/issues.jsonl`], {
+    const { stdout: createOutput } = await execa('bd', [
+      'create',
+      '--title', issueTitle,
+      '--type', 'bug',
+      '--priority', '1', // P1 (workaround for bd merge omitempty bug with P0)
+    ], {
       cwd: TEST_REPO_PATH,
     })
+    console.log(`Created beads issue: ${createOutput.trim()}`)
+
+    // Extract the issue ID from the output
+    const issueIdMatch = createOutput.match(/issue:\s*(\S+)/) || createOutput.match(/Created:\s*(\S+)/)
+    const issueId = issueIdMatch?.[1] || `e2e-labels-${timestamp.toString(36)}`
+    console.log(`Issue ID: ${issueId}`)
+
+    // Flush changes from SQLite to JSONL file
+    await execa('bd', ['sync', '--flush-only'], { cwd: TEST_REPO_PATH })
 
     // Sync and push (handles concurrent commits from worker)
     await syncAndPush(TEST_REPO_PATH, `test: E2E labels ${timestamp}`)
