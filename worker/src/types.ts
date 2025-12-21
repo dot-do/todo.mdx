@@ -17,6 +17,7 @@ export interface Env {
   DB: D1Database
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
+  SESSION: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
   CLAUDE_SANDBOX: DurableObjectNamespace
   AI: Ai

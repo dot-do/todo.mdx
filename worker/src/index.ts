@@ -11,12 +11,15 @@ import { mcp, TodoMCP } from './mcp'
 import { api } from './api'
 import sandbox from './api/sandbox'
 import terminal from './api/terminal'
+import stdio from './api/stdio'
 import linear from './api/linear'
 import { authMiddleware, type AuthContext } from './auth'
 import type { Env } from './types'
 
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
+export { PRDO } from './do/pr'
+export { SessionDO } from './do/session'
 export { ClaudeSandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
@@ -54,6 +57,14 @@ app.route('/api/voice', voice)
 // ============================================
 
 app.route('/api/linear', linear)
+
+// ============================================
+// Stdio WebSocket Proxy (new binary protocol)
+// Supports both CLI (sbx-stdio) and browser (xterm.js)
+// NOTE: Must be registered BEFORE /api to avoid api auth middleware
+// ============================================
+
+app.route('/api/stdio', stdio)
 
 // ============================================
 // Protected API routes (repos, issues, milestones, search)
@@ -453,33 +464,65 @@ async function handleMilestone(c: any, payload: any): Promise<Response> {
   return c.json({ status: 'synced', action, result })
 }
 
-// Push webhook (for .todo/*.md and TODO.md file changes)
+// Push webhook (for .beads/, .todo/, TODO.md file changes)
 async function handlePush(c: any, payload: any): Promise<Response> {
   const repo = payload.repository
+  const installationId = payload.installation?.id
 
-  const todoFiles: string[] = []
+  if (!installationId) {
+    return c.json({ status: 'ignored', reason: 'no installation id' })
+  }
+
+  const changedFiles: string[] = []
+  let hasBeadsChanges = false
 
   for (const commit of payload.commits || []) {
-    const allFiles = [...(commit.added || []), ...(commit.modified || [])]
+    const allFiles = [
+      ...(commit.added || []),
+      ...(commit.modified || []),
+      ...(commit.removed || []),
+    ]
     for (const file of allFiles) {
+      // Track beads changes
+      if (file.startsWith('.beads/')) {
+        changedFiles.push(file)
+        hasBeadsChanges = true
+      }
+      // Track todo/roadmap changes
       if (file.startsWith('.todo/') || file === 'TODO.md' || file === 'TODO.mdx') {
-        todoFiles.push(file)
+        changedFiles.push(file)
       }
       if (file.startsWith('.roadmap/') || file === 'ROADMAP.md' || file === 'ROADMAP.mdx') {
-        todoFiles.push(file)
+        changedFiles.push(file)
       }
     }
   }
 
-  if (todoFiles.length === 0) {
-    return c.json({ status: 'ignored', reason: 'no todo files changed' })
+  if (changedFiles.length === 0) {
+    return c.json({ status: 'ignored', reason: 'no tracked files changed' })
   }
 
-  // TODO: Fetch file contents from GitHub API and sync to DO
   const doId = c.env.REPO.idFromName(repo.full_name)
   const stub = c.env.REPO.get(doId)
 
-  return c.json({ status: 'queued', files: todoFiles })
+  // If beads files changed, trigger sync to GitHub
+  if (hasBeadsChanges) {
+    const headCommit = payload.head_commit?.id || payload.after
+    await stub.fetch(
+      new Request('http://do/webhook/beads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commit: headCommit,
+          files: changedFiles.filter((f) => f.startsWith('.beads/')),
+          repoFullName: repo.full_name,
+          installationId,
+        }),
+      })
+    )
+  }
+
+  return c.json({ status: 'synced', files: changedFiles })
 }
 
 // GitHub Projects v2 webhook (project-level events)

@@ -57,6 +57,8 @@
     "bindings": [
       { "name": "REPO", "class_name": "RepoDO" },
       { "name": "PROJECT", "class_name": "ProjectDO" },
+      { "name": "PRDO", "class_name": "PRDO" },
+      { "name": "SESSION", "class_name": "SessionDO" },
       { "name": "MCP_OBJECT", "class_name": "TodoMCP" },
       { "name": "CLAUDE_SANDBOX", "class_name": "ClaudeSandbox" }
     ]
@@ -74,6 +76,14 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["ClaudeSandbox"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["PRDO"]
+    },
+    {
+      "tag": "v5",
+      "new_sqlite_classes": ["SessionDO"]
     }
   ],
 
@@ -105,7 +115,7 @@
     }
   ],
 
-  // KV namespace for MCP OAuth state
+  // KV namespace for MCP OAuth state (sessions moved to SessionDO)
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",

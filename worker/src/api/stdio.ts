@@ -4,8 +4,7 @@
  * Proxies WebSocket connections to the sandbox's stdio-ws server (port 8080).
  * Uses binary protocol for stdin/stdout/stderr multiplexing.
  *
- * This is the new architecture that supports both CLI (sbx-stdio) and
- * browser (xterm.js) clients with the same protocol.
+ * Session storage uses SessionDO (SQLite) instead of KV to avoid key length limits.
  */
 
 import { Hono } from 'hono'
@@ -14,6 +13,14 @@ import { authMiddleware, decodeOAuthToken, type AuthContext } from '../auth'
 import type { Env } from '../types'
 
 const app = new Hono<{ Bindings: Env }>()
+
+/**
+ * Get the singleton SessionDO instance
+ */
+function getSessionDO(env: Env) {
+  const doId = env.SESSION.idFromName('sessions')
+  return env.SESSION.get(doId)
+}
 
 /**
  * GET /stdio/:sandboxId
@@ -48,9 +55,8 @@ app.get('/:sandboxId', async (c) => {
     return c.json({ error: 'Authentication required' }, 401)
   }
 
-  // Validate token (use existing auth middleware logic)
+  // Validate token
   try {
-    // Get auth context by calling the auth middleware manually
     const auth = await validateToken(c.env, token)
     if (!auth) {
       return c.json({ error: 'Invalid token' }, 401)
@@ -68,7 +74,6 @@ app.get('/:sandboxId', async (c) => {
     )
 
     // Ensure stdio-ws is running before proxying
-    // This handles the case where the container is cold or stdio-ws hasn't started
     await sandbox.exec(
       'pgrep -f stdio-ws.ts >/dev/null || (nohup bun /workspace/stdio-ws.ts > /tmp/stdio-ws.log 2>&1 & sleep 0.5)'
     )
@@ -164,13 +169,23 @@ app.post('/create', authMiddleware, async (c) => {
 
     const sandboxId = body.sandboxId ?? crypto.randomUUID()
 
-    // Store session in KV for reconnection
-    await c.env.OAUTH_KV.put(`stdio:${sandboxId}`, JSON.stringify({
-      userId: auth.userId,
-      repo: body.repo,
-      installationId: body.installationId,
-      createdAt: Date.now(),
-    }), { expirationTtl: 3600 })
+    // Store session in SessionDO (SQLite) instead of KV
+    const sessionDO = getSessionDO(c.env)
+    await sessionDO.fetch(new Request('http://do/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token: `stdio:${sandboxId}`,
+        userId: auth.userId,
+        email: auth.email,
+        name: auth.name,
+        data: {
+          repo: body.repo,
+          installationId: body.installationId,
+        },
+        ttlSeconds: 3600,
+      }),
+    }))
 
     // Pre-create sandbox instance
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
@@ -198,8 +213,13 @@ app.delete('/:sandboxId', authMiddleware, async (c) => {
   const sandboxId = c.req.param('sandboxId')
 
   try {
-    // Remove from KV
-    await c.env.OAUTH_KV.delete(`stdio:${sandboxId}`)
+    // Remove from SessionDO
+    const sessionDO = getSessionDO(c.env)
+    await sessionDO.fetch(new Request('http://do/sessions', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: `stdio:${sandboxId}` }),
+    }))
 
     // TODO: Terminate sandbox (Sandbox SDK doesn't have a terminate method yet)
 
@@ -221,11 +241,18 @@ app.get('/:sandboxId/status', authMiddleware, async (c) => {
   const sandboxId = c.req.param('sandboxId')
 
   try {
-    const session = await c.env.OAUTH_KV.get(`stdio:${sandboxId}`, 'json')
+    const sessionDO = getSessionDO(c.env)
+    const response = await sessionDO.fetch(new Request('http://do/sessions/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: `stdio:${sandboxId}` }),
+    }))
 
-    if (!session) {
+    if (!response.ok) {
       return c.json({ error: 'Session not found' }, 404)
     }
+
+    const session = await response.json()
 
     return c.json({
       sandboxId,
@@ -290,31 +317,25 @@ async function validateToken(
           source: 'jwt',
         }
       } catch {
-        // Not a valid JWT, fall through to KV lookups
+        // Not a valid JWT, fall through to SessionDO lookup
       }
     }
 
-    // Try API key in KV (only for short tokens to avoid key length limit)
-    if (token.length <= 400) {
-      const apiKeyData = await env.OAUTH_KV.get(`apikey:${token}`, 'json') as any
-      if (apiKeyData) {
-        return {
-          userId: apiKeyData.userId,
-          email: apiKeyData.email,
-          name: apiKeyData.name,
-          source: 'apikey',
-        }
-      }
+    // Try session in SessionDO (handles any token length)
+    const sessionDO = getSessionDO(env)
+    const response = await sessionDO.fetch(new Request('http://do/sessions/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    }))
 
-      // Try OAuth access token from our MCP server
-      const accessTokenData = await env.OAUTH_KV.get(`access_token:${token}`, 'json') as any
-      if (accessTokenData) {
-        return {
-          userId: accessTokenData.userId,
-          email: accessTokenData.email,
-          name: accessTokenData.name,
-          source: 'oauth',
-        }
+    if (response.ok) {
+      const session = await response.json() as any
+      return {
+        userId: session.userId,
+        email: session.email,
+        name: session.name,
+        source: 'session',
       }
     }
 
