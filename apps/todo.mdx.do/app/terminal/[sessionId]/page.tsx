@@ -2,8 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Terminal } from '@todo.mdx/dashboard'
-import { Button } from '@todo.mdx/dashboard'
+import { Terminal, Button } from '@todo.mdx/dashboard'
 
 interface SessionPageProps {
   params: Promise<{

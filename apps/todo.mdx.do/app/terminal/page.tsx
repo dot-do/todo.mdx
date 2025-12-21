@@ -1,6 +1,5 @@
 import Link from 'next/link'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@todo.mdx/dashboard'
-import { Button } from '@todo.mdx/dashboard'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, Button } from '@todo.mdx/dashboard'
 
 export default function TerminalHistoryPage() {
   return (

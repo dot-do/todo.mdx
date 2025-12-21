@@ -2,8 +2,7 @@
 
 import { useState, FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@todo.mdx/dashboard'
-import { Button } from '@todo.mdx/dashboard'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, Button } from '@todo.mdx/dashboard'
 
 export default function NewTerminalSessionPage() {
   const router = useRouter()

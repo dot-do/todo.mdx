@@ -8,15 +8,18 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./components": {
       "types": "./dist/components/index.d.ts",
-      "import": "./dist/components/index.js"
+      "import": "./dist/components/index.js",
+      "default": "./dist/components/index.js"
     },
     "./routes": {
       "types": "./dist/routes/index.d.ts",
-      "import": "./dist/routes/index.js"
+      "import": "./dist/routes/index.js",
+      "default": "./dist/routes/index.js"
     }
   },
   "files": [
