@@ -4,6 +4,13 @@ import { describe, test, expect, beforeAll } from 'vitest'
 const MCP_BASE_URL = process.env.MCP_BASE_URL || 'https://todo.mdx.do'
 const TEST_API_KEY = process.env.TEST_API_KEY
 
+// Skip MCP authenticated tests in production unless MCP_API_TOKEN is set
+// TEST_API_KEY works for worker API but MCP requires OAuth-based MCP_API_TOKEN
+const isProduction = MCP_BASE_URL.includes('todo.mdx.do')
+const hasMcpToken = !!process.env.MCP_API_TOKEN
+const skipMcpAuthTests = isProduction && !hasMcpToken
+const skipDoToolTests = isProduction && !process.env.MCP_DO_TOOL_ENABLED
+
 /**
  * Get authentication token
  */
@@ -58,11 +65,11 @@ describe('MCP server discovery', () => {
   })
 })
 
-describe('MCP server authenticated', () => {
+describe.skipIf(skipMcpAuthTests)('MCP server authenticated', () => {
   beforeAll(async () => {
     hasCredentials = hasMcpCredentials()
     if (!hasCredentials) {
-      console.log('Skipping MCP authenticated tests - set TEST_API_KEY')
+      console.log('Skipping MCP authenticated tests - set TEST_API_KEY or MCP_API_TOKEN')
     }
   })
 
@@ -195,7 +202,7 @@ describe('MCP server authenticated', () => {
   })
 })
 
-describe('MCP tool schemas', () => {
+describe.skipIf(skipMcpAuthTests)('MCP tool schemas', () => {
   test.skip('list_todos requires repo parameter', async () => {
     const response = await mcpFetch('/tools/call', {
       method: 'POST',
@@ -232,7 +239,7 @@ describe('MCP tool schemas', () => {
  * Tests MCP tools: listIssues, createIssue, updateIssue, closeIssue, search
  * Verifies responses and side effects
  */
-describe('MCP issue management tools', () => {
+describe.skipIf(skipMcpAuthTests)('MCP issue management tools', () => {
   const TEST_REPO = 'dot-do/test.mdx'
 
   beforeAll(async () => {
@@ -456,7 +463,7 @@ describe('MCP issue management tools', () => {
   })
 })
 
-describe('MCP search functionality', () => {
+describe.skipIf(skipMcpAuthTests)('MCP search functionality', () => {
   beforeAll(async () => {
     hasCredentials = hasMcpCredentials()
   })
@@ -552,7 +559,7 @@ describe('MCP search functionality', () => {
   })
 })
 
-describe('MCP fetch tool', () => {
+describe.skipIf(skipMcpAuthTests)('MCP fetch tool', () => {
   beforeAll(async () => {
     hasCredentials = hasMcpCredentials()
   })
@@ -596,7 +603,7 @@ describe('MCP fetch tool', () => {
   })
 })
 
-describe('MCP roadmap tool', () => {
+describe.skipIf(skipMcpAuthTests)('MCP roadmap tool', () => {
   beforeAll(async () => {
     hasCredentials = hasMcpCredentials()
   })
@@ -639,7 +646,7 @@ describe('MCP roadmap tool', () => {
   })
 })
 
-describe('MCP protocol compliance', () => {
+describe.skipIf(skipMcpAuthTests)('MCP protocol compliance', () => {
   test('server implements required capabilities', async () => {
     const token = await getAuthToken()
     try {
@@ -708,9 +715,10 @@ describe('MCP protocol compliance', () => {
 /**
  * MCP `do` tool tests
  *
- * Tests the sandboxed code execution tool
+ * Tests the sandboxed code execution tool.
+ * Skipped in production unless MCP_DO_TOOL_ENABLED is set.
  */
-describe('MCP do tool', () => {
+describe.skipIf(skipDoToolTests)('MCP do tool', () => {
   const TEST_REPO = 'dot-do/test.mdx'
 
   beforeAll(async () => {
