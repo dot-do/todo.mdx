@@ -80,22 +80,27 @@ app.route('/api/stdio', stdio)
 // ============================================
 
 app.post('/api/webhooks/github', async (c) => {
+  const t0 = Date.now()
   const signature = c.req.header('x-hub-signature-256')
   const event = c.req.header('x-github-event')
   const deliveryId = c.req.header('x-github-delivery')
 
+  console.log(`[Webhook] Received ${event} (${deliveryId}) at t=0ms`)
+
   // Verify webhook signature
   const body = await c.req.text()
+  console.log(`[Webhook] Body read: ${Date.now() - t0}ms (${body.length} bytes)`)
+
   const isValid = await verifyGitHubSignature(body, signature, c.env.GITHUB_WEBHOOK_SECRET)
+  console.log(`[Webhook] Signature verified: ${Date.now() - t0}ms (valid=${isValid})`)
 
   if (!isValid) {
-    console.warn(`Invalid webhook signature for delivery ${deliveryId}`)
+    console.warn(`[Webhook] Invalid signature for ${deliveryId}`)
     return c.json({ error: 'Invalid signature' }, 401)
   }
 
   const payload = JSON.parse(body)
-
-  console.log(`Received GitHub webhook: ${event} (${deliveryId})`)
+  console.log(`[Webhook] Parsed: ${Date.now() - t0}ms, dispatching ${event}`)
 
   switch (event) {
     case 'installation':
@@ -437,43 +442,73 @@ app.post('/github/webhook', async (c) => {
 
 // Installation webhook
 async function handleInstallation(c: any, payload: any): Promise<Response> {
+  const t0 = Date.now()
+  const timing: Record<string, number> = {}
+
+  console.log(`[Installation] action=${payload.action} account=${payload.installation?.account?.login}`)
+
   if (payload.action === 'created') {
-    const installation = payload.installation
+    try {
+      const installation = payload.installation
+      const now = new Date().toISOString()
+      timing.setup = Date.now() - t0
 
-    // Store installation via Payload RPC
-    const installationDoc = await c.env.PAYLOAD.create({
-      collection: 'installations',
-      data: {
-        installationId: installation.id,
-        accountType: installation.account.type,
-        accountId: installation.account.id,
-        accountLogin: installation.account.login,
-        accountAvatarUrl: installation.account.avatar_url,
-        permissions: installation.permissions,
-        events: installation.events,
-        repositorySelection: installation.repository_selection,
-      },
-    })
+      // Insert directly into D1 to bypass Payload access control (use OR REPLACE for idempotency)
+      const t1 = Date.now()
+      const installResult = await c.env.DB.prepare(`
+        INSERT OR REPLACE INTO installations (installation_id, account_type, account_id, account_login, account_avatar_url, permissions, events, repository_selection, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING id
+      `).bind(
+        installation.id,
+        installation.account.type,
+        installation.account.id,
+        installation.account.login,
+        installation.account.avatar_url,
+        JSON.stringify(installation.permissions),
+        JSON.stringify(installation.events),
+        installation.repository_selection,
+        now,
+        now
+      ).first<{ id: number }>()
+      timing.installInsert = Date.now() - t1
 
-    // Create repos for each repository via Payload RPC
-    for (const repo of payload.repositories || []) {
-      // Create Durable Object for the repo
-      c.env.REPO.idFromName(repo.full_name)
+      const installationId = installResult?.id
+      console.log(`[Installation] Inserted installation id=${installationId} (${timing.installInsert}ms)`)
 
-      await c.env.PAYLOAD.create({
-        collection: 'repos',
-        data: {
-          githubId: repo.id,
-          name: repo.name,
-          fullName: repo.full_name,
-          owner: repo.full_name.split('/')[0],
-          private: repo.private || false,
-          installation: installationDoc.id,
-        },
-      })
+      // Batch insert repos for performance
+      const repos = payload.repositories || []
+      if (repos.length > 0) {
+        const t2 = Date.now()
+        const stmt = c.env.DB.prepare(`
+          INSERT OR REPLACE INTO repos (github_id, name, full_name, owner, private, installation_id, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+
+        await c.env.DB.batch(
+          repos.map((repo: any) => stmt.bind(
+            repo.id,
+            repo.name,
+            repo.full_name,
+            repo.full_name.split('/')[0],
+            repo.private ? 1 : 0,
+            installationId,
+            now,
+            now
+          ))
+        )
+        timing.reposBatch = Date.now() - t2
+        console.log(`[Installation] Batch inserted ${repos.length} repos (${timing.reposBatch}ms)`)
+      }
+
+      timing.total = Date.now() - t0
+      console.log(`[Installation] Complete: ${JSON.stringify(timing)}`)
+      return c.json({ status: 'installed', installationId, repos: repos.length, timing })
+    } catch (error: any) {
+      timing.total = Date.now() - t0
+      console.error(`[Installation] Error after ${timing.total}ms:`, error.message, error.stack)
+      return c.json({ error: 'Failed to process installation', message: error.message, timing }, 500)
     }
-
-    return c.json({ status: 'installed', repos: payload.repositories?.length || 0 })
   }
 
   if (payload.action === 'deleted') {

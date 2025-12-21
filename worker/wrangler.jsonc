@@ -48,7 +48,8 @@
     {
       "class_name": "ClaudeSandbox",
       "image": "./Dockerfile.claude",
-      "instance_type": "basic"
+      "instance_type": "basic",
+      "max_instances": 10
     }
   ],
 

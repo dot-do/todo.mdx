@@ -17,7 +17,7 @@ export default async function Page(props: {
     <DocsPage toc={page.data.toc} full={page.data.full}>
       <DocsBody>
         <h1>{page.data.title}</h1>
-        <MDX components={{ ...defaultMdxComponents }} />
+        <MDX components={{ ...defaultMdxComponents } as any} />
       </DocsBody>
     </DocsPage>
   )

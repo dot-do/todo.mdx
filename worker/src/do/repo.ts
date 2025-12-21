@@ -91,6 +91,81 @@ interface BeadsIssue {
 }
 
 // =============================================================================
+// Label Schema Helpers
+// =============================================================================
+
+// Priority labels: P0 (critical) to P4 (backlog)
+const PRIORITY_LABELS = ['P0', 'P1', 'P2', 'P3', 'P4'] as const
+// Status labels for in_progress and blocked (open/closed use GitHub state)
+const STATUS_LABELS = ['in-progress', 'blocked'] as const
+// Type labels
+const TYPE_LABELS = ['bug', 'feature', 'task', 'epic', 'chore'] as const
+
+function priorityToLabel(priority: number): string {
+  return PRIORITY_LABELS[Math.min(Math.max(priority, 0), 4)]
+}
+
+function labelToPriority(labels: string[]): number {
+  for (const label of labels) {
+    const idx = PRIORITY_LABELS.indexOf(label as any)
+    if (idx !== -1) return idx
+  }
+  return 2 // Default to P2
+}
+
+function statusToLabel(status: string): string | null {
+  if (status === 'in_progress') return 'in-progress'
+  if (status === 'blocked') return 'blocked'
+  return null // open/closed use GitHub state, not labels
+}
+
+function labelToStatus(labels: string[], ghState: 'open' | 'closed'): string {
+  if (ghState === 'closed') return 'closed'
+  if (labels.includes('in-progress')) return 'in_progress'
+  if (labels.includes('blocked')) return 'blocked'
+  return 'open'
+}
+
+function typeToLabel(type: string): string | null {
+  if (TYPE_LABELS.includes(type as any)) return type
+  return null
+}
+
+function labelToType(labels: string[]): string {
+  for (const label of labels) {
+    if (TYPE_LABELS.includes(label as any)) return label
+  }
+  return 'task' // Default
+}
+
+/** Build the complete label array for GitHub from issue data */
+function buildGitHubLabels(
+  existingLabels: string[],
+  priority: number,
+  status: string,
+  issueType: string
+): string[] {
+  // Start with user labels (filter out system labels)
+  const userLabels = existingLabels.filter(
+    (l) =>
+      !PRIORITY_LABELS.includes(l as any) &&
+      !STATUS_LABELS.includes(l as any) &&
+      !TYPE_LABELS.includes(l as any)
+  )
+
+  // Add system labels
+  const labels = [...userLabels, priorityToLabel(priority)]
+
+  const statusLabel = statusToLabel(status)
+  if (statusLabel) labels.push(statusLabel)
+
+  const typeLabel = typeToLabel(issueType)
+  if (typeLabel) labels.push(typeLabel)
+
+  return labels
+}
+
+// =============================================================================
 // RepoDO Class
 // =============================================================================
 
@@ -448,40 +523,51 @@ export class RepoDO extends DurableObject {
   // Sync: beads JSONL → DO
   // ===========================================================================
 
-  async importFromJsonl(jsonl: string): Promise<{ created: number; updated: number }> {
+  async importFromJsonl(jsonl: string): Promise<{
+    created: string[]
+    updated: string[]
+    deleted: Array<{ id: string; github_number: number | null }>
+  }> {
     const lines = jsonl.trim().split('\n').filter((line) => line.trim())
     const issues: BeadsIssue[] = lines.map((line) => JSON.parse(line))
 
-    let created = 0
-    let updated = 0
+    const created: string[] = []
+    const updated: string[] = []
 
-    // Get current issue IDs to track deletions
-    const currentIds = new Set(
-      this.sql
-        .exec('SELECT id FROM issues')
-        .toArray()
-        .map((row: any) => row.id as string)
+    // Get current issues to track deletions (need github_number before deleting)
+    const currentIssues = new Map(
+      (
+        this.sql
+          .exec('SELECT id, github_number FROM issues')
+          .toArray() as Array<{ id: string; github_number: number | null }>
+      ).map((row) => [row.id, row.github_number])
     )
 
     for (const issue of issues) {
       const existing = this.getIssue(issue.id)
       this.upsertIssue(issue)
       if (existing) {
-        updated++
+        updated.push(issue.id)
       } else {
-        created++
+        created.push(issue.id)
       }
-      currentIds.delete(issue.id)
+      currentIssues.delete(issue.id)
     }
 
-    // Delete issues that are no longer in JSONL
-    for (const id of currentIds) {
+    // Track deleted issues with their github_numbers before removing them
+    const deleted: Array<{ id: string; github_number: number | null }> = []
+    for (const [id, github_number] of currentIssues) {
+      deleted.push({ id, github_number })
       this.sql.exec('DELETE FROM issues WHERE id = ?', id)
     }
 
-    this.logSync('beads', 'import', { created, updated, deleted: currentIds.size })
+    this.logSync('beads', 'import', {
+      created: created.length,
+      updated: updated.length,
+      deleted: deleted.length,
+    })
 
-    return { created, updated }
+    return { created, updated, deleted }
   }
 
   // ===========================================================================
@@ -567,18 +653,34 @@ export class RepoDO extends DurableObject {
     // Generate beads-style ID if new
     const id = existing?.id || `gh-${ghIssue.number}`
 
+    // Extract labels
+    const labelNames = ghIssue.labels.map((l) => l.name)
+
+    // Parse priority, status, and type from GitHub labels
+    const priority = labelToPriority(labelNames)
+    const status = labelToStatus(labelNames, ghIssue.state)
+    const issueType = labelToType(labelNames)
+
+    // Filter out system labels (P0-P4, in-progress, blocked, type labels) for storage
+    const userLabels = labelNames.filter(
+      (l) =>
+        !PRIORITY_LABELS.includes(l as any) &&
+        !STATUS_LABELS.includes(l as any) &&
+        !TYPE_LABELS.includes(l as any)
+    )
+
     const issue: BeadsIssue = {
       id,
       title: ghIssue.title,
       description: ghIssue.body || '',
-      status: ghIssue.state === 'closed' ? 'closed' : 'open',
-      priority: 2, // Default priority
-      issue_type: 'task', // Default type
+      status,
+      priority,
+      issue_type: issueType,
       assignee: ghIssue.assignee?.login,
       created_at: ghIssue.created_at,
       updated_at: ghIssue.updated_at,
       closed_at: ghIssue.closed_at || undefined,
-      labels: ghIssue.labels.map((l) => l.name),
+      labels: userLabels.length > 0 ? userLabels : undefined,
     }
 
     this.upsertIssue(issue)
@@ -615,10 +717,19 @@ export class RepoDO extends DurableObject {
 
     const token = await this.getInstallationToken(this.installationId)
 
-    const labels = this.sql
+    // Get user labels from DB
+    const userLabels = this.sql
       .exec('SELECT label FROM labels WHERE issue_id = ?', issueId)
       .toArray()
       .map((row: any) => row.label as string)
+
+    // Build complete label set including priority, status, and type
+    const labels = buildGitHubLabels(
+      userLabels,
+      issue.priority,
+      issue.status,
+      issue.issue_type
+    )
 
     const response = await fetch(
       `https://api.github.com/repos/${this.repoFullName}/issues`,
@@ -672,10 +783,19 @@ export class RepoDO extends DurableObject {
 
     const token = await this.getInstallationToken(this.installationId)
 
-    const labels = this.sql
+    // Get user labels from DB
+    const userLabels = this.sql
       .exec('SELECT label FROM labels WHERE issue_id = ?', issueId)
       .toArray()
       .map((row: any) => row.label as string)
+
+    // Build complete label set including priority, status, and type
+    const labels = buildGitHubLabels(
+      userLabels,
+      issue.priority,
+      issue.status,
+      issue.issue_type
+    )
 
     const response = await fetch(
       `https://api.github.com/repos/${this.repoFullName}/issues/${issue.github_number}`,
@@ -734,20 +854,79 @@ export class RepoDO extends DurableObject {
     const jsonl = await this.fetchGitHubFile('.beads/issues.jsonl', commit)
     const result = await this.importFromJsonl(jsonl)
 
-    console.log('[RepoDO] Imported beads JSONL', result)
+    console.log('[RepoDO] Imported beads JSONL', {
+      created: result.created.length,
+      updated: result.updated.length,
+      deleted: result.deleted.length,
+    })
 
-    // Sync new issues to GitHub
-    const issues = this.sql
-      .exec('SELECT id, github_number FROM issues WHERE github_number IS NULL')
-      .toArray() as Array<{ id: string; github_number: number | null }>
-
-    for (const issue of issues) {
+    // 1. Create GitHub issues for new beads issues
+    for (const issueId of result.created) {
       try {
-        await this.createGitHubIssue(issue.id)
+        await this.createGitHubIssue(issueId)
       } catch (error) {
-        console.error(`[RepoDO] Failed to create GitHub issue for ${issue.id}:`, error)
+        console.error(`[RepoDO] Failed to create GitHub issue for ${issueId}:`, error)
       }
     }
+
+    // 2. Update GitHub issues for modified beads issues
+    for (const issueId of result.updated) {
+      const issue = this.getIssue(issueId)
+      if (issue?.github_number) {
+        try {
+          await this.updateGitHubIssue(issueId)
+        } catch (error) {
+          console.error(`[RepoDO] Failed to update GitHub issue for ${issueId}:`, error)
+        }
+      }
+    }
+
+    // 3. Close GitHub issues for deleted beads issues
+    for (const { id, github_number } of result.deleted) {
+      if (github_number) {
+        try {
+          await this.closeGitHubIssue(github_number)
+          console.log(`[RepoDO] Closed GitHub issue #${github_number} (was ${id})`)
+        } catch (error) {
+          console.error(`[RepoDO] Failed to close GitHub issue #${github_number}:`, error)
+        }
+      }
+    }
+  }
+
+  /**
+   * Close a GitHub issue by number (used when beads issue is deleted)
+   */
+  private async closeGitHubIssue(githubNumber: number): Promise<void> {
+    await this.initRepoContext()
+    if (!this.repoFullName || !this.installationId) {
+      throw new Error('Repo context not initialized')
+    }
+
+    const token = await this.getInstallationToken(this.installationId)
+
+    const response = await fetch(
+      `https://api.github.com/repos/${this.repoFullName}/issues/${githubNumber}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        body: JSON.stringify({
+          state: 'closed',
+          state_reason: 'completed',
+        }),
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to close GitHub issue: ${response.status} ${error}`)
+    }
+
+    this.logSync('github', 'close', { githubNumber })
   }
 
   // ===========================================================================
@@ -890,8 +1069,8 @@ export class RepoDO extends DurableObject {
         return Response.json(this.search(q))
       }
 
-      // Single issue
-      if (path.startsWith('/issues/') && request.method === 'GET') {
+      // Single issue GET
+      if (path.startsWith('/issues/') && !path.includes('/close') && request.method === 'GET') {
         const id = path.slice('/issues/'.length)
         const issue = this.getIssue(id)
         if (!issue) {
@@ -911,6 +1090,171 @@ export class RepoDO extends DurableObject {
           .toArray()
 
         return Response.json({ ...issue, labels, dependencies: deps, dependents })
+      }
+
+      // Create issue
+      if (path === '/issues' && request.method === 'POST') {
+        const body = (await request.json()) as {
+          title: string
+          description?: string
+          issue_type?: string
+          priority?: number
+          assignee?: string
+          labels?: string[]
+        }
+
+        const id = `todo-${Math.random().toString(36).slice(2, 6)}`
+        const now = new Date().toISOString()
+
+        const issue: BeadsIssue = {
+          id,
+          title: body.title,
+          description: body.description || '',
+          status: 'open',
+          priority: body.priority ?? 2,
+          issue_type: body.issue_type || 'task',
+          assignee: body.assignee,
+          created_at: now,
+          updated_at: now,
+          labels: body.labels,
+        }
+
+        this.upsertIssue(issue)
+
+        // Sync to GitHub if context is set
+        if (this.repoFullName && this.installationId) {
+          try {
+            await this.createGitHubIssue(id)
+          } catch (e) {
+            console.error('[RepoDO] Failed to create GitHub issue:', e)
+          }
+        }
+
+        return Response.json({ id, ...issue })
+      }
+
+      // Update issue
+      if (path.startsWith('/issues/') && !path.includes('/close') && request.method === 'PATCH') {
+        const id = path.slice('/issues/'.length)
+        const existing = this.getIssue(id)
+        if (!existing) {
+          return new Response('Not Found', { status: 404 })
+        }
+
+        const body = (await request.json()) as {
+          title?: string
+          description?: string
+          status?: string
+          priority?: number
+          assignee?: string
+          labels?: string[]
+        }
+
+        const now = new Date().toISOString()
+
+        // Update fields
+        if (body.title !== undefined) {
+          this.sql.exec('UPDATE issues SET title = ?, updated_at = ? WHERE id = ?', body.title, now, id)
+        }
+        if (body.description !== undefined) {
+          this.sql.exec('UPDATE issues SET description = ?, updated_at = ? WHERE id = ?', body.description, now, id)
+        }
+        if (body.status !== undefined) {
+          this.sql.exec('UPDATE issues SET status = ?, updated_at = ? WHERE id = ?', body.status, now, id)
+        }
+        if (body.priority !== undefined) {
+          this.sql.exec('UPDATE issues SET priority = ?, updated_at = ? WHERE id = ?', body.priority, now, id)
+        }
+        if (body.assignee !== undefined) {
+          this.sql.exec('UPDATE issues SET assignee = ?, updated_at = ? WHERE id = ?', body.assignee || null, now, id)
+        }
+        if (body.labels !== undefined) {
+          this.sql.exec('DELETE FROM labels WHERE issue_id = ?', id)
+          for (const label of body.labels) {
+            this.sql.exec('INSERT INTO labels (issue_id, label) VALUES (?, ?)', id, label)
+          }
+        }
+
+        // Sync to GitHub if connected
+        const updated = this.getIssue(id)
+        if (updated?.github_number && this.repoFullName && this.installationId) {
+          try {
+            await this.updateGitHubIssue(id)
+          } catch (e) {
+            console.error('[RepoDO] Failed to update GitHub issue:', e)
+          }
+        }
+
+        return Response.json(updated)
+      }
+
+      // Close issue
+      if (path.match(/^\/issues\/[^/]+\/close$/) && request.method === 'POST') {
+        const id = path.slice('/issues/'.length, -'/close'.length)
+        const existing = this.getIssue(id)
+        if (!existing) {
+          return new Response('Not Found', { status: 404 })
+        }
+
+        const body = (await request.json()) as { reason?: string }
+        const now = new Date().toISOString()
+
+        this.sql.exec(
+          'UPDATE issues SET status = ?, closed_at = ?, close_reason = ?, updated_at = ? WHERE id = ?',
+          'closed',
+          now,
+          body.reason || 'Completed',
+          now,
+          id
+        )
+
+        // Sync to GitHub if connected
+        if (existing.github_number && this.repoFullName && this.installationId) {
+          try {
+            await this.updateGitHubIssue(id)
+          } catch (e) {
+            console.error('[RepoDO] Failed to close GitHub issue:', e)
+          }
+        }
+
+        return Response.json({ ok: true, id })
+      }
+
+      // Add dependency
+      if (path === '/dependencies' && request.method === 'POST') {
+        const body = (await request.json()) as {
+          issue_id: string
+          depends_on_id: string
+          type?: string
+        }
+
+        const now = new Date().toISOString()
+        this.sql.exec(
+          'INSERT OR REPLACE INTO dependencies (issue_id, depends_on_id, type, created_at, created_by) VALUES (?, ?, ?, ?, ?)',
+          body.issue_id,
+          body.depends_on_id,
+          body.type || 'blocks',
+          now,
+          'mcp'
+        )
+
+        return Response.json({ ok: true })
+      }
+
+      // Remove dependency
+      if (path === '/dependencies' && request.method === 'DELETE') {
+        const body = (await request.json()) as {
+          issue_id: string
+          depends_on_id: string
+        }
+
+        this.sql.exec(
+          'DELETE FROM dependencies WHERE issue_id = ? AND depends_on_id = ?',
+          body.issue_id,
+          body.depends_on_id
+        )
+
+        return Response.json({ ok: true })
       }
 
       // GitHub webhook handler

@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:worker": "npx @opennextjs/cloudflare build --skipNextBuild",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
-    "deploy": "pnpm build && wrangler deploy",
+    "deploy": "pnpm build && pnpm build:worker && wrangler deploy",
     "preview": "wrangler dev"
   },
   "dependencies": {

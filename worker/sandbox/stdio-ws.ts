@@ -40,6 +40,7 @@ function isControlMessage(data: unknown): data is ControlMessage {
 interface WsData {
   cmd: string
   args: string[]
+  env: Record<string, string>
   proc?: ReturnType<typeof Bun.spawn>
 }
 
@@ -81,8 +82,16 @@ Bun.serve<WsData>({
     const cmd = url.searchParams.get('cmd') ?? 'bash'
     const args = url.searchParams.getAll('arg')
 
+    // Parse env vars from query params (env_NAME=value)
+    const env: Record<string, string> = {}
+    for (const [key, value] of url.searchParams) {
+      if (key.startsWith('env_')) {
+        env[key.slice(4)] = value
+      }
+    }
+
     // Upgrade to WebSocket
-    if (server.upgrade(req, { data: { cmd, args } })) {
+    if (server.upgrade(req, { data: { cmd, args, env } })) {
       return undefined
     }
 
@@ -99,17 +108,18 @@ Bun.serve<WsData>({
 
   websocket: {
     open(ws) {
-      const { cmd, args } = ws.data
+      const { cmd, args, env: extraEnv } = ws.data
 
       console.log(`[stdio-ws] Connection: ${cmd} ${args.join(' ')}`)
 
-      // Spawn child process
+      // Spawn child process with merged environment
       const proc = Bun.spawn([cmd, ...args], {
         stdin: 'pipe',
         stdout: 'pipe',
         stderr: 'pipe',
         env: {
           ...process.env,
+          ...extraEnv,
           TERM: 'xterm-256color',
           COLORTERM: 'truecolor',
         },

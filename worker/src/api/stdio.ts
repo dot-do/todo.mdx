@@ -88,8 +88,24 @@ app.get('/:sandboxId', async (c) => {
       'pgrep -f stdio-ws.ts >/dev/null || (nohup bun /workspace/stdio-ws.ts > /tmp/stdio-ws.log 2>&1 & sleep 0.5)'
     )
 
+    // Inject worker env vars into the WebSocket URL for the sandbox
+    // This allows CLAUDE_CODE_OAUTH_TOKEN to be available in sandbox commands
+    const reqUrl = new URL(c.req.raw.url)
+    if (c.env.CLAUDE_CODE_OAUTH_TOKEN) {
+      reqUrl.searchParams.set('env_CLAUDE_CODE_OAUTH_TOKEN', c.env.CLAUDE_CODE_OAUTH_TOKEN)
+    }
+    if (c.env.ANTHROPIC_API_KEY) {
+      reqUrl.searchParams.set('env_ANTHROPIC_API_KEY', c.env.ANTHROPIC_API_KEY)
+    }
+
+    // Create new request with injected env vars, preserving headers for WebSocket upgrade
+    const wsRequest = new Request(reqUrl.toString(), {
+      method: c.req.raw.method,
+      headers: c.req.raw.headers,
+    })
+
     // Proxy WebSocket to sandbox port 8080
-    return await sandbox.wsConnect(c.req.raw, 8080)
+    return await sandbox.wsConnect(wsRequest, 8080)
   } catch (err) {
     console.error('[stdio] Sandbox connection error:', err)
     return c.json({
@@ -503,6 +519,16 @@ async function validateToken(
   token: string
 ): Promise<AuthContext | null> {
   try {
+    // Check for TEST_API_KEY (testing/development)
+    if (env.TEST_API_KEY && token === env.TEST_API_KEY) {
+      return {
+        userId: 'test-user',
+        email: 'test@example.com',
+        name: 'Test User',
+        source: 'test_api_key',
+      }
+    }
+
     // Try WorkOS session token
     if (token.startsWith('wos_')) {
       // WorkOS session - validate via WorkOS API

@@ -1,0 +1,17 @@
+---
+id: todo-b5z
+title: "Fix N+1 query in MCP search tool"
+state: closed
+priority: 1
+type: bug
+labels: [performance, worker]
+---
+
+# Fix N+1 query in MCP search tool
+
+In src/mcp/index.ts:49-76, sequential Durable Object calls in loop cause slow response times with multiple repos. Parallelize with Promise.all().
+
+### Timeline
+
+- **Created:** 12/20/2025
+

@@ -22,5 +22,10 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@cloudflare/workers-oauth-provider": "patches/@cloudflare__workers-oauth-provider.patch"
+    }
   }
 }

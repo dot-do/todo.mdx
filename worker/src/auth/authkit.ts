@@ -38,7 +38,7 @@ export function getAuthorizationUrl(
     provider: 'authkit',
   })
 
-  return `https://api.workos.com/user_management/authorize?${params.toString()}`
+  return `https://auth.apis.do/user_management/authorize?${params.toString()}`
 }
 
 /**
@@ -52,7 +52,7 @@ export async function exchangeCodeForUser(
   code: string
 ): Promise<WorkOSUser> {
   // Exchange code for access token
-  const tokenResponse = await fetch('https://api.workos.com/user_management/authenticate', {
+  const tokenResponse = await fetch('https://auth.apis.do/user_management/authenticate', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -103,7 +103,7 @@ export async function getUserProfile(
   env: WorkOSAuthEnv,
   userId: string
 ): Promise<WorkOSUser | null> {
-  const response = await fetch(`https://api.workos.com/user_management/users/${userId}`, {
+  const response = await fetch(`https://auth.apis.do/user_management/users/${userId}`, {
     headers: {
       'Authorization': `Bearer ${env.WORKOS_API_KEY}`,
     },

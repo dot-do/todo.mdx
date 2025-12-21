@@ -1,0 +1,57 @@
+{
+  "name": "@todo.mdx/sbx-cli",
+  "version": "0.1.0",
+  "description": "CLI client for connecting to Cloudflare Sandbox containers via WebSocket",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "sbx-stdio": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "compile": "bun build ./src/cli.ts --compile --outfile sbx-stdio",
+    "compile:macos-arm64": "bun build ./src/cli.ts --compile --target=bun-darwin-arm64 --outfile dist/sbx-stdio-macos-arm64",
+    "compile:macos-x64": "bun build ./src/cli.ts --compile --target=bun-darwin-x64 --outfile dist/sbx-stdio-macos-x64",
+    "compile:linux-x64": "bun build ./src/cli.ts --compile --target=bun-linux-x64 --outfile dist/sbx-stdio-linux-x64",
+    "compile:linux-arm64": "bun build ./src/cli.ts --compile --target=bun-linux-arm64 --outfile dist/sbx-stdio-linux-arm64",
+    "compile:all": "pnpm run compile:macos-arm64 && pnpm run compile:macos-x64 && pnpm run compile:linux-x64 && pnpm run compile:linux-arm64",
+    "prepublishOnly": "pnpm run build"
+  },
+  "keywords": [
+    "sandbox",
+    "cloudflare",
+    "terminal",
+    "websocket",
+    "cli"
+  ],
+  "author": "dot-do",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dot-do/todo.mdx.git",
+    "directory": "packages/sbx-cli"
+  },
+  "dependencies": {
+    "@todo.mdx/sandbox-stdio": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

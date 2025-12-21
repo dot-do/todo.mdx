@@ -1,6 +1,11 @@
 import { beforeAll, afterAll } from 'vitest'
+import { config } from 'dotenv'
+import { resolve } from 'path'
 import { cleanupAllWorktrees } from './helpers/worktree'
 import { hasWorkerCredentials } from './helpers/worker'
+
+// Load .env from project root
+config({ path: resolve(__dirname, '../.env') })
 
 // Global test setup
 beforeAll(async () => {

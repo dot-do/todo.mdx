@@ -4,28 +4,33 @@
  * Authentication via TEST_API_KEY env var (shared secret for testing).
  */
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-const TEST_API_KEY = process.env.TEST_API_KEY
-const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
-
 /**
- * Get authentication token
+ * Get authentication token (reads env at call time for dotenv support)
  */
 function getAuthToken(): string | null {
-  return TEST_API_KEY || null
+  return process.env.TEST_API_KEY || null
 }
 
 /**
  * Check if worker credentials are available
  */
 export function hasWorkerCredentials(): boolean {
-  return !!TEST_API_KEY
+  return !!process.env.TEST_API_KEY
+}
+
+function getWorkerBaseUrl(): string {
+  return process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+}
+
+function getWebhookSecret(): string {
+  return process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
 }
 
 /**
  * Generate GitHub webhook signature for testing
  */
-async function generateGitHubSignature(body: string, secret: string): Promise<string> {
+async function generateGitHubSignature(body: string): Promise<string> {
+  const secret = getWebhookSecret()
   const encoder = new TextEncoder()
   const key = await crypto.subtle.importKey(
     'raw',
@@ -58,7 +63,7 @@ function workerFetch(
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  return fetch(`${WORKER_BASE_URL}${path}`, {
+  return fetch(`${getWorkerBaseUrl()}${path}`, {
     ...options,
     headers,
   })
@@ -249,7 +254,7 @@ export const webhooks = {
       },
     })
 
-    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+    const signature = await generateGitHubSignature(body)
 
     return workerFetch('/github/webhook', {
       method: 'POST',
@@ -287,7 +292,7 @@ export const webhooks = {
       },
     })
 
-    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+    const signature = await generateGitHubSignature(body)
 
     return workerFetch('/github/webhook', {
       method: 'POST',
@@ -322,7 +327,7 @@ export const webhooks = {
       },
     })
 
-    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+    const signature = await generateGitHubSignature(body)
 
     return workerFetch('/github/webhook', {
       method: 'POST',
@@ -358,7 +363,7 @@ export const webhooks = {
       },
     })
 
-    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+    const signature = await generateGitHubSignature(body)
 
     return workerFetch('/github/webhook', {
       method: 'POST',
@@ -397,7 +402,7 @@ export const webhooks = {
       },
     })
 
-    const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
+    const signature = await generateGitHubSignature(body)
 
     return workerFetch('/github/webhook', {
       method: 'POST',

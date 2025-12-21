@@ -42,3 +42,15 @@ bun.lockb
 
 # Turbo cache
 .turbo/
+
+# Playwright test reports
+playwright-report/
+
+# Test fixtures (generated during tests)
+tests/fixtures/.worktrees/
+
+# Bun build artifacts
+*.bun-build
+
+# sbx-cli binaries
+packages/sbx-cli/sbx-stdio

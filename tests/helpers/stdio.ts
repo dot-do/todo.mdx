@@ -6,14 +6,15 @@
  * Authentication via TEST_API_KEY env var.
  */
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-const TEST_API_KEY = process.env.TEST_API_KEY
-
 /**
- * Get authentication token
+ * Get authentication token (reads env at call time for dotenv support)
  */
 function getAuthToken(): string | null {
-  return TEST_API_KEY || null
+  return process.env.TEST_API_KEY || null
+}
+
+function getWorkerBaseUrl(): string {
+  return process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 }
 
 // Stream IDs for binary protocol
@@ -81,7 +82,7 @@ export async function createSession(options?: {
     throw new Error('Authentication required - set TEST_API_KEY')
   }
 
-  const response = await fetch(`${WORKER_BASE_URL}/api/stdio/create`, {
+  const response = await fetch(`${getWorkerBaseUrl()}/api/stdio/create`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -116,7 +117,7 @@ export async function getSessionStatus(sandboxId: string): Promise<{
     throw new Error('Authentication required - set TEST_API_KEY')
   }
 
-  const response = await fetch(`${WORKER_BASE_URL}/api/stdio/${sandboxId}/status`, {
+  const response = await fetch(`${getWorkerBaseUrl()}/api/stdio/${sandboxId}/status`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -139,7 +140,7 @@ export async function deleteSession(sandboxId: string): Promise<void> {
     throw new Error('Authentication required - set TEST_API_KEY')
   }
 
-  const response = await fetch(`${WORKER_BASE_URL}/api/stdio/${sandboxId}`, {
+  const response = await fetch(`${getWorkerBaseUrl()}/api/stdio/${sandboxId}`, {
     method: 'DELETE',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -183,8 +184,8 @@ async function runCommandInternal(
   const timeout = options?.timeout || 30000
 
   // Build WebSocket URL
-  const wsProtocol = WORKER_BASE_URL.startsWith('https') ? 'wss' : 'ws'
-  const wsHost = WORKER_BASE_URL.replace(/^https?:\/\//, '')
+  const wsProtocol = getWorkerBaseUrl().startsWith('https') ? 'wss' : 'ws'
+  const wsHost = getWorkerBaseUrl().replace(/^https?:\/\//, '')
   const wsUrl = new URL(`${wsProtocol}://${wsHost}/api/stdio/${sandboxId}`)
   wsUrl.searchParams.set('cmd', cmd)
   wsUrl.searchParams.set('token', token!)
@@ -330,12 +331,8 @@ export async function runCommand(
  * Check if sandbox credentials are available
  */
 export function hasSandboxCredentials(): boolean {
-  return !!TEST_API_KEY
+  return !!process.env.TEST_API_KEY
 }
 
-/**
- * Get the worker base URL
- */
-export function getWorkerBaseUrl(): string {
-  return WORKER_BASE_URL
-}
+// Export getWorkerBaseUrl for test output
+export { getWorkerBaseUrl }
