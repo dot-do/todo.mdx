@@ -36,6 +36,13 @@ export interface CloudTransportConfig {
    * Base URL for the todo.mdx API
    */
   apiBaseUrl?: string
+  /**
+   * GitHub App credentials for API access
+   */
+  githubEnv?: {
+    GITHUB_APP_ID: string
+    GITHUB_PRIVATE_KEY: string
+  }
 }
 
 // ============================================================================
@@ -51,7 +58,7 @@ export interface CloudTransportConfig {
  * - GitHub App installation tokens
  */
 export function cloudTransport(config: CloudTransportConfig): Transport {
-  const { repo, payloadBinding, claudeBinding, installationId, apiBaseUrl = 'https://todo.mdx.do/api' } = config
+  const { repo, payloadBinding, claudeBinding, installationId, apiBaseUrl = 'https://todo.mdx.do/api', githubEnv } = config
 
   return {
     async call(method: string, args: unknown[]): Promise<unknown> {
@@ -71,7 +78,7 @@ export function cloudTransport(config: CloudTransportConfig): Transport {
           return callPayload(payloadBinding, apiBaseUrl, method, args)
 
         case 'pr':
-          return callGitHub(installationId, repo, action, args)
+          return callGitHub(installationId, repo, action, args, githubEnv)
 
         case 'todo':
           return callTodoApi(apiBaseUrl, action, args)
@@ -131,17 +138,97 @@ async function callGitHub(
   installationId: number | undefined,
   repo: Repo,
   action: string,
-  args: unknown[]
+  args: unknown[],
+  env?: { GITHUB_APP_ID: string; GITHUB_PRIVATE_KEY: string }
 ): Promise<unknown> {
   if (!installationId) {
     throw new Error('GitHub installation ID not configured')
   }
 
-  // In real implementation, this would:
-  // 1. Get installation access token
-  // 2. Make GitHub API calls with Octokit
+  if (!env?.GITHUB_APP_ID || !env?.GITHUB_PRIVATE_KEY) {
+    throw new Error('GitHub App credentials not configured (GITHUB_APP_ID, GITHUB_PRIVATE_KEY)')
+  }
 
-  throw new Error(`GitHub cloud transport not implemented: ${action}`)
+  // Dynamic import to avoid bundling issues
+  const { Octokit } = await import('@octokit/rest')
+  const { createAppAuth } = await import('@octokit/auth-app')
+
+  // Get installation access token
+  const auth = createAppAuth({
+    appId: env.GITHUB_APP_ID,
+    privateKey: env.GITHUB_PRIVATE_KEY,
+    installationId,
+  })
+
+  const { token } = await auth({ type: 'installation' })
+  const octokit = new Octokit({ auth: token })
+
+  const [owner, name] = [repo.owner, repo.name]
+
+  // Route to appropriate GitHub API
+  switch (action) {
+    case 'create': {
+      const [opts] = args as [{ branch: string; title: string; body: string }]
+      const { data } = await octokit.pulls.create({
+        owner,
+        repo: name,
+        title: opts.title,
+        head: opts.branch,
+        base: repo.defaultBranch,
+        body: opts.body,
+      })
+      return {
+        number: data.number,
+        title: data.title,
+        body: data.body || '',
+        branch: data.head.ref,
+        url: data.html_url,
+        state: data.state,
+      }
+    }
+
+    case 'merge': {
+      const [pr] = args as [{ number: number }]
+      await octokit.pulls.merge({
+        owner,
+        repo: name,
+        pull_number: pr.number,
+        merge_method: 'squash',
+      })
+      return undefined
+    }
+
+    case 'comment': {
+      const [pr, message] = args as [{ number: number }, string]
+      await octokit.issues.createComment({
+        owner,
+        repo: name,
+        issue_number: pr.number,
+        body: message,
+      })
+      return undefined
+    }
+
+    case 'list': {
+      const [filter] = args as [{ state?: 'open' | 'closed' | 'all' } | undefined]
+      const { data } = await octokit.pulls.list({
+        owner,
+        repo: name,
+        state: filter?.state || 'open',
+      })
+      return data.map(pr => ({
+        number: pr.number,
+        title: pr.title,
+        body: pr.body || '',
+        branch: pr.head.ref,
+        url: pr.html_url,
+        state: pr.merged_at ? 'merged' : pr.state,
+      }))
+    }
+
+    default:
+      throw new Error(`Unknown GitHub action: ${action}`)
+  }
 }
 
 async function callTodoApi(

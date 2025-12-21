@@ -1535,6 +1535,43 @@ export class RepoDO extends DurableObject<Env> {
         return Response.json({ ok: true })
       }
 
+      // PR merged handler - close issue and trigger dependents
+      if (path === '/issue/merged' && request.method === 'POST') {
+        const payload = (await request.json()) as {
+          issueId: string
+          prNumber: number
+          prUrl: string
+          installationId: number
+        }
+
+        // Store installationId if not set
+        if (!this.installationId && payload.installationId) {
+          this.installationId = payload.installationId
+          await this.ctx.storage.put('installationId', payload.installationId)
+        }
+
+        // Close the issue in beads
+        const issue = this.getIssue(payload.issueId)
+        if (issue && issue.status !== 'closed') {
+          // Get ready issues BEFORE closing
+          const readyBefore = new Set(this.listReady().map(i => i.id))
+
+          // Close the issue
+          this.sql.exec(
+            `UPDATE issues SET status = 'closed', closed_at = ?, notes = ? WHERE id = ?`,
+            new Date().toISOString(),
+            `Merged via PR #${payload.prNumber}: ${payload.prUrl}`,
+            payload.issueId
+          )
+          console.log(`[RepoDO] Closed issue ${payload.issueId} after PR merge`)
+
+          // Check for newly ready issues and trigger workflows
+          await this.triggerWorkflowsForReadyIssues(readyBefore, this.repoFullName, payload.installationId)
+        }
+
+        return Response.json({ ok: true, issueId: payload.issueId })
+      }
+
       // Export JSONL
       if (path === '/export' && request.method === 'GET') {
         const jsonl = this.exportToJsonl()

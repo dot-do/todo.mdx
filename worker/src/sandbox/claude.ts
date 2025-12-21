@@ -31,6 +31,10 @@ export interface ExecuteOptions {
   branch?: string
   /** Push changes to remote after execution */
   push?: boolean
+  /** Target branch to push to (creates new branch if different from base) */
+  targetBranch?: string
+  /** Commit message for pushed changes */
+  commitMessage?: string
 }
 
 export interface ExecuteResult {
@@ -42,6 +46,10 @@ export interface ExecuteResult {
   filesChanged: string[]
   /** Exit code from Claude Code */
   exitCode: number
+  /** Branch the changes were pushed to (if push was enabled) */
+  pushedToBranch?: string
+  /** Commit SHA (if push was enabled) */
+  commitSha?: string
 }
 
 export interface StreamEvent {
@@ -203,15 +211,16 @@ async function executeClaudeCode(
   sandbox: ReturnType<typeof getSandbox>,
   opts: ExecuteOptions
 ): Promise<ExecuteResult> {
-  const { repo, task, context, installationId, branch = 'main' } = opts
+  const { repo, task, context, installationId, branch = 'main', push, targetBranch, commitMessage } = opts
 
   // Parse repo URL to get owner/repo
   const repoPath = parseRepoPath(repo)
 
   // Get GitHub token from vault if installationId provided
   let cloneUrl: string
+  let token: string | null = null
   if (installationId) {
-    const token = await getGitHubToken(
+    token = await getGitHubToken(
       env,
       installationId.toString(),
       'installation'
@@ -235,8 +244,14 @@ async function executeClaudeCode(
     throw new Error(`Failed to clone repo: ${cloneResult.stderr}`)
   }
 
+  // Configure git user for commits
+  await sandbox.exec('cd /workspace && git config user.email "bot@todo.mdx.do"')
+  await sandbox.exec('cd /workspace && git config user.name "todo.mdx bot"')
+
   // Build the prompt with context
-  const systemPrompt = `You are an automatic feature-implementer/bug-fixer. You apply all necessary changes to achieve the user request. You must ensure you DO NOT commit the changes, so the pipeline can read the local git diff and apply the change upstream.`
+  const systemPrompt = push
+    ? `You are an automatic feature-implementer/bug-fixer. Apply all necessary changes to achieve the user request. Make changes but DO NOT commit - the pipeline will handle commits.`
+    : `You are an automatic feature-implementer/bug-fixer. You apply all necessary changes to achieve the user request. You must ensure you DO NOT commit the changes, so the pipeline can read the local git diff and apply the change upstream.`
 
   const fullTask = context
     ? `${task}\n\n## Context\n\n${context}`
@@ -261,11 +276,58 @@ async function executeClaudeCode(
     .filter(Boolean)
     .map((line: string) => line.slice(3)) // Remove status prefix
 
+  let pushedToBranch: string | undefined
+  let commitSha: string | undefined
+
+  // Push changes if requested
+  if (push && filesChanged.length > 0 && token) {
+    const pushBranch = targetBranch || `auto/${Date.now()}`
+    const message = commitMessage || `feat: ${task.slice(0, 50)}`
+
+    console.log(`[ClaudeSandbox] Pushing changes to branch ${pushBranch}...`)
+
+    // Create and checkout target branch
+    const checkoutResult = await sandbox.exec(
+      `cd /workspace && git checkout -b ${escapeShell(pushBranch)}`
+    )
+    if (!checkoutResult.success) {
+      console.error(`[ClaudeSandbox] Failed to create branch: ${checkoutResult.stderr}`)
+    }
+
+    // Stage all changes
+    await sandbox.exec('cd /workspace && git add -A')
+
+    // Commit
+    const commitResult = await sandbox.exec(
+      `cd /workspace && git commit -m "${escapeShell(message)}"`
+    )
+    if (!commitResult.success) {
+      console.error(`[ClaudeSandbox] Failed to commit: ${commitResult.stderr}`)
+    }
+
+    // Get commit SHA
+    const shaResult = await sandbox.exec('cd /workspace && git rev-parse HEAD')
+    commitSha = shaResult.stdout?.trim()
+
+    // Push to remote
+    const pushResult = await sandbox.exec(
+      `cd /workspace && git push origin ${escapeShell(pushBranch)}`
+    )
+    if (!pushResult.success) {
+      console.error(`[ClaudeSandbox] Failed to push: ${pushResult.stderr}`)
+    } else {
+      pushedToBranch = pushBranch
+      console.log(`[ClaudeSandbox] Pushed to ${pushBranch} (${commitSha})`)
+    }
+  }
+
   return {
     diff,
     summary: claudeResult.stdout || '',
     filesChanged,
     exitCode: claudeResult.success ? 0 : 1,
+    pushedToBranch,
+    commitSha,
   }
 }
 

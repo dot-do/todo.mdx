@@ -82,6 +82,10 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
         claudeBinding: this.env.CLAUDE_SANDBOX,
         installationId,
         stepPrefix: issue.id, // Prefix all steps with issue ID for clarity
+        githubEnv: {
+          GITHUB_APP_ID: this.env.GITHUB_APP_ID,
+          GITHUB_PRIVATE_KEY: this.env.GITHUB_PRIVATE_KEY,
+        },
       }),
     })
 
@@ -90,23 +94,34 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
       status: 'in_progress',
     })
 
-    // Step 2: Spawn Claude to implement the issue
-    // This is wrapped in step.do() automatically by durableTransport
+    // Step 2: Spawn Claude to implement the issue with push mode
+    // This creates a branch and pushes the changes directly
+    const branch = `${issue.id}-${slugify(issue.title)}`
     const result = await runtime.claude.do({
       task: issue.title,
       context: context || (await runtime.todo.render()),
+      push: true,
+      targetBranch: branch,
+      commitMessage: `feat(${issue.id}): ${issue.title}`,
     })
 
     console.log(`[DevelopWorkflow] Claude completed implementation:`)
     console.log(`  Files changed: ${result.filesChanged.length}`)
+    console.log(`  Branch: ${result.pushedToBranch}`)
     console.log(`  Summary: ${result.summary}`)
 
-    // Step 3: Create a pull request
-    const branch = `${issue.id}-${slugify(issue.title)}`
+    // If no files changed, nothing to do
+    if (result.filesChanged.length === 0) {
+      console.log(`[DevelopWorkflow] No files changed, closing issue as resolved`)
+      await runtime.issues.close(issue.id, 'No changes needed')
+      return
+    }
+
+    // Step 3: Create a pull request (branch already pushed by Claude)
     const pr = await runtime.pr.create({
-      branch,
+      branch: result.pushedToBranch || branch,
       title: issue.title,
-      body: `Closes #${issue.id}\n\n${result.summary}\n\n## Changes\n${result.diff}`,
+      body: `Closes #${issue.id}\n\n${result.summary}\n\n## Changes\n\`\`\`diff\n${result.diff.slice(0, 10000)}\n\`\`\``,
     })
 
     console.log(`[DevelopWorkflow] Created PR #${pr.number}: ${pr.url}`)

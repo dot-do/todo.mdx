@@ -57,6 +57,10 @@ export interface DoResult {
   diff: string
   summary: string
   filesChanged: string[]
+  /** Branch the changes were pushed to (if push was enabled) */
+  pushedToBranch?: string
+  /** Commit SHA (if push was enabled) */
+  commitSha?: string
 }
 
 export interface ResearchResult {
@@ -84,6 +88,12 @@ export interface DoOpts {
   task: string
   context?: string
   model?: 'opus' | 'sonnet' | 'haiku'
+  /** Push changes to a branch (enables commit and push from sandbox) */
+  push?: boolean
+  /** Target branch name (default: auto-generated) */
+  targetBranch?: string
+  /** Commit message (default: generated from task) */
+  commitMessage?: string
 }
 
 export interface ResearchOpts {

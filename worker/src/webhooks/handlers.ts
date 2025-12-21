@@ -497,9 +497,9 @@ export async function handlePullRequest(
         headers: { 'Content-Type': 'application/json' },
       }))
 
-    case 'closed':
+    case 'closed': {
       // Send CLOSE event with merged flag
-      return stub.fetch(new Request('http://do/event', {
+      const prdoResponse = await stub.fetch(new Request('http://do/event', {
         method: 'POST',
         body: JSON.stringify({
           type: 'CLOSE',
@@ -507,6 +507,35 @@ export async function handlePullRequest(
         }),
         headers: { 'Content-Type': 'application/json' },
       }))
+
+      // If PR was merged, trigger dependent issue check via RepoDO
+      if (pr.merged) {
+        // Parse issue ID from PR body (format: "Closes #issue-id")
+        const issueMatch = pr.body?.match(/[Cc]loses?\s+#?([\w-]+)/)
+        const issueId = issueMatch?.[1]
+
+        if (issueId) {
+          console.log(`[PR Merged] Triggering dependent check for issue ${issueId}`)
+
+          // Call RepoDO to close the issue and check for newly ready dependents
+          const repoDoId = c.env.REPO.idFromName(repo.full_name)
+          const repoDo = c.env.REPO.get(repoDoId)
+
+          await repoDo.fetch(new Request('http://do/issue/merged', {
+            method: 'POST',
+            body: JSON.stringify({
+              issueId,
+              prNumber: pr.number,
+              prUrl: pr.html_url,
+              installationId,
+            }),
+            headers: { 'Content-Type': 'application/json' },
+          }))
+        }
+      }
+
+      return prdoResponse
+    }
 
     default:
       return c.json({ status: 'ignored', action })
