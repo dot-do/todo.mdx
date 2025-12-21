@@ -41,7 +41,8 @@ jobs:
         run: pnpm typecheck
 
       - name: Build
-        run: pnpm build
+        # Skip admin build - it requires wrangler auth for D1 and is deployed separately
+        run: pnpm turbo run build --filter='!@todo.mdx/admin'
 
       - name: Test (Unit)
         run: pnpm test
