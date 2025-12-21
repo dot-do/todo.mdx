@@ -26,8 +26,14 @@ const hasGitHubCredentials = github.hasGitHubCredentials()
 const hasWorkerCredentials = worker.hasWorkerCredentials()
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
+// Skip webhook simulation tests when running against production without the real secret
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
+const hasWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
+const skipWebhookTests = isProduction && !hasWebhookSecret
+
 function hasFullCredentials(): boolean {
-  return hasGitHubCredentials && hasWorkerCredentials
+  return hasGitHubCredentials && hasWorkerCredentials && !skipWebhookTests
 }
 
 function hasSandboxCredentials(): boolean {

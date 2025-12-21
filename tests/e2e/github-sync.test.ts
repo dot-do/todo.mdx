@@ -5,10 +5,16 @@ import * as github from '../helpers/github'
 import * as worker from '../helpers/worker'
 import { execa } from 'execa'
 
+// Skip webhook simulation tests when running against production without the real secret
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
+const hasWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
+const skipWebhookTests = isProduction && !hasWebhookSecret
+
 // Skip all tests in this file if GitHub credentials are not configured
 const describeWithGitHub = github.hasGitHubCredentials() ? describe : describe.skip
-const describeWithWorker = worker.hasWorkerCredentials() ? describe : describe.skip
-const describeWithBoth = github.hasGitHubCredentials() && worker.hasWorkerCredentials() ? describe : describe.skip
+const describeWithWorker = worker.hasWorkerCredentials() && !skipWebhookTests ? describe : describe.skip
+const describeWithBoth = github.hasGitHubCredentials() && worker.hasWorkerCredentials() && !skipWebhookTests ? describe : describe.skip
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'
