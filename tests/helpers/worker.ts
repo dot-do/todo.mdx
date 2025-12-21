@@ -1,55 +1,25 @@
 /**
  * Worker API Helper
  * Helpers for communicating with the todo.mdx worker API
- * Authentication via oauth.do (WorkOS tokens) or WORKER_ACCESS_TOKEN env var.
+ * Authentication via TEST_API_KEY env var (shared secret for testing).
  */
 
-import { getToken } from 'oauth.do/node'
-
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
+const TEST_API_KEY = process.env.TEST_API_KEY
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
-
-// Cached token from oauth.do
-let cachedToken: string | null = null
 
 /**
  * Get authentication token
- * Priority: env var > cached > oauth.do
  */
-async function getAuthToken(): Promise<string | null> {
-  // Environment variable takes priority (useful for CI)
-  if (WORKER_ACCESS_TOKEN) {
-    return WORKER_ACCESS_TOKEN
-  }
-
-  if (cachedToken) return cachedToken
-
-  try {
-    // Get token from oauth.do storage
-    cachedToken = (await getToken()) ?? null
-    return cachedToken
-  } catch (err) {
-    console.error('oauth.do authentication failed:', err)
-    return null
-  }
+function getAuthToken(): string | null {
+  return TEST_API_KEY || null
 }
 
 /**
- * Check if oauth.do credentials are available (async)
- * Call this in beforeAll to populate the token cache
- */
-export async function ensureWorkerCredentials(): Promise<boolean> {
-  const token = await getAuthToken()
-  return !!token
-}
-
-/**
- * Check if worker credentials are available (sync)
- * Returns true if WORKER_ACCESS_TOKEN is set or oauth.do token is cached
+ * Check if worker credentials are available
  */
 export function hasWorkerCredentials(): boolean {
-  return !!WORKER_ACCESS_TOKEN || !!cachedToken
+  return !!TEST_API_KEY
 }
 
 /**
@@ -73,11 +43,11 @@ async function generateGitHubSignature(body: string, secret: string): Promise<st
   return `sha256=${hex}`
 }
 
-async function workerFetch(
+function workerFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const token = await getAuthToken()
+  const token = getAuthToken()
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

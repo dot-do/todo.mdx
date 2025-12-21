@@ -1,9 +1,6 @@
 import { beforeAll, afterAll } from 'vitest'
 import { cleanupAllWorktrees } from './helpers/worktree'
-import { ensureWorkerCredentials } from './helpers/worker'
-
-// Track oauth.do login status (set during setup)
-export let hasOAuthCredentials = false
+import { hasWorkerCredentials } from './helpers/worker'
 
 // Global test setup
 beforeAll(async () => {
@@ -29,20 +26,13 @@ beforeAll(async () => {
     )
   }
 
-  // Ensure oauth.do token is fresh (runs once for all tests)
-  try {
-    const { ensureLoggedIn } = await import('oauth.do/node')
-    await ensureLoggedIn()
-    hasOAuthCredentials = true
-    // Also populate the worker credentials cache
-    await ensureWorkerCredentials()
-  } catch (err) {
+  // Check for worker API key
+  if (!hasWorkerCredentials()) {
     console.warn(
-      '\n⚠️  oauth.do not authenticated.\n' +
-        '   Run `oauth.do login` to authenticate.\n' +
-        '   Skipping tests that require oauth.do access.\n'
+      '\n⚠️  TEST_API_KEY not configured.\n' +
+        '   Set TEST_API_KEY to run worker API tests.\n' +
+        '   Skipping tests that require worker API access.\n'
     )
-    hasOAuthCredentials = false
   }
 })
 

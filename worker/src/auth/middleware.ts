@@ -4,6 +4,7 @@
  * Supports multiple auth methods (checked in order):
  * 1. Session cookie (__Host-SESSION) - for browser requests
  * 2. Bearer token (Authorization header):
+ *    - Shared API key (TEST_API_KEY) - for CI/testing
  *    - WorkOS API key (sk_live_* / sk_test_*)
  *    - OAuth token from oauth.do (JWT)
  *    - Signed session token (from /api/auth/token)
@@ -61,7 +62,18 @@ export async function authMiddleware(c: Context, next: Next) {
 
   const token = authHeader.slice(7)
 
-  // 2a. WorkOS API key (starts with sk_live_ or sk_test_)
+  // 2a. Shared test API key (for CI/testing)
+  if (env.TEST_API_KEY && token === env.TEST_API_KEY) {
+    c.set('auth', {
+      userId: 'test-user',
+      authType: 'api_key',
+      keyName: 'test-api-key',
+      source: 'test_api_key',
+    })
+    return next()
+  }
+
+  // 2b. WorkOS API key (starts with sk_live_ or sk_test_)
   if (token.startsWith('sk_live_') || token.startsWith('sk_test_')) {
     try {
       const session = await validateApiKey(token, env)
@@ -80,7 +92,7 @@ export async function authMiddleware(c: Context, next: Next) {
     }
   }
 
-  // 2b. Signed session token (from /api/auth/token, for WebSocket connections)
+  // 2c. Signed session token (from /api/auth/token, for WebSocket connections)
   if (token.includes('.') && env.COOKIE_ENCRYPTION_KEY) {
     try {
       const session = await parseSessionToken(token, env.COOKIE_ENCRYPTION_KEY)
@@ -100,7 +112,7 @@ export async function authMiddleware(c: Context, next: Next) {
     }
   }
 
-  // 2c. OAuth token from oauth.do (JWT)
+  // 2d. OAuth token from oauth.do (JWT)
   try {
     const session = await validateOAuthToken(token, env)
 
@@ -151,6 +163,17 @@ export async function optionalAuthMiddleware(c: Context, next: Next) {
   // Try to authenticate but don't fail if it doesn't work
   try {
     const token = authHeader.slice(7)
+
+    // Shared test API key
+    if (env.TEST_API_KEY && token === env.TEST_API_KEY) {
+      c.set('auth', {
+        userId: 'test-user',
+        authType: 'api_key',
+        keyName: 'test-api-key',
+        source: 'test_api_key',
+      })
+      return next()
+    }
 
     if (token.startsWith('sk_live_') || token.startsWith('sk_test_')) {
       const session = await validateApiKey(token, env)

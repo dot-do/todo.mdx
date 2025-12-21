@@ -9,7 +9,7 @@
  *
  * Requires:
  * - WORKER_BASE_URL (default: https://todo.mdx.do)
- * - oauth.do authentication (run `oauth.do login` first)
+ * - TEST_API_KEY for authentication
  */
 
 import { describe, test, expect, afterAll, beforeEach } from 'vitest'
@@ -18,7 +18,7 @@ import {
   deleteSession,
   getWorkerBaseUrl,
 } from '../helpers/stdio'
-import { hasOAuthCredentials } from '../setup'
+import { hasWorkerCredentials } from '../helpers/worker'
 
 // Track created sessions for cleanup
 const createdSessions: string[] = []
@@ -35,7 +35,7 @@ afterAll(async () => {
 
 describe('SessionDO token storage', () => {
   beforeEach((ctx) => {
-    if (!hasOAuthCredentials) ctx.skip()
+    if (!hasWorkerCredentials()) ctx.skip()
   })
 
   test('handles short session IDs', async () => {
@@ -113,7 +113,7 @@ describe('SessionDO token storage', () => {
 
 describe('embed endpoint', () => {
   beforeEach((ctx) => {
-    if (!hasOAuthCredentials) ctx.skip()
+    if (!hasWorkerCredentials()) ctx.skip()
   })
 
   test('returns HTML with valid token', async () => {
@@ -186,7 +186,7 @@ describe('embed endpoint', () => {
 
 describe('concurrent session stress test', () => {
   beforeEach((ctx) => {
-    if (!hasOAuthCredentials) ctx.skip()
+    if (!hasWorkerCredentials()) ctx.skip()
   })
 
   test('can create many sessions concurrently', async () => {

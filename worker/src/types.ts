@@ -51,6 +51,10 @@ export interface Env {
 
   // AI
   ANTHROPIC_API_KEY?: string
+  CLAUDE_CODE_OAUTH_TOKEN?: string
+
+  // Testing
+  TEST_API_KEY?: string
 }
 
 // Cloudflare Workflows types

@@ -15,25 +15,16 @@
  */
 
 import { describe, test, expect, beforeAll } from 'vitest'
-import { getToken } from 'oauth.do/node'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+const TEST_API_KEY = process.env.TEST_API_KEY
 
-// Check if we have oauth.do credentials
-let hasCredentials = false
-let oauthToken: string | null = null
+// Check if we have credentials
+const hasCredentials = !!TEST_API_KEY
 
-beforeAll(async () => {
-  try {
-    oauthToken = await getToken() ?? null
-    hasCredentials = !!oauthToken
-  } catch {
-    hasCredentials = false
-  }
-
+beforeAll(() => {
   if (!hasCredentials) {
-    console.log('Some tests will be skipped - not authenticated via oauth.do')
-    console.log('Run `npx oauth.do login` to authenticate')
+    console.log('Some tests will be skipped - set TEST_API_KEY')
   }
 })
 
@@ -137,10 +128,10 @@ describe('embed page redirect', () => {
   })
 })
 
-describe('token-based auth (with oauth.do)', () => {
+describe('token-based auth', () => {
   test('can authenticate API with Bearer token', async () => {
     if (!hasCredentials) {
-      console.log('Skipping - no oauth.do credentials')
+      console.log('Skipping - no TEST_API_KEY')
       return
     }
 
@@ -148,7 +139,7 @@ describe('token-based auth (with oauth.do)', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${oauthToken}`,
+        Authorization: `Bearer ${TEST_API_KEY}`,
       },
       body: JSON.stringify({}),
     })

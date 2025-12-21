@@ -43,35 +43,20 @@ pnpm --filter @todo.mdx/tests test -- -t "GitHub sync"
 
 ### Authentication
 
-Tests authenticate with the worker API using one of two methods:
-
-#### Option 1: oauth.do (Recommended for local development)
-
-```bash
-# Run once to authenticate via WorkOS
-npx oauth.do login
-
-# Then run tests - tokens are managed automatically
-pnpm --filter @todo.mdx/tests test
-```
-
-The oauth.do CLI handles token storage, refresh, and injection. After logging in once, tokens persist across sessions.
-
-#### Option 2: WORKER_ACCESS_TOKEN (Required for CI)
-
-Set `WORKER_ACCESS_TOKEN` in your `.env` file or environment:
+Tests authenticate using a shared `TEST_API_KEY`. This key must be:
+1. Set as a wrangler secret in the worker: `wrangler secret put TEST_API_KEY`
+2. Set in your local `.env` file
+3. Set in GitHub Actions secrets for CI
 
 ```bash
-# WorkOS API key format (sk_live_* or sk_test_*)
-WORKER_ACCESS_TOKEN=sk_live_xxxxxxxxxxxxxxxxxxxx
-
-# Or an OAuth bearer token
-WORKER_ACCESS_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+# In tests/.env
+TEST_API_KEY=your-secret-key-here
 ```
 
-Get tokens from:
-- WorkOS Dashboard → API Keys (for sk_live_* keys)
-- The oauth.do flow (for OAuth tokens)
+Generate a secure key:
+```bash
+openssl rand -base64 32
+```
 
 ### Base URLs
 

@@ -3,31 +3,17 @@
  *
  * Helpers for testing the sandbox stdio WebSocket API.
  * Uses the binary protocol from @todo.mdx/sandbox.
- * Authentication via oauth.do (WorkOS tokens).
+ * Authentication via TEST_API_KEY env var.
  */
-
-import { getToken } from 'oauth.do/node'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-
-// Cached token from oauth.do
-let cachedToken: string | null = null
+const TEST_API_KEY = process.env.TEST_API_KEY
 
 /**
- * Get authentication token via oauth.do
- * Uses cached token if available
+ * Get authentication token
  */
-async function getAuthToken(): Promise<string | null> {
-  if (cachedToken) return cachedToken
-
-  try {
-    // Get token from oauth.do storage
-    cachedToken = await getToken() ?? null
-    return cachedToken
-  } catch (err) {
-    console.error('oauth.do authentication failed:', err)
-    return null
-  }
+function getAuthToken(): string | null {
+  return TEST_API_KEY || null
 }
 
 // Stream IDs for binary protocol
@@ -90,9 +76,9 @@ export async function createSession(options?: {
   wsUrl: string
   expiresIn: number
 }> {
-  const token = await getAuthToken()
+  const token = getAuthToken()
   if (!token) {
-    throw new Error('Authentication required - run `oauth.do login` first')
+    throw new Error('Authentication required - set TEST_API_KEY')
   }
 
   const response = await fetch(`${WORKER_BASE_URL}/api/stdio/create`, {
@@ -125,9 +111,9 @@ export async function getSessionStatus(sandboxId: string): Promise<{
   }
   wsUrl: string
 }> {
-  const token = await getAuthToken()
+  const token = getAuthToken()
   if (!token) {
-    throw new Error('Authentication required - run `oauth.do login` first')
+    throw new Error('Authentication required - set TEST_API_KEY')
   }
 
   const response = await fetch(`${WORKER_BASE_URL}/api/stdio/${sandboxId}/status`, {
@@ -148,9 +134,9 @@ export async function getSessionStatus(sandboxId: string): Promise<{
  * Delete a sandbox session
  */
 export async function deleteSession(sandboxId: string): Promise<void> {
-  const token = await getAuthToken()
+  const token = getAuthToken()
   if (!token) {
-    throw new Error('Authentication required - run `oauth.do login` first')
+    throw new Error('Authentication required - set TEST_API_KEY')
   }
 
   const response = await fetch(`${WORKER_BASE_URL}/api/stdio/${sandboxId}`, {
@@ -177,15 +163,9 @@ export interface SessionOutput {
 }
 
 /**
- * Connect to a sandbox session and run a command
- *
- * @param sandboxId - The sandbox session ID
- * @param cmd - Command to run
- * @param args - Command arguments
- * @param options - Additional options
- * @returns Session output (stdout, stderr, exitCode)
+ * Internal function to connect WebSocket and run command
  */
-export async function runCommand(
+async function runCommandInternal(
   sandboxId: string,
   cmd: string,
   args: string[] = [],
@@ -193,11 +173,12 @@ export async function runCommand(
     stdin?: string
     timeout?: number
     token?: string
+    env?: Record<string, string>
   }
 ): Promise<SessionOutput> {
-  const token = options?.token || (await getAuthToken())
+  const token = options?.token || getAuthToken()
   if (!token) {
-    throw new Error('Authentication required - run `oauth.do login` first')
+    throw new Error('Authentication required - set TEST_API_KEY')
   }
   const timeout = options?.timeout || 30000
 
@@ -209,6 +190,12 @@ export async function runCommand(
   wsUrl.searchParams.set('token', token!)
   for (const arg of args) {
     wsUrl.searchParams.append('arg', arg)
+  }
+  // Pass environment variables as env_NAME=value query params
+  if (options?.env) {
+    for (const [key, value] of Object.entries(options.env)) {
+      wsUrl.searchParams.set(`env_${key}`, value)
+    }
   }
 
   return new Promise((resolve, reject) => {
@@ -288,16 +275,62 @@ export async function runCommand(
 }
 
 /**
- * Check if sandbox credentials are available
- * Returns true if oauth.do has a stored token
+ * Connect to a sandbox session and run a command
+ * Includes retry logic with session recreation on connection failure
+ *
+ * @param sandboxId - The sandbox session ID
+ * @param cmd - Command to run
+ * @param args - Command arguments
+ * @param options - Additional options
+ * @returns Session output (stdout, stderr, exitCode)
  */
-export async function hasSandboxCredentials(): Promise<boolean> {
-  try {
-    const token = await getToken()
-    return !!token
-  } catch {
-    return false
+export async function runCommand(
+  sandboxId: string,
+  cmd: string,
+  args: string[] = [],
+  options?: {
+    stdin?: string
+    timeout?: number
+    token?: string
+    retries?: number
+    env?: Record<string, string>
   }
+): Promise<SessionOutput> {
+  const maxRetries = options?.retries ?? 1
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await runCommandInternal(sandboxId, cmd, args, options)
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries
+      const isConnectionError = error instanceof Error &&
+        (error.message.includes('WebSocket error') ||
+         error.message.includes('non-101'))
+
+      if (isLastAttempt || !isConnectionError) {
+        throw error
+      }
+
+      // Wait a moment before retry
+      await new Promise(resolve => setTimeout(resolve, 500))
+
+      // Try to recreate the session before retrying
+      try {
+        await createSession({ sandboxId })
+      } catch {
+        // Ignore session recreation errors - it might already exist
+      }
+    }
+  }
+
+  throw new Error('Unreachable')
+}
+
+/**
+ * Check if sandbox credentials are available
+ */
+export function hasSandboxCredentials(): boolean {
+  return !!TEST_API_KEY
 }
 
 /**

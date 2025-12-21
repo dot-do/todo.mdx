@@ -1,45 +1,25 @@
 import { describe, test, expect, beforeAll } from 'vitest'
-import { getToken } from 'oauth.do/node'
 
-// MCP server URL (local dev or staging)
+// MCP server URL
 const MCP_BASE_URL = process.env.MCP_BASE_URL || 'https://todo.mdx.do'
-
-// Cached token from oauth.do
-let cachedToken: string | null = null
+const TEST_API_KEY = process.env.TEST_API_KEY
 
 /**
- * Get authentication token via oauth.do
- * Falls back to MCP_ACCESS_TOKEN env var for CI
+ * Get authentication token
  */
-async function getAuthToken(): Promise<string | null> {
-  if (cachedToken) return cachedToken
-
-  // Try env var first (for CI)
-  if (process.env.MCP_ACCESS_TOKEN) {
-    cachedToken = process.env.MCP_ACCESS_TOKEN
-    return cachedToken
-  }
-
-  try {
-    // Get token from oauth.do storage
-    cachedToken = await getToken() ?? null
-    return cachedToken
-  } catch (err) {
-    console.error('oauth.do authentication failed:', err)
-    return null
-  }
+function getAuthToken(): string | null {
+  return TEST_API_KEY || null
 }
 
-async function hasMcpCredentials(): Promise<boolean> {
-  const token = await getAuthToken()
-  return !!token
+function hasMcpCredentials(): boolean {
+  return !!TEST_API_KEY
 }
 
 // We'll check credentials in beforeAll
 let hasCredentials = false
 
-async function mcpFetch(path: string, options: RequestInit = {}): Promise<Response> {
-  const token = await getAuthToken()
+function mcpFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAuthToken()
   return fetch(`${MCP_BASE_URL}/mcp${path}`, {
     ...options,
     headers: {
@@ -80,9 +60,9 @@ describe('MCP server discovery', () => {
 
 describe('MCP server authenticated', () => {
   beforeAll(async () => {
-    hasCredentials = await hasMcpCredentials()
+    hasCredentials = hasMcpCredentials()
     if (!hasCredentials) {
-      console.log('Skipping MCP authenticated tests - run `oauth.do login` or set MCP_ACCESS_TOKEN')
+      console.log('Skipping MCP authenticated tests - set TEST_API_KEY')
     }
   })
 
@@ -256,7 +236,7 @@ describe('MCP issue management tools', () => {
   const TEST_REPO = 'dot-do/test.mdx'
 
   beforeAll(async () => {
-    hasCredentials = await hasMcpCredentials()
+    hasCredentials = hasMcpCredentials()
   })
 
   test('list_todos returns issues array', async () => {
@@ -478,7 +458,7 @@ describe('MCP issue management tools', () => {
 
 describe('MCP search functionality', () => {
   beforeAll(async () => {
-    hasCredentials = await hasMcpCredentials()
+    hasCredentials = hasMcpCredentials()
   })
 
   test('search finds issues by text', async () => {
@@ -574,7 +554,7 @@ describe('MCP search functionality', () => {
 
 describe('MCP fetch tool', () => {
   beforeAll(async () => {
-    hasCredentials = await hasMcpCredentials()
+    hasCredentials = hasMcpCredentials()
   })
 
   test('fetch retrieves resource content', async () => {
@@ -618,7 +598,7 @@ describe('MCP fetch tool', () => {
 
 describe('MCP roadmap tool', () => {
   beforeAll(async () => {
-    hasCredentials = await hasMcpCredentials()
+    hasCredentials = hasMcpCredentials()
   })
 
   test('roadmap returns markdown content', async () => {
@@ -734,7 +714,7 @@ describe('MCP do tool', () => {
   const TEST_REPO = 'dot-do/test.mdx'
 
   beforeAll(async () => {
-    hasCredentials = await hasMcpCredentials()
+    hasCredentials = hasMcpCredentials()
   })
 
   test('do tool executes simple code and returns result', async () => {
