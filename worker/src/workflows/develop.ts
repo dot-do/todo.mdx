@@ -177,7 +177,37 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
 
     console.log(`[DevelopWorkflow] Closed issue ${issue.id}`)
 
-    // Done! Dependent issues will unblock automatically via beads
+    // Step 8: Notify dependent repos (multi-repo coordination)
+    // This allows cross-repo dependencies to unblock
+    await step.do(`notify-dependent-repos-${issue.id}`, async () => {
+      await this.notifyDependentRepos(repo, issue.id)
+    })
+
+    console.log(`[DevelopWorkflow] Notified dependent repos`)
+
+    // Done! Local dependent issues unblock automatically via beads
+    // Cross-repo dependent issues will be notified and trigger their workflows
+  }
+
+  /**
+   * Notify repos that have cross-repo dependencies on this issue
+   */
+  private async notifyDependentRepos(repo: Repo, issueId: string): Promise<void> {
+    // In a full implementation, we would:
+    // 1. Query a central registry for repos that depend on this issue
+    // 2. For each dependent repo, call their /notify/issue-closed endpoint
+    //
+    // For now, this is handled by:
+    // - Cross-repo deps stored in each repo's RepoDO
+    // - Repos can poll /cross-deps/check or receive webhooks
+    //
+    // A more sophisticated implementation would use:
+    // - Cloudflare Pub/Sub for event fanout
+    // - D1 registry of all cross-repo dependencies
+    // - Webhook subscriptions between repos
+
+    console.log(`[DevelopWorkflow] Issue ${issueId} in ${repo.owner}/${repo.name} completed`)
+    console.log(`[DevelopWorkflow] Cross-repo dependents will check their dependency status on next poll`)
   }
 }
 

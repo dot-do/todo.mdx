@@ -345,6 +345,23 @@ export class RepoDO extends DurableObject<Env> {
         details TEXT,
         created_at TEXT NOT NULL
       );
+
+      -- Cross-repo dependencies (for multi-repo workflows)
+      CREATE TABLE IF NOT EXISTS cross_repo_deps (
+        issue_id TEXT NOT NULL,
+        depends_on_repo TEXT NOT NULL,  -- 'owner/repo'
+        depends_on_issue TEXT NOT NULL, -- issue ID in the other repo
+        type TEXT NOT NULL DEFAULT 'blocks',
+        status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'satisfied' | 'failed'
+        last_checked_at TEXT,
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        PRIMARY KEY (issue_id, depends_on_repo, depends_on_issue),
+        FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cross_repo_deps_issue ON cross_repo_deps(issue_id);
+      CREATE INDEX IF NOT EXISTS idx_cross_repo_deps_target ON cross_repo_deps(depends_on_repo, depends_on_issue);
     `)
 
     this.initialized = true
@@ -1210,22 +1227,168 @@ export class RepoDO extends DurableObject<Env> {
   }
 
   listReady(): Issue[] {
-    // Issues that are open and have no blocking dependencies
+    // Issues that are open and have no blocking dependencies (local or cross-repo)
     return this.sql
       .exec(
         `SELECT i.* FROM issues i
          WHERE i.status = 'open'
          AND i.id NOT IN (
+           -- Local blocking dependencies
            SELECT d.issue_id FROM dependencies d
            JOIN issues blocker ON d.depends_on_id = blocker.id
            WHERE d.type = 'blocks' AND blocker.status != 'closed'
+         )
+         AND i.id NOT IN (
+           -- Cross-repo blocking dependencies that are not satisfied
+           SELECT crd.issue_id FROM cross_repo_deps crd
+           WHERE crd.type = 'blocks' AND crd.status != 'satisfied'
          )
          ORDER BY i.priority ASC, i.updated_at DESC`
       )
       .toArray() as Issue[]
   }
 
-  listBlocked(): Array<Issue & { blockers: string[] }> {
+  /**
+   * Get cross-repo dependencies for an issue
+   */
+  getCrossRepoDeps(issueId: string): Array<{
+    depends_on_repo: string
+    depends_on_issue: string
+    type: string
+    status: string
+    last_checked_at: string | null
+  }> {
+    return this.sql
+      .exec(
+        `SELECT depends_on_repo, depends_on_issue, type, status, last_checked_at
+         FROM cross_repo_deps WHERE issue_id = ?`,
+        issueId
+      )
+      .toArray() as any[]
+  }
+
+  /**
+   * Add a cross-repo dependency
+   */
+  addCrossRepoDep(
+    issueId: string,
+    dependsOnRepo: string,
+    dependsOnIssue: string,
+    type: 'blocks' | 'related' = 'blocks',
+    createdBy: string = 'system'
+  ): void {
+    const now = new Date().toISOString()
+    this.sql.exec(
+      `INSERT OR REPLACE INTO cross_repo_deps
+       (issue_id, depends_on_repo, depends_on_issue, type, status, created_at, created_by)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+      issueId,
+      dependsOnRepo,
+      dependsOnIssue,
+      type,
+      now,
+      createdBy
+    )
+  }
+
+  /**
+   * Remove a cross-repo dependency
+   */
+  removeCrossRepoDep(issueId: string, dependsOnRepo: string, dependsOnIssue: string): void {
+    this.sql.exec(
+      `DELETE FROM cross_repo_deps WHERE issue_id = ? AND depends_on_repo = ? AND depends_on_issue = ?`,
+      issueId,
+      dependsOnRepo,
+      dependsOnIssue
+    )
+  }
+
+  /**
+   * Update the status of a cross-repo dependency
+   */
+  updateCrossRepoDepStatus(
+    issueId: string,
+    dependsOnRepo: string,
+    dependsOnIssue: string,
+    status: 'pending' | 'satisfied' | 'failed'
+  ): void {
+    const now = new Date().toISOString()
+    this.sql.exec(
+      `UPDATE cross_repo_deps SET status = ?, last_checked_at = ?
+       WHERE issue_id = ? AND depends_on_repo = ? AND depends_on_issue = ?`,
+      status,
+      now,
+      issueId,
+      dependsOnRepo,
+      dependsOnIssue
+    )
+  }
+
+  /**
+   * Check all cross-repo dependencies for an issue by querying other RepoDOs
+   */
+  async checkCrossRepoDeps(issueId: string): Promise<{
+    satisfied: boolean
+    pending: Array<{ repo: string; issue: string }>
+  }> {
+    const deps = this.getCrossRepoDeps(issueId)
+    const pending: Array<{ repo: string; issue: string }> = []
+
+    for (const dep of deps) {
+      if (dep.type !== 'blocks') continue
+
+      try {
+        // Get the other repo's RepoDO
+        const doId = this.env.REPO.idFromName(dep.depends_on_repo)
+        const repoDO = this.env.REPO.get(doId)
+
+        // Check if the issue is closed
+        const response = await repoDO.fetch(
+          new Request(`http://repo/issues/${dep.depends_on_issue}`)
+        )
+
+        if (response.ok) {
+          const issue = await response.json() as { status: string }
+          if (issue.status === 'closed') {
+            this.updateCrossRepoDepStatus(issueId, dep.depends_on_repo, dep.depends_on_issue, 'satisfied')
+          } else {
+            pending.push({ repo: dep.depends_on_repo, issue: dep.depends_on_issue })
+          }
+        } else {
+          // Issue not found or error - treat as pending
+          pending.push({ repo: dep.depends_on_repo, issue: dep.depends_on_issue })
+        }
+      } catch (error) {
+        console.error(`[RepoDO] Failed to check cross-repo dep ${dep.depends_on_repo}#${dep.depends_on_issue}:`, error)
+        pending.push({ repo: dep.depends_on_repo, issue: dep.depends_on_issue })
+      }
+    }
+
+    return { satisfied: pending.length === 0, pending }
+  }
+
+  /**
+   * Notify other repos that an issue in this repo has been closed
+   * This allows them to update their cross-repo dependency status
+   */
+  async notifyDependentRepos(issueId: string): Promise<void> {
+    if (!this.repoFullName) return
+
+    // Find all repos that might have cross-repo deps on this issue
+    // We don't store this info locally, so we need to broadcast
+    // In practice, this would be optimized with a registry of cross-repo deps
+    // For now, we log and the dependent repos can poll or use webhooks
+
+    console.log(`[RepoDO] Issue ${issueId} closed in ${this.repoFullName}, dependents should be notified`)
+
+    // TODO: In a full implementation, we would:
+    // 1. Query a central registry of cross-repo dependencies
+    // 2. Or store reverse mappings when deps are created
+    // 3. Then notify each dependent repo via their /notify/issue-closed endpoint
+  }
+
+  listBlocked(): Array<Issue & { blockers: string[]; crossRepoBlockers?: Array<{ repo: string; issue: string }> }> {
+    // Get locally blocked issues
     const blocked = this.sql
       .exec(
         `SELECT i.*, GROUP_CONCAT(d.depends_on_id) as blocker_ids
@@ -1237,9 +1400,48 @@ export class RepoDO extends DurableObject<Env> {
       )
       .toArray() as Array<Issue & { blocker_ids: string }>
 
-    return blocked.map((issue) => ({
+    // Get cross-repo blocked issues
+    const crossRepoBlocked = this.sql
+      .exec(
+        `SELECT i.*, GROUP_CONCAT(crd.depends_on_repo || '#' || crd.depends_on_issue) as cross_blocker_ids
+         FROM issues i
+         JOIN cross_repo_deps crd ON i.id = crd.issue_id
+         WHERE crd.type = 'blocks' AND crd.status != 'satisfied'
+         GROUP BY i.id`
+      )
+      .toArray() as Array<Issue & { cross_blocker_ids: string }>
+
+    // Merge results
+    const blockedMap = new Map<string, Issue & { blockers: string[]; crossRepoBlockers?: Array<{ repo: string; issue: string }> }>()
+
+    for (const issue of blocked) {
+      blockedMap.set(issue.id, {
+        ...issue,
+        blockers: issue.blocker_ids.split(','),
+      })
+    }
+
+    for (const issue of crossRepoBlocked) {
+      const existing = blockedMap.get(issue.id)
+      const crossRepoBlockers = issue.cross_blocker_ids.split(',').map(ref => {
+        const [repo, issueId] = ref.split('#')
+        return { repo, issue: issueId }
+      })
+
+      if (existing) {
+        existing.crossRepoBlockers = crossRepoBlockers
+      } else {
+        blockedMap.set(issue.id, {
+          ...issue,
+          blockers: [],
+          crossRepoBlockers,
+        })
+      }
+    }
+
+    return Array.from(blockedMap.values()).map((issue) => ({
       ...issue,
-      blockers: issue.blocker_ids.split(','),
+      blockers: issue.blockers || [],
     }))
   }
 
@@ -1306,6 +1508,70 @@ export class RepoDO extends DurableObject<Env> {
       // Blocked issues
       if (path === '/issues/blocked' && request.method === 'GET') {
         return Response.json(this.listBlocked())
+      }
+
+      // Cross-repo dependencies: GET /cross-deps/:issueId
+      if (path.startsWith('/cross-deps/') && request.method === 'GET') {
+        const issueId = path.slice('/cross-deps/'.length)
+        const deps = this.getCrossRepoDeps(issueId)
+        return Response.json({ issueId, dependencies: deps })
+      }
+
+      // Cross-repo dependencies: POST /cross-deps (add)
+      if (path === '/cross-deps' && request.method === 'POST') {
+        const body = await request.json() as {
+          issueId: string
+          dependsOnRepo: string
+          dependsOnIssue: string
+          type?: 'blocks' | 'related'
+          createdBy?: string
+        }
+        this.addCrossRepoDep(
+          body.issueId,
+          body.dependsOnRepo,
+          body.dependsOnIssue,
+          body.type || 'blocks',
+          body.createdBy || 'api'
+        )
+        return Response.json({ ok: true, message: 'Cross-repo dependency added' })
+      }
+
+      // Cross-repo dependencies: DELETE /cross-deps
+      if (path === '/cross-deps' && request.method === 'DELETE') {
+        const body = await request.json() as {
+          issueId: string
+          dependsOnRepo: string
+          dependsOnIssue: string
+        }
+        this.removeCrossRepoDep(body.issueId, body.dependsOnRepo, body.dependsOnIssue)
+        return Response.json({ ok: true, message: 'Cross-repo dependency removed' })
+      }
+
+      // Cross-repo dependencies: POST /cross-deps/check (check and update status)
+      if (path === '/cross-deps/check' && request.method === 'POST') {
+        const body = await request.json() as { issueId: string }
+        const result = await this.checkCrossRepoDeps(body.issueId)
+        return Response.json(result)
+      }
+
+      // Notify: POST /notify/issue-closed (called by other repos when their issues close)
+      if (path === '/notify/issue-closed' && request.method === 'POST') {
+        const body = await request.json() as {
+          sourceRepo: string
+          issueId: string
+        }
+        // Update any cross-repo deps that depend on this issue
+        this.sql.exec(
+          `UPDATE cross_repo_deps SET status = 'satisfied', last_checked_at = ?
+           WHERE depends_on_repo = ? AND depends_on_issue = ?`,
+          new Date().toISOString(),
+          body.sourceRepo,
+          body.issueId
+        )
+        // Check if any issues are now ready
+        const readyBefore = new Set(this.listReady().map(i => i.id))
+        await this.triggerWorkflowsForReadyIssues(readyBefore, this.repoFullName!, this.installationId!)
+        return Response.json({ ok: true })
       }
 
       // Search
