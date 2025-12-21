@@ -414,6 +414,50 @@ export const webhooks = {
       body,
     })
   },
+
+  async simulateInstallationEvent(
+    action: 'created' | 'deleted' | 'suspend' | 'unsuspend',
+    installation: {
+      id: number
+      account: {
+        login: string
+        id: number
+        type: 'User' | 'Organization'
+        avatar_url?: string
+      }
+      permissions?: Record<string, string>
+      events?: string[]
+      repository_selection?: 'all' | 'selected'
+    },
+    repositories?: Array<{
+      id: number
+      name: string
+      full_name: string
+      private: boolean
+    }>
+  ): Promise<Response> {
+    const body = JSON.stringify({
+      action,
+      installation,
+      repositories: repositories || [],
+      sender: {
+        login: installation.account.login,
+        id: installation.account.id,
+      },
+    })
+
+    const signature = await generateGitHubSignature(body)
+
+    return workerFetch('/github/webhook', {
+      method: 'POST',
+      headers: {
+        'X-GitHub-Event': 'installation',
+        'X-GitHub-Delivery': crypto.randomUUID(),
+        'X-Hub-Signature-256': signature,
+      },
+      body,
+    })
+  },
 }
 
 // Workflow API
