@@ -1,16 +1,27 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest'
+import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createTestWorktree, type Worktree } from '../helpers/worktree'
 import * as beads from '../helpers/beads'
+
+// Track if bd CLI is available (checked once on startup)
+let hasBd = false
 
 describe('beads workflow', () => {
   let worktree: Worktree
 
-  beforeEach(async () => {
+  beforeAll(async () => {
+    hasBd = await beads.hasBdCli()
+    if (!hasBd) {
+      console.log('Skipping beads workflow tests - bd CLI not installed')
+    }
+  })
+
+  beforeEach(async (ctx) => {
+    if (!hasBd) ctx.skip()
     worktree = await createTestWorktree('beads-workflow')
   })
 
   afterEach(async () => {
-    await worktree.cleanup()
+    if (worktree) await worktree.cleanup()
   })
 
   test('bd init creates .beads directory', async () => {

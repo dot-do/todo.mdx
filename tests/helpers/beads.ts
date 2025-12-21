@@ -3,6 +3,18 @@ import type { Worktree } from './worktree'
 import fs from 'fs/promises'
 import path from 'path'
 
+/**
+ * Check if the `bd` CLI is available
+ */
+export async function hasBdCli(): Promise<boolean> {
+  try {
+    await execa('bd', ['--version'])
+    return true
+  } catch {
+    return false
+  }
+}
+
 export interface BeadsIssue {
   id: string
   title: string
