@@ -1,158 +1,215 @@
 /**
- * Direct D1 Database Access
+ * Direct D1 Database Access via Drizzle ORM
  *
- * Bypasses Payload CMS for simple CRUD operations in webhook handlers.
- * This avoids Payload's Node.js dependencies that don't work in Workers.
+ * Type-safe database operations for webhook handlers.
+ * Uses Drizzle ORM with schema matching Payload CMS tables.
  */
 
+import { eq } from 'drizzle-orm'
 import type { Env } from '../types'
-
-interface Installation {
-  id: string
-  installationId: number
-  accountType: string
-  accountId: number
-  accountLogin: string
-  accountAvatarUrl?: string
-  permissions?: Record<string, string>
-  events?: string[]
-  repositorySelection?: string
-  createdAt?: string
-  updatedAt?: string
-}
-
-interface Repo {
-  id: string
-  githubId: number
-  name: string
-  fullName: string
-  owner: string
-  private: boolean
-  installation: string
-  createdAt?: string
-  updatedAt?: string
-}
+import { createDrizzle, installations, repos, users, installationsRels } from './drizzle'
+import type { Installation, Repo, User, NewInstallation, NewRepo, NewUser } from './schema'
 
 /**
- * Create direct D1 operations for webhook handlers
+ * Create direct database operations for webhook handlers
  */
 export function createDirectDb(env: Env) {
-  const db = env.DB
+  const db = createDrizzle(env.DB)
 
   return {
     installations: {
       async findByInstallationId(installationId: number): Promise<Installation | null> {
-        const result = await db.prepare(
-          'SELECT * FROM installations WHERE installationId = ? LIMIT 1'
-        ).bind(installationId).first<Installation>()
-        return result || null
+        const result = await db
+          .select()
+          .from(installations)
+          .where(eq(installations.installationId, installationId))
+          .limit(1)
+
+        return result[0] || null
       },
 
-      async create(data: Omit<Installation, 'id' | 'createdAt' | 'updatedAt'>): Promise<Installation> {
-        const id = crypto.randomUUID()
+      async create(data: {
+        installationId: number
+        accountType: string
+        accountId: number
+        accountLogin: string
+        accountAvatarUrl?: string
+        permissions?: Record<string, string>
+        events?: string[]
+        repositorySelection?: string
+      }): Promise<Installation> {
         const now = new Date().toISOString()
-        await db.prepare(
-          `INSERT INTO installations (id, installationId, accountType, accountId, accountLogin, accountAvatarUrl, repositorySelection, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).bind(
-          id,
-          data.installationId,
-          data.accountType,
-          data.accountId,
-          data.accountLogin,
-          data.accountAvatarUrl || null,
-          data.repositorySelection || 'all',
-          now,
-          now
-        ).run()
 
-        return { ...data, id, createdAt: now, updatedAt: now }
+        const result = await db
+          .insert(installations)
+          .values({
+            installationId: data.installationId,
+            accountType: data.accountType,
+            accountId: data.accountId,
+            accountLogin: data.accountLogin,
+            accountAvatarUrl: data.accountAvatarUrl || null,
+            permissions: data.permissions ? JSON.stringify(data.permissions) : null,
+            events: data.events ? JSON.stringify(data.events) : null,
+            repositorySelection: data.repositorySelection || 'all',
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+
+        return result[0]
       },
 
       async delete(installationId: number): Promise<void> {
-        await db.prepare(
-          'DELETE FROM installations WHERE installationId = ?'
-        ).bind(installationId).run()
+        await db
+          .delete(installations)
+          .where(eq(installations.installationId, installationId))
       },
     },
 
     repos: {
       async findByGithubId(githubId: number): Promise<Repo | null> {
-        const result = await db.prepare(
-          'SELECT * FROM repos WHERE githubId = ? LIMIT 1'
-        ).bind(githubId).first<Repo>()
-        return result || null
+        const result = await db
+          .select()
+          .from(repos)
+          .where(eq(repos.githubId, githubId))
+          .limit(1)
+
+        return result[0] || null
       },
 
-      async create(data: Omit<Repo, 'id' | 'createdAt' | 'updatedAt'>): Promise<Repo> {
-        const id = crypto.randomUUID()
+      async create(data: {
+        githubId: number
+        name: string
+        fullName: string
+        owner: string
+        private: boolean
+        installationId: number
+        defaultBranch?: string
+      }): Promise<Repo> {
         const now = new Date().toISOString()
-        await db.prepare(
-          `INSERT INTO repos (id, githubId, name, fullName, owner, private, installation, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).bind(
-          id,
-          data.githubId,
-          data.name,
-          data.fullName,
-          data.owner,
-          data.private ? 1 : 0,
-          data.installation,
-          now,
-          now
-        ).run()
 
-        return { ...data, id, createdAt: now, updatedAt: now }
+        const result = await db
+          .insert(repos)
+          .values({
+            githubId: data.githubId,
+            name: data.name,
+            fullName: data.fullName,
+            owner: data.owner,
+            private: data.private,
+            installationId: data.installationId,
+            defaultBranch: data.defaultBranch || 'main',
+            syncEnabled: true,
+            syncPath: '.todo',
+            syncStatus: 'idle',
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+
+        return result[0]
       },
 
-      async deleteByInstallation(installationId: string): Promise<void> {
-        await db.prepare(
-          'DELETE FROM repos WHERE installation = ?'
-        ).bind(installationId).run()
+      async deleteByInstallation(installationId: number): Promise<void> {
+        await db
+          .delete(repos)
+          .where(eq(repos.installationId, installationId))
       },
     },
 
     users: {
-      async findByWorkosUserId(workosUserId: string): Promise<{ id: string; email: string; name?: string } | null> {
-        const result = await db.prepare(
-          'SELECT * FROM users WHERE workosUserId = ? LIMIT 1'
-        ).bind(workosUserId).first<any>()
-        return result || null
+      async findByWorkosUserId(workosUserId: string): Promise<User | null> {
+        const result = await db
+          .select()
+          .from(users)
+          .where(eq(users.workosUserId, workosUserId))
+          .limit(1)
+
+        return result[0] || null
       },
 
-      async create(data: { email: string; workosUserId: string; name?: string }): Promise<{ id: string }> {
-        const id = crypto.randomUUID()
+      async findByEmail(email: string): Promise<User | null> {
+        const result = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1)
+
+        return result[0] || null
+      },
+
+      async create(data: {
+        email: string
+        workosUserId: string
+        name?: string
+        githubId?: number
+        githubLogin?: string
+        githubAvatarUrl?: string
+      }): Promise<User> {
         const now = new Date().toISOString()
-        await db.prepare(
-          `INSERT INTO users (id, email, workosUserId, name, createdAt, updatedAt)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).bind(id, data.email, data.workosUserId, data.name || null, now, now).run()
-        return { id }
+
+        const result = await db
+          .insert(users)
+          .values({
+            email: data.email,
+            workosUserId: data.workosUserId,
+            name: data.name || null,
+            githubId: data.githubId || null,
+            githubLogin: data.githubLogin || null,
+            githubAvatarUrl: data.githubAvatarUrl || null,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+
+        return result[0]
       },
 
-      async update(id: string, data: { email?: string; name?: string }): Promise<void> {
-        const sets: string[] = []
-        const values: any[] = []
+      async update(id: number, data: {
+        email?: string
+        name?: string
+        githubId?: number
+        githubLogin?: string
+        githubAvatarUrl?: string
+      }): Promise<User | null> {
+        const result = await db
+          .update(users)
+          .set({
+            ...data,
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(users.id, id))
+          .returning()
 
-        if (data.email !== undefined) {
-          sets.push('email = ?')
-          values.push(data.email)
-        }
-        if (data.name !== undefined) {
-          sets.push('name = ?')
-          values.push(data.name)
-        }
-        sets.push('updatedAt = ?')
-        values.push(new Date().toISOString())
-        values.push(id)
+        return result[0] || null
+      },
 
-        if (sets.length > 1) {
-          await db.prepare(
-            `UPDATE users SET ${sets.join(', ')} WHERE id = ?`
-          ).bind(...values).run()
+      async upsertByWorkosUserId(data: {
+        email: string
+        workosUserId: string
+        name?: string
+        githubId?: number
+        githubLogin?: string
+        githubAvatarUrl?: string
+      }): Promise<User> {
+        const existing = await this.findByWorkosUserId(data.workosUserId)
+
+        if (existing) {
+          const updated = await this.update(existing.id, {
+            email: data.email,
+            name: data.name,
+            githubId: data.githubId,
+            githubLogin: data.githubLogin,
+            githubAvatarUrl: data.githubAvatarUrl,
+          })
+          return updated!
         }
+
+        return this.create(data)
       },
     },
+
+    // Raw Drizzle access for complex queries
+    db,
   }
 }
 

@@ -50,7 +50,7 @@ export async function handleInstallation(
       const existing = await db.installations.findByInstallationId(installation.id)
       timing.findExisting = Date.now() - t1
 
-      let installResult: { id: string }
+      let installResult: { id: number }
       const t2 = Date.now()
       if (existing) {
         // Installation already exists, just use it
@@ -77,7 +77,7 @@ export async function handleInstallation(
             fullName: repo.full_name,
             owner: repo.full_name.split('/')[0],
             private: repo.private,
-            installation: installResult.id,
+            installationId: installResult.id,
           }
           if (existingRepo) {
             // Repo already exists, skip
