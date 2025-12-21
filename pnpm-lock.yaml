@@ -442,6 +442,9 @@ importers:
       '@workos-inc/authkit-nextjs':
         specifier: ^2.12.0
         version: 2.12.2(next@15.5.9(@opentelemetry/api@1.9.0)(@playwright/test@1.56.1)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)(sass@1.77.4))(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      clsx:
+        specifier: ^2.1.0
+        version: 2.1.1
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0

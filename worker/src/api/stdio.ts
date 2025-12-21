@@ -192,18 +192,32 @@ app.get('/:sandboxId/embed', async (c) => {
   const sandboxId = c.req.param('sandboxId')
   const url = new URL(c.req.url)
 
-  // Check for session cookie (unified auth)
-  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+  // Check for token in query param or Authorization header first (for API/token access)
+  const token = url.searchParams.get('token')
+    ?? c.req.header('Authorization')?.replace('Bearer ', '')
 
-  if (!session) {
-    // Redirect to unified login
-    const returnUrl = encodeURIComponent(url.pathname + url.search)
-    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  let wsToken: string
+
+  if (token) {
+    // Validate token using the same logic as WebSocket endpoint
+    const auth = await validateToken(c.env, token)
+    if (!auth) {
+      return c.json({ error: 'Invalid token' }, 401)
+    }
+    // Use the validated token for WebSocket connection
+    wsToken = token
+  } else {
+    // Fall back to session cookie (browser access)
+    const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+    if (!session) {
+      // Redirect to unified login only for browser access without any auth
+      const returnUrl = encodeURIComponent(url.pathname + url.search)
+      return c.redirect(`/api/auth/login?return=${returnUrl}`)
+    }
+    // Create a signed token for WebSocket connection
+    // (WebSockets can't access HttpOnly cookies directly)
+    wsToken = await createSessionToken(session, c.env.COOKIE_ENCRYPTION_KEY)
   }
-
-  // Create a signed token for WebSocket connection
-  // (WebSockets can't access HttpOnly cookies directly)
-  const wsToken = await createSessionToken(session, c.env.COOKIE_ENCRYPTION_KEY)
 
   // Build WebSocket URL
   const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
