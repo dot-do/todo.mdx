@@ -158,10 +158,12 @@
       if (sessionId) {
         await connectToSession(sessionId);
       } else if (!repo) {
+        terminal.setStatus('disconnected');
         terminal.write('\r\n\x1b[33mUsage:\x1b[0m\r\n');
         terminal.write('  ?repo=owner/repo    - Start session for a repository\r\n');
         terminal.write('  ?session=<id>       - Connect to existing session\r\n');
         terminal.write('  ?task=<description> - Set task description\r\n');
+        terminal.write('\r\nType in terminal after connecting to a session.\r\n');
       }
     }
 
