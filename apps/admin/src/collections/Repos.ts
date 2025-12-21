@@ -128,6 +128,61 @@ export const Repos: CollectionConfig = {
         condition: (data) => data.syncStatus === 'error',
       },
     },
+    // Review configuration
+    {
+      name: 'reviewConfig',
+      type: 'group',
+      admin: {
+        description: 'PR code review configuration',
+      },
+      fields: [
+        {
+          name: 'enabled',
+          type: 'checkbox',
+          defaultValue: false,
+          admin: {
+            description: 'Whether PR review is enabled for this repo',
+          },
+        },
+        {
+          name: 'reviewers',
+          type: 'array',
+          admin: {
+            description: 'Ordered list of reviewers',
+            condition: (data) => data.reviewConfig?.enabled,
+          },
+          fields: [
+            {
+              name: 'agent',
+              type: 'relationship',
+              relationTo: 'agents',
+              required: true,
+              admin: {
+                description: 'Agent to review this PR',
+              },
+            },
+          ],
+        },
+        {
+          name: 'autoMerge',
+          type: 'checkbox',
+          defaultValue: false,
+          admin: {
+            description: 'Auto-merge when all reviewers approve',
+            condition: (data) => data.reviewConfig?.enabled,
+          },
+        },
+        {
+          name: 'requireHumanApproval',
+          type: 'checkbox',
+          defaultValue: false,
+          admin: {
+            description: 'Require at least one human approval',
+            condition: (data) => data.reviewConfig?.enabled,
+          },
+        },
+      ],
+    },
   ],
   timestamps: true,
 }

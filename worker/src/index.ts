@@ -103,10 +103,17 @@ app.all('/sse', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
 app.all('/mcp/*', async (c) => {
   // Check if the request has a WorkOS JWT that we can validate directly
   const authHeader = c.req.header('Authorization')
+  console.log('[MCP] Request to', c.req.url, '- Auth header present:', !!authHeader)
+
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7)
-    if (mightBeWorkosJwt(token)) {
+    const looksLikeJwt = mightBeWorkosJwt(token)
+    console.log('[MCP] Token length:', token.length, '- Looks like JWT:', looksLikeJwt)
+
+    if (looksLikeJwt) {
       const props = await validateWorkosJwt(token, c.env)
+      console.log('[MCP] WorkOS JWT validation result:', props ? 'success' : 'failed')
+
       if (props) {
         // WorkOS JWT validated - handle MCP endpoints directly
 

@@ -75,12 +75,16 @@ export interface Config {
     milestones: Milestone;
     'sync-events': SyncEvent;
     'linear-integrations': LinearIntegration;
+    agents: Agent;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
     'payload-migrations': PayloadMigration;
   };
   collectionsJoins: {
+    users: {
+      installations: 'installations';
+    };
     milestones: {
       issues: 'issues';
     };
@@ -94,6 +98,7 @@ export interface Config {
     milestones: MilestonesSelect<false> | MilestonesSelect<true>;
     'sync-events': SyncEventsSelect<false> | SyncEventsSelect<true>;
     'linear-integrations': LinearIntegrationsSelect<false> | LinearIntegrationsSelect<true>;
+    agents: AgentsSelect<false> | AgentsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -138,11 +143,32 @@ export interface UserAuthOperations {
  */
 export interface User {
   id: number;
-  roles?: ('admin' | 'user')[] | null;
+  roles: ('admin' | 'user')[];
+  /**
+   * GitHub user ID
+   */
+  githubId?: number | null;
+  /**
+   * GitHub username
+   */
+  githubLogin?: string | null;
+  /**
+   * GitHub avatar URL
+   */
+  githubAvatarUrl?: string | null;
+  /**
+   * Display name
+   */
+  name?: string | null;
+  /**
+   * WorkOS user ID
+   */
   workosUserId?: string | null;
-  firstName?: string | null;
-  lastName?: string | null;
-  emailVerified?: boolean | null;
+  installations?: {
+    docs?: (number | Installation)[];
+    hasNextPage?: boolean;
+    totalDocs?: number;
+  };
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -160,23 +186,6 @@ export interface User {
       }[]
     | null;
   password?: string | null;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "media".
- */
-export interface Media {
-  id: number;
-  alt: string;
-  updatedAt: string;
-  createdAt: string;
-  url?: string | null;
-  thumbnailURL?: string | null;
-  filename?: string | null;
-  mimeType?: string | null;
-  filesize?: number | null;
-  width?: number | null;
-  height?: number | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -239,6 +248,23 @@ export interface Installation {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "media".
+ */
+export interface Media {
+  id: number;
+  alt: string;
+  updatedAt: string;
+  createdAt: string;
+  url?: string | null;
+  thumbnailURL?: string | null;
+  filename?: string | null;
+  mimeType?: string | null;
+  filesize?: number | null;
+  width?: number | null;
+  height?: number | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "repos".
  */
 export interface Repo {
@@ -279,6 +305,69 @@ export interface Repo {
    * Last sync error message
    */
   syncError?: string | null;
+  /**
+   * PR code review configuration
+   */
+  reviewConfig?: {
+    /**
+     * Whether PR review is enabled for this repo
+     */
+    enabled?: boolean | null;
+    /**
+     * Ordered list of reviewers
+     */
+    reviewers?:
+      | {
+          /**
+           * Agent to review this PR
+           */
+          agent: number | Agent;
+          id?: string | null;
+        }[]
+      | null;
+    /**
+     * Auto-merge when all reviewers approve
+     */
+    autoMerge?: boolean | null;
+    /**
+     * Require at least one human approval
+     */
+    requireHumanApproval?: boolean | null;
+  };
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "agents".
+ */
+export interface Agent {
+  id: number;
+  /**
+   * Agent identifier (e.g., "priya", "quinn", "sam")
+   */
+  name: string;
+  /**
+   * GitHub username for this agent
+   */
+  githubUsername: string;
+  /**
+   * GitHub Personal Access Token (encrypted at rest, admin-only)
+   */
+  pat?: string | null;
+  /**
+   * Description of the agent's review focus and personality
+   */
+  persona?: string | null;
+  /**
+   * List of agent names this agent can escalate to
+   */
+  canEscalate?:
+    | {
+        agentName: string;
+        id?: string | null;
+      }[]
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -297,11 +386,10 @@ export interface Issue {
    * Issue body/description (markdown)
    */
   body?: string | null;
-  state: 'open' | 'closed';
   /**
-   * Extended status (beyond GitHub open/closed)
+   * Issue status (maps to GitHub open/closed)
    */
-  status?: ('open' | 'in_progress' | 'closed') | null;
+  status: 'open' | 'in_progress' | 'closed';
   /**
    * 0 = critical, 1 = high, 2 = medium, 3 = low, 4 = backlog
    */
@@ -354,35 +442,6 @@ export interface Issue {
    * Reason for closing the issue
    */
   closeReason?: string | null;
-  /**
-   * Linear integration metadata
-   */
-  linearData?: {
-    /**
-     * Linear issue ID
-     */
-    id?: string | null;
-    /**
-     * Linear issue identifier (e.g., TODO-123)
-     */
-    identifier?: string | null;
-    /**
-     * Linear state ID
-     */
-    stateId?: string | null;
-    /**
-     * Linear state name
-     */
-    stateName?: string | null;
-    /**
-     * Linear cycle ID
-     */
-    cycleId?: string | null;
-    /**
-     * Linear project ID
-     */
-    projectId?: string | null;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -416,23 +475,6 @@ export interface Milestone {
     docs?: (number | Issue)[];
     hasNextPage?: boolean;
     totalDocs?: number;
-  };
-  /**
-   * Linear integration metadata (for cycles)
-   */
-  linearData?: {
-    /**
-     * Linear cycle ID
-     */
-    id?: string | null;
-    /**
-     * Linear cycle number
-     */
-    number?: number | null;
-    /**
-     * Linear cycle start date
-     */
-    startsAt?: string | null;
   };
   updatedAt: string;
   createdAt: string;
@@ -505,16 +547,13 @@ export interface SyncEvent {
 export interface LinearIntegration {
   id: number;
   /**
-   * User who connected this Linear workspace
+   * User who connected this Linear integration
    */
   user: number | User;
   /**
-   * Repository to sync Linear issues to (optional)
+   * Optional: Link to a specific repository
    */
   repo?: (number | null) | Repo;
-  /**
-   * Linear workspace information
-   */
   linearData: {
     /**
      * Linear organization ID
@@ -525,7 +564,7 @@ export interface LinearIntegration {
      */
     organizationName: string;
     /**
-     * Linear workspace URL key
+     * Linear organization URL key
      */
     urlKey?: string | null;
     /**
@@ -537,7 +576,7 @@ export interface LinearIntegration {
      */
     userEmail?: string | null;
     /**
-     * Linear team ID to sync (optional, syncs all teams if not set)
+     * Linear team ID
      */
     teamId?: string | null;
     /**
@@ -550,7 +589,7 @@ export interface LinearIntegration {
    */
   webhookId?: string | null;
   /**
-   * Webhook secret for signature verification
+   * Webhook secret for signature verification (encrypted at rest)
    */
   webhookSecret?: string | null;
   /**
@@ -573,9 +612,6 @@ export interface LinearIntegration {
     | number
     | boolean
     | null;
-  /**
-   * Sync configuration
-   */
   syncSettings?: {
     /**
      * Automatically sync on webhook events
@@ -652,6 +688,10 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'linear-integrations';
         value: number | LinearIntegration;
+      } | null)
+    | ({
+        relationTo: 'agents';
+        value: number | Agent;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -701,10 +741,12 @@ export interface PayloadMigration {
  */
 export interface UsersSelect<T extends boolean = true> {
   roles?: T;
+  githubId?: T;
+  githubLogin?: T;
+  githubAvatarUrl?: T;
+  name?: T;
   workosUserId?: T;
-  firstName?: T;
-  lastName?: T;
-  emailVerified?: T;
+  installations?: T;
   updatedAt?: T;
   createdAt?: T;
   email?: T;
@@ -773,6 +815,19 @@ export interface ReposSelect<T extends boolean = true> {
   lastSyncAt?: T;
   syncStatus?: T;
   syncError?: T;
+  reviewConfig?:
+    | T
+    | {
+        enabled?: T;
+        reviewers?:
+          | T
+          | {
+              agent?: T;
+              id?: T;
+            };
+        autoMerge?: T;
+        requireHumanApproval?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -784,7 +839,6 @@ export interface IssuesSelect<T extends boolean = true> {
   localId?: T;
   title?: T;
   body?: T;
-  state?: T;
   status?: T;
   priority?: T;
   labels?: T;
@@ -798,16 +852,6 @@ export interface IssuesSelect<T extends boolean = true> {
   type?: T;
   closedAt?: T;
   closeReason?: T;
-  linearData?:
-    | T
-    | {
-        id?: T;
-        identifier?: T;
-        stateId?: T;
-        stateName?: T;
-        cycleId?: T;
-        projectId?: T;
-      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -825,13 +869,6 @@ export interface MilestonesSelect<T extends boolean = true> {
   githubId?: T;
   repo?: T;
   issues?: T;
-  linearData?:
-    | T
-    | {
-        id?: T;
-        number?: T;
-        startsAt?: T;
-      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -884,6 +921,24 @@ export interface LinearIntegrationsSelect<T extends boolean = true> {
         syncCycles?: T;
         syncProjects?: T;
         syncLabels?: T;
+      };
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "agents_select".
+ */
+export interface AgentsSelect<T extends boolean = true> {
+  name?: T;
+  githubUsername?: T;
+  pat?: T;
+  persona?: T;
+  canEscalate?:
+    | T
+    | {
+        agentName?: T;
+        id?: T;
       };
   updatedAt?: T;
   createdAt?: T;
