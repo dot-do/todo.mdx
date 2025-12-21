@@ -95,15 +95,6 @@ export const DurableObjects: CollectionConfig = {
         description: 'Related repository',
       },
     },
-    {
-      name: 'issue',
-      type: 'relationship',
-      relationTo: 'issues',
-      index: true,
-      admin: {
-        description: 'Related issue',
-      },
-    },
   ],
   timestamps: true,
 }

@@ -12,8 +12,6 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Installations } from './collections/Installations'
 import { Repos } from './collections/Repos'
-import { Issues } from './collections/Issues'
-import { Milestones } from './collections/Milestones'
 import { SyncEvents } from './collections/SyncEvents'
 import { LinearIntegrations } from './collections/LinearIntegrations'
 import { Agents } from './collections/Agents'
@@ -41,7 +39,7 @@ export function createWorkerConfig(bindings: WorkerBindings, options?: Partial<C
       user: Users.slug,
       disable: true,
     },
-    collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations, Agents],
+    collections: [Users, Media, Installations, Repos, SyncEvents, LinearIntegrations, Agents],
     // No editor needed for API-only usage
     secret,
     db: sqliteD1Adapter({ binding: bindings.D1 }),

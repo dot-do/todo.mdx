@@ -109,22 +109,6 @@ export const SyncEvents: CollectionConfig = {
       required: true,
       index: true,
     },
-    {
-      name: 'issue',
-      type: 'relationship',
-      relationTo: 'issues',
-      admin: {
-        description: 'Related issue (if applicable)',
-      },
-    },
-    {
-      name: 'milestone',
-      type: 'relationship',
-      relationTo: 'milestones',
-      admin: {
-        description: 'Related milestone (if applicable)',
-      },
-    },
     // Timing
     {
       name: 'processedAt',

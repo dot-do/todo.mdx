@@ -71,8 +71,6 @@ export interface Config {
     media: Media;
     installations: Installation;
     repos: Repo;
-    issues: Issue;
-    milestones: Milestone;
     'sync-events': SyncEvent;
     'linear-integrations': LinearIntegration;
     agents: Agent;
@@ -80,6 +78,8 @@ export interface Config {
     connections: Connection;
     'tool-executions': ToolExecution;
     models: Model;
+    'model-defaults': ModelDefault;
+    'audit-logs': AuditLog;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -89,17 +89,12 @@ export interface Config {
     users: {
       installations: 'installations';
     };
-    milestones: {
-      issues: 'issues';
-    };
   };
   collectionsSelect: {
     users: UsersSelect<false> | UsersSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     installations: InstallationsSelect<false> | InstallationsSelect<true>;
     repos: ReposSelect<false> | ReposSelect<true>;
-    issues: IssuesSelect<false> | IssuesSelect<true>;
-    milestones: MilestonesSelect<false> | MilestonesSelect<true>;
     'sync-events': SyncEventsSelect<false> | SyncEventsSelect<true>;
     'linear-integrations': LinearIntegrationsSelect<false> | LinearIntegrationsSelect<true>;
     agents: AgentsSelect<false> | AgentsSelect<true>;
@@ -107,6 +102,8 @@ export interface Config {
     connections: ConnectionsSelect<false> | ConnectionsSelect<true>;
     'tool-executions': ToolExecutionsSelect<false> | ToolExecutionsSelect<true>;
     models: ModelsSelect<false> | ModelsSelect<true>;
+    'model-defaults': ModelDefaultsSelect<false> | ModelDefaultsSelect<true>;
+    'audit-logs': AuditLogsSelect<false> | AuditLogsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -263,6 +260,130 @@ export interface Installation {
     | number
     | boolean
     | null;
+  /**
+   * Default approval gate settings for all repos in this installation
+   */
+  approvalGates?: {
+    /**
+     * Require human approval before merging PRs (default for all repos)
+     */
+    requireHumanApproval?: boolean | null;
+    /**
+     * Allow fully autonomous operation (no human approval required)
+     */
+    allowFullAutonomy?: boolean | null;
+    /**
+     * Maximum daily budget in USD for agent operations
+     */
+    maxBudgetPerDay?: number | null;
+    /**
+     * Rate limit: max agent spawns per hour
+     */
+    maxAgentSpawnsPerHour?: number | null;
+    /**
+     * Risk threshold for automatic approval
+     */
+    riskThreshold?: ('low' | 'medium' | 'high') | null;
+    /**
+     * File paths that always require human approval (glob patterns)
+     */
+    criticalPaths?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Issue labels that allow automatic merge without human approval
+     */
+    autoApproveLabels?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Issue labels that always require human approval
+     */
+    requireApprovalLabels?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Conditions that trigger approval requirements (org-wide defaults)
+     */
+    triggers?: {
+      /**
+       * PR/issue labels that trigger approval
+       */
+      labels?:
+        | {
+            label: string;
+            id?: string | null;
+          }[]
+        | null;
+      /**
+       * Issue types that trigger approval
+       */
+      types?:
+        | {
+            type: 'task' | 'bug' | 'feature' | 'epic';
+            id?: string | null;
+          }[]
+        | null;
+      /**
+       * File path patterns that trigger approval (glob patterns)
+       */
+      filesChanged?:
+        | {
+            /**
+             * Glob pattern (e.g., src/auth/**, *.sql)
+             */
+            pattern: string;
+            id?: string | null;
+          }[]
+        | null;
+      /**
+       * Risk score threshold (0-100) that triggers approval
+       */
+      riskScore?: number | null;
+    };
+    /**
+     * GitHub usernames who can approve (org-wide default)
+     */
+    approvers?:
+      | {
+          /**
+           * GitHub username
+           */
+          username: string;
+          id?: string | null;
+        }[]
+      | null;
+    /**
+     * GitHub teams who can approve (format: org/team-slug)
+     */
+    teamApprovers?:
+      | {
+          /**
+           * GitHub team in format: org/team-slug
+           */
+          team: string;
+          id?: string | null;
+        }[]
+      | null;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -355,6 +476,134 @@ export interface Repo {
     requireHumanApproval?: boolean | null;
   };
   /**
+   * Approval gate settings for this repo (overrides org-level defaults)
+   */
+  approvalGates?: {
+    /**
+     * Inherit approval gate settings from organization
+     */
+    inheritFromOrg?: boolean | null;
+    /**
+     * Require human approval before merging PRs
+     */
+    requireHumanApproval?: boolean | null;
+    /**
+     * Allow fully autonomous operation (no human approval required)
+     */
+    allowFullAutonomy?: boolean | null;
+    /**
+     * Maximum daily budget in USD for this repo
+     */
+    maxBudgetPerDay?: number | null;
+    /**
+     * Rate limit: max agent spawns per hour for this repo
+     */
+    maxAgentSpawnsPerHour?: number | null;
+    /**
+     * Risk threshold for automatic approval
+     */
+    riskThreshold?: ('low' | 'medium' | 'high') | null;
+    /**
+     * Additional file paths that require human approval (glob patterns)
+     */
+    criticalPaths?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Issue labels that allow automatic merge without human approval
+     */
+    autoApproveLabels?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Issue labels that always require human approval
+     */
+    requireApprovalLabels?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Conditions that trigger approval requirements
+     */
+    triggers?: {
+      /**
+       * PR/issue labels that trigger approval
+       */
+      labels?:
+        | {
+            label: string;
+            id?: string | null;
+          }[]
+        | null;
+      /**
+       * Issue types that trigger approval
+       */
+      types?:
+        | {
+            type: 'task' | 'bug' | 'feature' | 'epic';
+            id?: string | null;
+          }[]
+        | null;
+      /**
+       * File path patterns that trigger approval (glob patterns)
+       */
+      filesChanged?:
+        | {
+            /**
+             * Glob pattern (e.g., src/auth/**, *.sql)
+             */
+            pattern: string;
+            id?: string | null;
+          }[]
+        | null;
+      /**
+       * Risk score threshold (0-100) that triggers approval
+       */
+      riskScore?: number | null;
+    };
+    /**
+     * GitHub usernames who can approve
+     */
+    approvers?:
+      | {
+          /**
+           * GitHub username
+           */
+          username: string;
+          id?: string | null;
+        }[]
+      | null;
+    /**
+     * GitHub teams who can approve (format: org/team-slug)
+     */
+    teamApprovers?:
+      | {
+          /**
+           * GitHub team in format: org/team-slug
+           */
+          team: string;
+          id?: string | null;
+        }[]
+      | null;
+  };
+  /**
    * Tool configuration for this repository (inherits from installation)
    */
   toolConfig?:
@@ -366,6 +615,92 @@ export interface Repo {
     | number
     | boolean
     | null;
+  /**
+   * Cost control settings and spend tracking for agent operations
+   */
+  costControls?: {
+    /**
+     * Whether cost controls are enabled for this repo
+     */
+    enabled?: boolean | null;
+    /**
+     * Inherit budget limits from organization installation
+     */
+    inheritFromOrg?: boolean | null;
+    /**
+     * Maximum monthly budget in USD for Claude API spend (overrides org-level if not inheriting)
+     */
+    monthlyBudget?: number | null;
+    /**
+     * Maximum number of agent sessions per day (overrides org-level if not inheriting)
+     */
+    dailySessionLimit?: number | null;
+    /**
+     * Maximum number of concurrent agent sessions (overrides org-level if not inheriting)
+     */
+    maxConcurrentSessions?: number | null;
+    /**
+     * Budget alert thresholds (percentage of monthly budget)
+     */
+    alertThresholds?:
+      | {
+          /**
+           * Threshold percentage (e.g., 50 for 50%)
+           */
+          percentage: number;
+          /**
+           * Whether notification has been sent for this threshold this month
+           */
+          notified?: boolean | null;
+          /**
+           * When the last notification was sent
+           */
+          lastNotifiedAt?: string | null;
+          id?: string | null;
+        }[]
+      | null;
+    /**
+     * Email addresses to notify when budget thresholds are reached
+     */
+    alertEmails?:
+      | {
+          email: string;
+          id?: string | null;
+        }[]
+      | null;
+    /**
+     * Current month spend in USD (auto-calculated from agent sessions)
+     */
+    currentMonthSpend?: number | null;
+    /**
+     * Start date of current month tracking period
+     */
+    currentMonthStart?: string | null;
+    /**
+     * Number of agent sessions started today (auto-calculated)
+     */
+    todaySessionCount?: number | null;
+    /**
+     * Date for today session count tracking
+     */
+    todayDate?: string | null;
+    /**
+     * Number of currently active agent sessions
+     */
+    activeSessions?: number | null;
+    /**
+     * Whether monthly budget has been exceeded (prevents new sessions)
+     */
+    budgetExceeded?: boolean | null;
+    /**
+     * When the budget was exceeded
+     */
+    budgetExceededAt?: string | null;
+    /**
+     * Manually pause all agent operations until this date
+     */
+    pausedUntil?: string | null;
+  };
   updatedAt: string;
   createdAt: string;
 }
@@ -424,6 +759,22 @@ export interface Agent {
    */
   timeout?: number | null;
   /**
+   * GitHub username for this agent (e.g., quinn-qa-bot)
+   */
+  githubUsername?: string | null;
+  /**
+   * GitHub Personal Access Token (encrypted in storage)
+   */
+  githubPat?: string | null;
+  /**
+   * Review role/persona for PRDO
+   */
+  reviewRole?: ('product' | 'qa' | 'security' | 'general') | null;
+  /**
+   * Agents this reviewer can escalate to (e.g., Quinn can escalate to Sam)
+   */
+  canEscalate?: (number | Agent)[] | null;
+  /**
    * Organization/installation this agent is scoped to (leave empty for global)
    */
   org?: (number | null) | Installation;
@@ -431,126 +782,6 @@ export interface Agent {
    * Repository this agent is scoped to (leave empty for org-level or global)
    */
   repo?: (number | null) | Repo;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "issues".
- */
-export interface Issue {
-  id: number;
-  /**
-   * Local issue ID (e.g., todo-abc)
-   */
-  localId: string;
-  title: string;
-  /**
-   * Issue body/description (markdown)
-   */
-  body?: string | null;
-  /**
-   * Issue status (maps to GitHub open/closed)
-   */
-  status: 'open' | 'in_progress' | 'closed';
-  /**
-   * 0 = critical, 1 = high, 2 = medium, 3 = low, 4 = backlog
-   */
-  priority?: number | null;
-  /**
-   * Array of label names
-   */
-  labels?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * Array of assignee logins
-   */
-  assignees?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
-   * GitHub issue number
-   */
-  githubNumber?: number | null;
-  /**
-   * GitHub issue ID
-   */
-  githubId?: number | null;
-  /**
-   * GitHub issue URL
-   */
-  githubUrl?: string | null;
-  /**
-   * Issues this one depends on (blockers)
-   */
-  dependsOn?: (number | Issue)[] | null;
-  repo: number | Repo;
-  milestone?: (number | null) | Milestone;
-  type?: ('task' | 'bug' | 'feature' | 'epic') | null;
-  closedAt?: string | null;
-  /**
-   * Reason for closing the issue
-   */
-  closeReason?: string | null;
-  /**
-   * Tool configuration for this issue (inherits from repo → installation)
-   */
-  toolConfig?:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  updatedAt: string;
-  createdAt: string;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "milestones".
- */
-export interface Milestone {
-  id: number;
-  /**
-   * Local milestone ID
-   */
-  localId: string;
-  title: string;
-  description?: string | null;
-  state: 'open' | 'closed';
-  /**
-   * Due date for the milestone
-   */
-  dueOn?: string | null;
-  /**
-   * GitHub milestone number
-   */
-  githubNumber?: number | null;
-  /**
-   * GitHub milestone ID
-   */
-  githubId?: number | null;
-  repo: number | Repo;
-  issues?: {
-    docs?: (number | Issue)[];
-    hasNextPage?: boolean;
-    totalDocs?: number;
-  };
   updatedAt: string;
   createdAt: string;
 }
@@ -596,14 +827,6 @@ export interface SyncEvent {
    */
   conflictResolution?: ('local_wins' | 'github_wins' | 'manual') | null;
   repo: number | Repo;
-  /**
-   * Related issue (if applicable)
-   */
-  issue?: (number | null) | Issue;
-  /**
-   * Related milestone (if applicable)
-   */
-  milestone?: (number | null) | Milestone;
   /**
    * When the event was processed
    */
@@ -750,10 +973,6 @@ export interface DurableObject {
    * Related repository
    */
   repo?: (number | null) | Repo;
-  /**
-   * Related issue
-   */
-  issue?: (number | null) | Issue;
   updatedAt: string;
   createdAt: string;
 }
@@ -955,6 +1174,177 @@ export interface Model {
   createdAt: string;
 }
 /**
+ * Maps model aliases (best, fast, cheap, overall) to actual models
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "model-defaults".
+ */
+export interface ModelDefault {
+  id: number;
+  /**
+   * The model alias this default applies to
+   */
+  useCase: 'best' | 'fast' | 'cheap' | 'overall';
+  /**
+   * Optional task type for more specific defaults
+   */
+  taskType?: ('coding' | 'research' | 'browser' | 'general') | null;
+  /**
+   * The actual model to use for this use case
+   */
+  model: number | Model;
+  /**
+   * Optional org-level override
+   */
+  org?: (number | null) | Installation;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-logs".
+ */
+export interface AuditLog {
+  id: number;
+  action:
+    | 'agent_spawned'
+    | 'agent_completed'
+    | 'agent_failed'
+    | 'agent_timeout'
+    | 'code_generated'
+    | 'branch_created'
+    | 'commit_pushed'
+    | 'pr_created'
+    | 'pr_merged'
+    | 'pr_closed'
+    | 'review_started'
+    | 'review_approved'
+    | 'review_rejected'
+    | 'changes_requested'
+    | 'approval_required'
+    | 'approval_granted'
+    | 'approval_denied'
+    | 'auto_approved'
+    | 'cost_incurred'
+    | 'budget_exceeded'
+    | 'rate_limited'
+    | 'rollback_triggered'
+    | 'rollback_completed'
+    | 'rollback_failed';
+  status: 'success' | 'failed' | 'pending' | 'blocked';
+  /**
+   * Agent that performed this action
+   */
+  agent?: (number | null) | Agent;
+  /**
+   * Repository this action was performed on
+   */
+  repo?: (number | null) | Repo;
+  /**
+   * Pull request number if applicable
+   */
+  prNumber?: number | null;
+  /**
+   * Claude session ID for correlation
+   */
+  sessionId?: string | null;
+  /**
+   * Cost information for this action
+   */
+  cost?: {
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+    /**
+     * Total cost in USD
+     */
+    totalUsd?: number | null;
+  };
+  /**
+   * Risk assessment for this action
+   */
+  riskAssessment?: {
+    level?: ('low' | 'medium' | 'high' | 'critical') | null;
+    /**
+     * Risk factors that contributed to this assessment
+     */
+    factors?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Whether this action touches critical paths (auth, payments, etc.)
+     */
+    touchesCriticalPath?: boolean | null;
+  };
+  /**
+   * Additional details about this action
+   */
+  details?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * List of files changed (for code actions)
+   */
+  filesChanged?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Code diff if applicable
+   */
+  diff?: string | null;
+  /**
+   * Rollback information
+   */
+  rollback?: {
+    canRollback?: boolean | null;
+    /**
+     * Commit SHA to rollback to
+     */
+    rollbackCommit?: string | null;
+    rolledBackAt?: string | null;
+    rolledBackBy?: (number | null) | User;
+  };
+  /**
+   * Approval information if this action required approval
+   */
+  approval?: {
+    required?: boolean | null;
+    approvedBy?: (number | null) | User;
+    approvedAt?: string | null;
+    /**
+     * Reason for approval/denial
+     */
+    reason?: string | null;
+  };
+  /**
+   * Error message if action failed
+   */
+  errorMessage?: string | null;
+  /**
+   * Duration of action in milliseconds
+   */
+  duration?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
@@ -995,14 +1385,6 @@ export interface PayloadLockedDocument {
         value: number | Repo;
       } | null)
     | ({
-        relationTo: 'issues';
-        value: number | Issue;
-      } | null)
-    | ({
-        relationTo: 'milestones';
-        value: number | Milestone;
-      } | null)
-    | ({
         relationTo: 'sync-events';
         value: number | SyncEvent;
       } | null)
@@ -1029,6 +1411,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'models';
         value: number | Model;
+      } | null)
+    | ({
+        relationTo: 'model-defaults';
+        value: number | ModelDefault;
+      } | null)
+    | ({
+        relationTo: 'audit-logs';
+        value: number | AuditLog;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -1133,6 +1523,53 @@ export interface InstallationsSelect<T extends boolean = true> {
   suspendedAt?: T;
   users?: T;
   toolConfig?: T;
+  approvalGates?:
+    | T
+    | {
+        requireHumanApproval?: T;
+        allowFullAutonomy?: T;
+        maxBudgetPerDay?: T;
+        maxAgentSpawnsPerHour?: T;
+        riskThreshold?: T;
+        criticalPaths?: T;
+        autoApproveLabels?: T;
+        requireApprovalLabels?: T;
+        triggers?:
+          | T
+          | {
+              labels?:
+                | T
+                | {
+                    label?: T;
+                    id?: T;
+                  };
+              types?:
+                | T
+                | {
+                    type?: T;
+                    id?: T;
+                  };
+              filesChanged?:
+                | T
+                | {
+                    pattern?: T;
+                    id?: T;
+                  };
+              riskScore?: T;
+            };
+        approvers?:
+          | T
+          | {
+              username?: T;
+              id?: T;
+            };
+        teamApprovers?:
+          | T
+          | {
+              team?: T;
+              id?: T;
+            };
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1166,49 +1603,86 @@ export interface ReposSelect<T extends boolean = true> {
         autoMerge?: T;
         requireHumanApproval?: T;
       };
+  approvalGates?:
+    | T
+    | {
+        inheritFromOrg?: T;
+        requireHumanApproval?: T;
+        allowFullAutonomy?: T;
+        maxBudgetPerDay?: T;
+        maxAgentSpawnsPerHour?: T;
+        riskThreshold?: T;
+        criticalPaths?: T;
+        autoApproveLabels?: T;
+        requireApprovalLabels?: T;
+        triggers?:
+          | T
+          | {
+              labels?:
+                | T
+                | {
+                    label?: T;
+                    id?: T;
+                  };
+              types?:
+                | T
+                | {
+                    type?: T;
+                    id?: T;
+                  };
+              filesChanged?:
+                | T
+                | {
+                    pattern?: T;
+                    id?: T;
+                  };
+              riskScore?: T;
+            };
+        approvers?:
+          | T
+          | {
+              username?: T;
+              id?: T;
+            };
+        teamApprovers?:
+          | T
+          | {
+              team?: T;
+              id?: T;
+            };
+      };
   toolConfig?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "issues_select".
- */
-export interface IssuesSelect<T extends boolean = true> {
-  localId?: T;
-  title?: T;
-  body?: T;
-  status?: T;
-  priority?: T;
-  labels?: T;
-  assignees?: T;
-  githubNumber?: T;
-  githubId?: T;
-  githubUrl?: T;
-  dependsOn?: T;
-  repo?: T;
-  milestone?: T;
-  type?: T;
-  closedAt?: T;
-  closeReason?: T;
-  toolConfig?: T;
-  updatedAt?: T;
-  createdAt?: T;
-}
-/**
- * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "milestones_select".
- */
-export interface MilestonesSelect<T extends boolean = true> {
-  localId?: T;
-  title?: T;
-  description?: T;
-  state?: T;
-  dueOn?: T;
-  githubNumber?: T;
-  githubId?: T;
-  repo?: T;
-  issues?: T;
+  costControls?:
+    | T
+    | {
+        enabled?: T;
+        inheritFromOrg?: T;
+        monthlyBudget?: T;
+        dailySessionLimit?: T;
+        maxConcurrentSessions?: T;
+        alertThresholds?:
+          | T
+          | {
+              percentage?: T;
+              notified?: T;
+              lastNotifiedAt?: T;
+              id?: T;
+            };
+        alertEmails?:
+          | T
+          | {
+              email?: T;
+              id?: T;
+            };
+        currentMonthSpend?: T;
+        currentMonthStart?: T;
+        todaySessionCount?: T;
+        todayDate?: T;
+        activeSessions?: T;
+        budgetExceeded?: T;
+        budgetExceededAt?: T;
+        pausedUntil?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1224,8 +1698,6 @@ export interface SyncEventsSelect<T extends boolean = true> {
   error?: T;
   conflictResolution?: T;
   repo?: T;
-  issue?: T;
-  milestone?: T;
   processedAt?: T;
   retryCount?: T;
   updatedAt?: T;
@@ -1280,6 +1752,10 @@ export interface AgentsSelect<T extends boolean = true> {
   instructions?: T;
   maxSteps?: T;
   timeout?: T;
+  githubUsername?: T;
+  githubPat?: T;
+  reviewRole?: T;
+  canEscalate?: T;
   org?: T;
   repo?: T;
   updatedAt?: T;
@@ -1297,7 +1773,6 @@ export interface DurableObjectsSelect<T extends boolean = true> {
   lastHeartbeat?: T;
   org?: T;
   repo?: T;
-  issue?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1352,6 +1827,67 @@ export interface ModelsSelect<T extends boolean = true> {
   tier?: T;
   bestFor?: T;
   notes?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "model-defaults_select".
+ */
+export interface ModelDefaultsSelect<T extends boolean = true> {
+  useCase?: T;
+  taskType?: T;
+  model?: T;
+  org?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "audit-logs_select".
+ */
+export interface AuditLogsSelect<T extends boolean = true> {
+  action?: T;
+  status?: T;
+  agent?: T;
+  repo?: T;
+  prNumber?: T;
+  sessionId?: T;
+  cost?:
+    | T
+    | {
+        inputTokens?: T;
+        outputTokens?: T;
+        totalUsd?: T;
+      };
+  riskAssessment?:
+    | T
+    | {
+        level?: T;
+        factors?: T;
+        touchesCriticalPath?: T;
+      };
+  details?: T;
+  filesChanged?: T;
+  diff?: T;
+  rollback?:
+    | T
+    | {
+        canRollback?: T;
+        rollbackCommit?: T;
+        rolledBackAt?: T;
+        rolledBackBy?: T;
+      };
+  approval?:
+    | T
+    | {
+        required?: T;
+        approvedBy?: T;
+        approvedAt?: T;
+        reason?: T;
+      };
+  errorMessage?: T;
+  duration?: T;
   updatedAt?: T;
   createdAt?: T;
 }

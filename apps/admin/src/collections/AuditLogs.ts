@@ -103,15 +103,6 @@ export const AuditLogs: CollectionConfig = {
       },
     },
     {
-      name: 'issue',
-      type: 'relationship',
-      relationTo: 'issues',
-      index: true,
-      admin: {
-        description: 'Issue this action relates to',
-      },
-    },
-    {
       name: 'prNumber',
       type: 'number',
       index: true,

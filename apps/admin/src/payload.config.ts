@@ -11,8 +11,6 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Installations } from './collections/Installations'
 import { Repos } from './collections/Repos'
-import { Issues } from './collections/Issues'
-import { Milestones } from './collections/Milestones'
 import { SyncEvents } from './collections/SyncEvents'
 import { LinearIntegrations } from './collections/LinearIntegrations'
 import { Agents } from './collections/Agents'
@@ -21,6 +19,7 @@ import { Connections } from './collections/Connections'
 import { ToolExecutions } from './collections/ToolExecutions'
 import { Models } from './collections/Models'
 import { ModelDefaults } from './collections/ModelDefaults'
+import { AuditLogs } from './collections/AuditLogs'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -45,7 +44,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions, Models, ModelDefaults],
+  collections: [Users, Media, Installations, Repos, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions, Models, ModelDefaults, AuditLogs],
   editor: lexicalEditor(),
   secret,
   typescript: {
@@ -57,6 +56,26 @@ export default buildConfig({
       bucket: cloudflare.env.R2,
       collections: { media: true },
     }),
+  ],
+  // Server URL for production - used for CSRF protection baseline
+  serverURL: process.env.PAYLOAD_PUBLIC_SERVER_URL || 'https://admin.todo.mdx.do',
+  // CSRF protection - whitelist trusted domains for cookie-based authentication
+  csrf: [
+    'https://todo.mdx.do',
+    'https://priya.do',
+    'https://admin.todo.mdx.do',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+  ],
+  // CORS configuration - allow requests from trusted origins
+  cors: [
+    'https://todo.mdx.do',
+    'https://priya.do',
+    'https://admin.todo.mdx.do',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
   ],
 })
 

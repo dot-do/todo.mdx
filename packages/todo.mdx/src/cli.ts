@@ -10,6 +10,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { compile, generateTodoFiles, loadBeadsIssues, loadGitHubIssues } from './compiler.js'
 import { loadApiIssues } from './api-client.js'
 import { watch } from './watcher.js'
+import { init } from './cli/init.js'
 import type { Issue, TodoConfig } from './types.js'
 
 const DEFAULT_TEMPLATE = `---
@@ -88,12 +89,7 @@ Examples:
 
   // Init command
   if (values.init || command === 'init') {
-    if (existsSync('TODO.mdx')) {
-      console.log('TODO.mdx already exists')
-      return
-    }
-    await writeFile('TODO.mdx', DEFAULT_TEMPLATE)
-    console.log('Created TODO.mdx')
+    await init()
     return
   }
 

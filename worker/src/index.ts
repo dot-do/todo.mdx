@@ -21,6 +21,7 @@ import { getSessionFromRequest } from './auth/session'
 import { getPayloadClient } from './payload'
 import { handlePRApproval } from './workflows/webhook-handlers'
 import { rateLimitMiddleware } from './middleware/ratelimit'
+import { csrfProtection, ensureCsrfToken } from './middleware/csrf'
 import type { Env } from './types'
 import type {
   InstallationEvent,
@@ -57,6 +58,14 @@ app.use('/api/*', cors({
   origin: ['https://todo.mdx.do', 'https://priya.do', 'http://localhost:3000'],
   credentials: true,
 }))
+
+// Define allowed origins for CSRF protection
+const ALLOWED_ORIGINS = [
+  'https://todo.mdx.do',
+  'https://priya.do',
+  'http://localhost:3000',
+  'http://localhost', // Allows localhost with any port for development
+]
 
 // Health check
 app.get('/', (c) => {
@@ -147,7 +156,7 @@ app.post('/api/webhooks/github', async (c) => {
 // ============================================
 
 // Terminal widget - serves terminal.html with auth
-app.get('/terminal', async (c) => {
+app.get('/terminal', ensureCsrfToken, async (c) => {
   const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
 
   if (!session) {
@@ -166,7 +175,7 @@ app.get('/terminal', async (c) => {
 })
 
 // Claude Code widget - serves code.html with auth
-app.get('/code/:org/:repo', async (c) => {
+app.get('/code/:org/:repo', ensureCsrfToken, async (c) => {
   const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
 
   if (!session) {
@@ -184,7 +193,7 @@ app.get('/code/:org/:repo', async (c) => {
 })
 
 // Claude Code widget with branch/ref
-app.get('/code/:org/:repo/:ref', async (c) => {
+app.get('/code/:org/:repo/:ref', ensureCsrfToken, async (c) => {
   const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
 
   if (!session) {
@@ -204,9 +213,13 @@ app.get('/code/:org/:repo/:ref', async (c) => {
 // ============================================
 // Protected API routes (repos, issues, milestones, search)
 // General rate limiting for API endpoints
+// CSRF protection for state-changing requests
 // ============================================
 
 app.use('/api/*', rateLimitMiddleware('api'))
+// Apply CSRF protection to API routes (after auth, before handlers)
+// This protects cookie-based auth; token-based auth is automatically exempt
+app.use('/api/*', csrfProtection(ALLOWED_ORIGINS))
 app.route('/api', api)
 
 // ============================================
@@ -369,6 +382,7 @@ app.route('/api/workflows', workflows)
 // ============================================
 // RPC endpoint for workflow runtime calls
 // Routes issues.* and epics.* to RepoDO
+// CSRF protection applied via /api/* middleware above
 // ============================================
 
 app.post('/api/rpc', authMiddleware, async (c) => {

@@ -23,6 +23,7 @@ import {
   createSessionToken,
   SESSION_TTL_SECONDS,
 } from '../auth/session'
+import { generateCsrfToken, buildCsrfCookie } from '../middleware/csrf'
 import { createDirectDb } from '../db/direct'
 import type { Env } from '../types'
 
@@ -149,15 +150,21 @@ app.get('/callback', async (c) => {
     const session = createSession(user, authResult.organizationId)
 
     // Build session cookie
-    const cookieHeader = await buildSetSessionCookie(session, c.env.COOKIE_ENCRYPTION_KEY)
+    const sessionCookie = await buildSetSessionCookie(session, c.env.COOKIE_ENCRYPTION_KEY)
 
-    // Redirect back with cookie set
+    // Generate CSRF token for the new session
+    const csrfToken = await generateCsrfToken()
+    const csrfCookie = buildCsrfCookie(csrfToken)
+
+    // Redirect back with cookies set
+    const headers = new Headers()
+    headers.append('Location', returnUrl)
+    headers.append('Set-Cookie', sessionCookie)
+    headers.append('Set-Cookie', csrfCookie)
+
     return new Response(null, {
       status: 302,
-      headers: {
-        'Location': returnUrl,
-        'Set-Cookie': cookieHeader,
-      },
+      headers,
     })
   } catch (err) {
     console.error('[Auth] Callback error:', err)

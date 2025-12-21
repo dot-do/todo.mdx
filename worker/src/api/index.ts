@@ -5,8 +5,6 @@
 import { Hono } from 'hono'
 import { authMiddleware } from '../auth/index.js'
 import { repos } from './repos.js'
-import { issues } from './issues.js'
-import { milestones } from './milestones.js'
 import { widget } from './widget.js'
 import { search } from './search.js'
 import { models } from './models.js'
@@ -26,9 +24,5 @@ api.route('/search', search)
 api.route('/models', models)
 api.route('/code', code)
 api.route('/terminal', terminal)
-
-// Nested routes under repos
-api.route('/repos/:owner/:repo/issues', issues)
-api.route('/repos/:owner/:repo/milestones', milestones)
 
 export { api }
