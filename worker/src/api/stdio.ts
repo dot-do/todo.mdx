@@ -278,44 +278,44 @@ async function validateToken(
       }
     }
 
-    // Try JWT token (API key style)
-    // For now, just check if it's a valid API key in KV
-    const apiKeyData = await env.OAUTH_KV.get(`apikey:${token}`, 'json') as any
-
-    if (apiKeyData) {
-      return {
-        userId: apiKeyData.userId,
-        email: apiKeyData.email,
-        name: apiKeyData.name,
-        source: 'apikey',
+    // Try JWT token first (WorkOS access token via oauth.do)
+    // JWTs start with 'eyJ' (base64 encoded '{"')
+    if (token.startsWith('eyJ')) {
+      try {
+        const session = decodeOAuthToken(token)
+        return {
+          userId: session.userId,
+          email: session.email,
+          name: undefined,
+          source: 'jwt',
+        }
+      } catch {
+        // Not a valid JWT, fall through to KV lookups
       }
     }
 
-    // Try OAuth access token from our MCP server
-    const accessTokenData = await env.OAUTH_KV.get(`access_token:${token}`, 'json') as any
-
-    if (accessTokenData) {
-      return {
-        userId: accessTokenData.userId,
-        email: accessTokenData.email,
-        name: accessTokenData.name,
-        source: 'oauth',
+    // Try API key in KV (only for short tokens to avoid key length limit)
+    if (token.length <= 400) {
+      const apiKeyData = await env.OAUTH_KV.get(`apikey:${token}`, 'json') as any
+      if (apiKeyData) {
+        return {
+          userId: apiKeyData.userId,
+          email: apiKeyData.email,
+          name: apiKeyData.name,
+          source: 'apikey',
+        }
       }
-    }
 
-    // Try JWT token (WorkOS access token via oauth.do)
-    // TODO: Add JWKS verification when oauth.do exposes JWKS endpoint
-    // For now, decode without verification (tokens come from trusted oauth.do flow)
-    try {
-      const session = decodeOAuthToken(token)
-      return {
-        userId: session.userId,
-        email: session.email,
-        name: undefined,
-        source: 'jwt',
+      // Try OAuth access token from our MCP server
+      const accessTokenData = await env.OAUTH_KV.get(`access_token:${token}`, 'json') as any
+      if (accessTokenData) {
+        return {
+          userId: accessTokenData.userId,
+          email: accessTokenData.email,
+          name: accessTokenData.name,
+          source: 'oauth',
+        }
       }
-    } catch {
-      // Not a valid JWT, continue to return null
     }
 
     return null
