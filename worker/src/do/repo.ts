@@ -461,45 +461,62 @@ export class RepoDO extends DurableObject {
     const token = await this.getInstallationToken(this.installationId)
     const url = `https://api.github.com/repos/${this.repoFullName}/contents/${path}`
 
-    // Get current file SHA if it exists
-    let sha: string | undefined
-    try {
-      const getResponse = await fetch(url, {
+    const maxRetries = 3
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      // Get current file SHA (fresh on each attempt to handle 409 conflicts)
+      let sha: string | undefined
+      try {
+        const getResponse = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/vnd.github+json',
+            'X-GitHub-Api-Version': '2022-11-28',
+            'User-Agent': 'todo.mdx-worker',
+          },
+        })
+        if (getResponse.ok) {
+          const data = (await getResponse.json()) as { sha: string }
+          sha = data.sha
+        }
+      } catch {
+        // File doesn't exist, that's fine
+      }
+
+      // Commit the file
+      const response = await fetch(url, {
+        method: 'PUT',
         headers: {
           Authorization: `Bearer ${token}`,
           Accept: 'application/vnd.github+json',
           'X-GitHub-Api-Version': '2022-11-28',
           'User-Agent': 'todo.mdx-worker',
         },
+        body: JSON.stringify({
+          message,
+          content: btoa(content),
+          sha,
+        }),
       })
-      if (getResponse.ok) {
-        const data = (await getResponse.json()) as { sha: string }
-        sha = data.sha
+
+      if (response.ok) {
+        return // Success!
       }
-    } catch {
-      // File doesn't exist, that's fine
+
+      const errorText = await response.text()
+
+      // 409 = SHA conflict, retry with fresh SHA
+      if (response.status === 409 && attempt < maxRetries - 1) {
+        console.log(`[RepoDO] Commit conflict (attempt ${attempt + 1}), retrying...`)
+        await new Promise((r) => setTimeout(r, 500 * Math.pow(2, attempt))) // Exponential backoff
+        continue
+      }
+
+      lastError = new Error(`Failed to commit file ${path}: ${response.status} ${errorText}`)
     }
 
-    // Commit the file
-    const response = await fetch(url, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'todo.mdx-worker',
-      },
-      body: JSON.stringify({
-        message,
-        content: btoa(content),
-        sha,
-      }),
-    })
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to commit file ${path}: ${response.status} ${error}`)
-    }
+    throw lastError || new Error(`Failed to commit file ${path} after ${maxRetries} attempts`)
   }
 
   // ===========================================================================
@@ -791,8 +808,10 @@ export class RepoDO extends DurableObject {
 
     this.logSync('github', action, { issueId: id, githubNumber: ghIssue.number })
 
-    // Commit back to beads
-    await this.commitBeadsJsonl()
+    // Note: We don't commit back here because:
+    // 1. The DO stores the github_number mapping persistently
+    // 2. Committing would trigger another push webhook (sync loop potential)
+    // 3. The next `bd sync` from local will naturally update the repo
   }
 
   // ===========================================================================
