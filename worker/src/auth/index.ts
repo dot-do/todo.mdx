@@ -26,3 +26,16 @@ export {
   type WorkOSUser,
   type WorkOSAuthEnv,
 } from './authkit'
+
+// Unified session management
+export {
+  SESSION_COOKIE_NAME,
+  SESSION_TTL_SECONDS,
+  createSession,
+  createSessionToken,
+  parseSessionToken,
+  getSessionFromRequest,
+  buildSetSessionCookie,
+  buildClearSessionCookie,
+  type SessionData,
+} from './session'

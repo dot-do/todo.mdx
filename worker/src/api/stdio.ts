@@ -4,22 +4,23 @@
  * Proxies WebSocket connections to the sandbox's stdio-ws server (port 8080).
  * Uses binary protocol for stdin/stdout/stderr multiplexing.
  *
- * Session storage uses SessionDO (SQLite) instead of KV to avoid key length limits.
- *
  * Authentication:
- * - WebSocket: Token via query param or Authorization header
- * - Embed page: HttpOnly session cookie (set via WorkOS AuthKit login)
+ * - Uses unified session cookie (__Host-SESSION) for browser access
+ * - Supports Bearer token (signed session token or OAuth JWT) for WebSocket/API
+ * - Login/logout handled by /api/auth/* endpoints
  */
 
 import { Hono } from 'hono'
 import { getSandbox } from '@cloudflare/sandbox'
-import { WorkOS } from '@workos-inc/node'
-import { authMiddleware, decodeOAuthToken, type AuthContext } from '../auth'
+import {
+  authMiddleware,
+  decodeOAuthToken,
+  getSessionFromRequest,
+  parseSessionToken,
+  createSessionToken,
+  type AuthContext,
+} from '../auth'
 import type { Env } from '../types'
-
-// Session cookie name (uses __Host- prefix for security)
-const SESSION_COOKIE_NAME = '__Host-STDIO_SESSION'
-const SESSION_TTL_SECONDS = 86400 // 24 hours
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -29,112 +30,6 @@ const app = new Hono<{ Bindings: Env }>()
 function getSessionDO(env: Env) {
   const doId = env.SESSION.idFromName('sessions')
   return env.SESSION.get(doId)
-}
-
-// =============================================================================
-// Cookie-based Session Auth (for embed pages)
-// =============================================================================
-
-interface SessionData {
-  userId: string
-  email: string
-  name?: string
-  exp: number // Expiration timestamp
-}
-
-/**
- * Sign data with HMAC-SHA256
- */
-async function signData(data: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data))
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-/**
- * Verify HMAC signature
- */
-async function verifySignature(data: string, signature: string, secret: string): Promise<boolean> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['verify']
-  )
-  const sigBytes = new Uint8Array(signature.match(/.{1,2}/g)!.map(b => parseInt(b, 16)))
-  return crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(data))
-}
-
-/**
- * Create signed session cookie value
- */
-async function createSessionCookie(session: SessionData, secret: string): Promise<string> {
-  const payload = JSON.stringify(session)
-  const encoded = btoa(payload)
-  const signature = await signData(payload, secret)
-  return `${signature}.${encoded}`
-}
-
-/**
- * Parse and verify session cookie
- */
-async function parseSessionCookie(cookie: string, secret: string): Promise<SessionData | null> {
-  try {
-    const [signature, encoded] = cookie.split('.')
-    if (!signature || !encoded) return null
-
-    const payload = atob(encoded)
-    const isValid = await verifySignature(payload, signature, secret)
-    if (!isValid) return null
-
-    const session = JSON.parse(payload) as SessionData
-
-    // Check expiration
-    if (session.exp < Date.now()) return null
-
-    return session
-  } catch {
-    return null
-  }
-}
-
-/**
- * Get session from cookie header
- */
-async function getSessionFromCookie(request: Request, secret: string): Promise<SessionData | null> {
-  const cookieHeader = request.headers.get('Cookie')
-  if (!cookieHeader) return null
-
-  const cookies = cookieHeader.split(';').map(c => c.trim())
-  const sessionCookie = cookies.find(c => c.startsWith(`${SESSION_COOKIE_NAME}=`))
-  if (!sessionCookie) return null
-
-  const value = sessionCookie.substring(SESSION_COOKIE_NAME.length + 1)
-  return parseSessionCookie(value, secret)
-}
-
-/**
- * Build Set-Cookie header for session
- */
-async function buildSessionCookieHeader(session: SessionData, secret: string): Promise<string> {
-  const value = await createSessionCookie(session, secret)
-  return `${SESSION_COOKIE_NAME}=${value}; HttpOnly; Secure; Path=/api/stdio; SameSite=Lax; Max-Age=${SESSION_TTL_SECONDS}`
-}
-
-/**
- * Build Set-Cookie header to clear session
- */
-function buildClearSessionCookieHeader(): string {
-  return `${SESSION_COOKIE_NAME}=; HttpOnly; Secure; Path=/api/stdio; SameSite=Lax; Max-Age=0`
 }
 
 /**
@@ -236,7 +131,7 @@ app.get('/:sandboxId/warmup', async (c) => {
     console.log(`[stdio] Warming up sandbox: ${sandboxId}`)
 
     // Start stdio-ws server if not already running
-    const startResult = await sandbox.exec(
+    await sandbox.exec(
       'pgrep -f stdio-ws.ts >/dev/null || (nohup bun /workspace/stdio-ws.ts > /tmp/stdio-ws.log 2>&1 & sleep 1)'
     )
 
@@ -263,138 +158,13 @@ app.get('/:sandboxId/warmup', async (c) => {
   }
 })
 
-// =============================================================================
-// Login Flow Endpoints (for cookie-based embed auth)
-// =============================================================================
-
-/**
- * GET /stdio/login
- * Initiate WorkOS AuthKit login flow
- *
- * Query params:
- *   - return: URL to redirect back to after login
- */
-app.get('/login', async (c) => {
-  const url = new URL(c.req.url)
-  const returnUrl = url.searchParams.get('return') || '/api/stdio'
-
-  // Store return URL in OAuth state
-  const state = btoa(JSON.stringify({ returnUrl }))
-
-  // Redirect to WorkOS AuthKit
-  const workOS = new WorkOS(c.env.WORKOS_API_KEY)
-  const authUrl = workOS.userManagement.getAuthorizationUrl({
-    provider: 'authkit',
-    clientId: c.env.WORKOS_CLIENT_ID,
-    redirectUri: `${url.origin}/api/stdio/callback`,
-    state,
-  })
-
-  return c.redirect(authUrl)
-})
-
-/**
- * GET /stdio/callback
- * Handle WorkOS AuthKit callback, set session cookie, redirect to return URL
- */
-app.get('/callback', async (c) => {
-  const url = new URL(c.req.url)
-  const code = url.searchParams.get('code')
-  const stateParam = url.searchParams.get('state')
-
-  if (!code) {
-    return c.html(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Login Error</title></head>
-        <body style="background:#1e1e1e;color:#f44;font-family:monospace;padding:20px;">
-          <h2>Login Error</h2>
-          <p>Missing authorization code. Please try again.</p>
-        </body>
-      </html>
-    `, 400)
-  }
-
-  // Parse return URL from state
-  let returnUrl = '/api/stdio'
-  if (stateParam) {
-    try {
-      const state = JSON.parse(atob(stateParam))
-      returnUrl = state.returnUrl || returnUrl
-    } catch {}
-  }
-
-  // Exchange code for user info
-  try {
-    const workOS = new WorkOS(c.env.WORKOS_API_KEY)
-    const authResult = await workOS.userManagement.authenticateWithCode({
-      clientId: c.env.WORKOS_CLIENT_ID,
-      code,
-    })
-
-    const user = authResult.user
-
-    // Create session
-    const session: SessionData = {
-      userId: user.id,
-      email: user.email,
-      name: user.firstName || user.lastName
-        ? `${user.firstName || ''} ${user.lastName || ''}`.trim()
-        : undefined,
-      exp: Date.now() + (SESSION_TTL_SECONDS * 1000),
-    }
-
-    // Build session cookie
-    const cookieHeader = await buildSessionCookieHeader(session, c.env.COOKIE_ENCRYPTION_KEY)
-
-    // Redirect back with cookie set
-    return new Response(null, {
-      status: 302,
-      headers: {
-        'Location': returnUrl,
-        'Set-Cookie': cookieHeader,
-      },
-    })
-  } catch (err) {
-    console.error('[stdio] Callback error:', err)
-    return c.html(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Login Error</title></head>
-        <body style="background:#1e1e1e;color:#f44;font-family:monospace;padding:20px;">
-          <h2>Login Error</h2>
-          <p>Failed to complete authentication. Please try again.</p>
-        </body>
-      </html>
-    `, 500)
-  }
-})
-
-/**
- * GET /stdio/logout
- * Clear session cookie
- */
-app.get('/logout', async (c) => {
-  return new Response(null, {
-    status: 302,
-    headers: {
-      'Location': '/',
-      'Set-Cookie': buildClearSessionCookieHeader(),
-    },
-  })
-})
-
-// =============================================================================
-// Embed Page
-// =============================================================================
-
 /**
  * GET /stdio/:sandboxId/embed
  * Embeddable terminal page with xterm.js
  *
  * Authentication:
- *   - Uses HttpOnly session cookie (preferred, more secure)
- *   - Falls back to token query param for API/CLI compatibility
+ *   - Uses unified session cookie (__Host-SESSION)
+ *   - Redirects to /api/auth/login if not authenticated
  *
  * Query params:
  *   - cmd: Command to run (default: bash)
@@ -406,52 +176,22 @@ app.get('/:sandboxId/embed', async (c) => {
   const sandboxId = c.req.param('sandboxId')
   const url = new URL(c.req.url)
 
-  // Try cookie auth first (most secure for browser)
-  let auth: AuthContext | null = null
-  let authMethod: 'cookie' | 'token' = 'cookie'
+  // Check for session cookie (unified auth)
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
 
-  const session = await getSessionFromCookie(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
-  if (session) {
-    auth = {
-      userId: session.userId,
-      email: session.email,
-      name: session.name,
-      source: 'cookie',
-    }
-  }
-
-  // Fall back to token param (for API compatibility)
-  if (!auth) {
-    const token = url.searchParams.get('token')
-      ?? c.req.header('Authorization')?.replace('Bearer ', '')
-
-    if (token) {
-      auth = await validateToken(c.env, token)
-      authMethod = 'token'
-    }
-  }
-
-  // No auth - redirect to login
-  if (!auth) {
+  if (!session) {
+    // Redirect to unified login
     const returnUrl = encodeURIComponent(url.pathname + url.search)
-    return c.redirect(`/api/stdio/login?return=${returnUrl}`)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
   }
+
+  // Create a signed token for WebSocket connection
+  // (WebSockets can't access HttpOnly cookies directly)
+  const wsToken = await createSessionToken(session, c.env.COOKIE_ENCRYPTION_KEY)
 
   // Build WebSocket URL
-  // For cookie auth, we need to pass a token to the WebSocket endpoint
-  // (WebSockets can't access HttpOnly cookies directly)
   const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  let wsUrl: string
-
-  if (authMethod === 'cookie' && session) {
-    // Create a short-lived token for WebSocket connection
-    const wsToken = await createSessionCookie(session, c.env.COOKIE_ENCRYPTION_KEY)
-    wsUrl = `${wsProtocol}//${url.host}/api/stdio/${sandboxId}?token=${encodeURIComponent(wsToken)}`
-  } else {
-    // Use the token from query param
-    const token = url.searchParams.get('token')!
-    wsUrl = `${wsProtocol}//${url.host}/api/stdio/${sandboxId}?token=${encodeURIComponent(token)}`
-  }
+  const wsUrl = `${wsProtocol}//${url.host}/api/stdio/${sandboxId}?token=${encodeURIComponent(wsToken)}`
 
   // Add cmd and arg params
   const cmd = url.searchParams.get('cmd') || 'bash'
@@ -755,7 +495,7 @@ app.get('/:sandboxId/status', authMiddleware, async (c) => {
  * Supports multiple token formats:
  * - WorkOS session token (wos_...)
  * - JWT token (eyJ...)
- * - Signed session cookie (signature.base64-payload)
+ * - Signed session token (signature.base64-payload)
  * - SessionDO tokens
  */
 async function validateToken(
@@ -807,16 +547,15 @@ async function validateToken(
       }
     }
 
-    // Try signed session cookie format (signature.base64-payload)
-    // These are generated by cookie-based auth for WebSocket connections
+    // Try signed session token (from /api/auth/token or cookie)
     if (token.includes('.')) {
-      const session = await parseSessionCookie(token, env.COOKIE_ENCRYPTION_KEY)
+      const session = await parseSessionToken(token, env.COOKIE_ENCRYPTION_KEY)
       if (session) {
         return {
           userId: session.userId,
           email: session.email,
           name: session.name,
-          source: 'cookie',
+          source: 'token',
         }
       }
     }

@@ -13,7 +13,9 @@ import sandbox from './api/sandbox'
 import terminal from './api/terminal'
 import stdio from './api/stdio'
 import linear from './api/linear'
+import auth from './api/auth'
 import { authMiddleware, type AuthContext } from './auth'
+import { validateWorkosJwt, mightBeWorkosJwt } from './mcp/workos-jwt'
 import type { Env } from './types'
 
 export { RepoDO } from './do/repo'
@@ -52,6 +54,13 @@ app.get('/', (c) => {
 app.route('/api/voice', voice)
 
 // ============================================
+// Unified Auth routes (login/logout/callback)
+// No auth required - these establish the session
+// ============================================
+
+app.route('/api/auth', auth)
+
+// ============================================
 // Linear Integration routes
 // Note: Webhook endpoint does NOT use auth (verified via signature)
 // ============================================
@@ -61,7 +70,7 @@ app.route('/api/linear', linear)
 // ============================================
 // Stdio WebSocket Proxy (new binary protocol)
 // Supports both CLI (sbx-stdio) and browser (xterm.js)
-// NOTE: Must be registered BEFORE /api to avoid api auth middleware
+// Uses unified session cookie or token auth
 // ============================================
 
 app.route('/api/stdio', stdio)
@@ -90,7 +99,113 @@ app.all('/callback', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
 app.all('/sse', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
 
 // Forward /mcp requests to OAuthProvider (pass as-is, OAuthProvider routes by apiRoute)
+// With fallback support for WorkOS JWTs (from oauth.do)
 app.all('/mcp/*', async (c) => {
+  // Check if the request has a WorkOS JWT that we can validate directly
+  const authHeader = c.req.header('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7)
+    if (mightBeWorkosJwt(token)) {
+      const props = await validateWorkosJwt(token, c.env)
+      if (props) {
+        // WorkOS JWT validated - handle MCP endpoints directly
+
+        // Build a synthetic authenticated request
+        // The MCP agent needs env, props, and the request
+        const url = new URL(c.req.url)
+        const path = url.pathname.replace('/mcp', '')
+
+        // Handle different MCP endpoints
+        if (path === '/info' || path === '') {
+          return c.json({
+            name: 'todo.mdx',
+            version: '0.1.0',
+            capabilities: {
+              tools: true,
+              resources: true,
+            },
+          })
+        }
+
+        if (path === '/tools') {
+          // Return available tools
+          const tools = [
+            { name: 'search', description: 'Search issues across all repositories', inputSchema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number' } }, required: ['query'] } },
+            { name: 'fetch', description: 'Fetch a resource by URI', inputSchema: { type: 'object', properties: { uri: { type: 'string' } }, required: ['uri'] } },
+            { name: 'roadmap', description: 'Generate roadmap markdown', inputSchema: { type: 'object', properties: { repo: { type: 'string' } } } },
+            { name: 'do', description: 'Execute JavaScript code in a sandboxed environment', inputSchema: { type: 'object', properties: { repo: { type: 'string' }, code: { type: 'string' } }, required: ['repo', 'code'] } },
+          ]
+          return c.json({ tools })
+        }
+
+        if (path === '/resources') {
+          // Return user's repos as resources
+          try {
+            const workosUserId = props.user?.id
+            if (workosUserId) {
+              // Get user's repos
+              const userResult = await c.env.PAYLOAD.find({
+                collection: 'users',
+                where: { workosUserId: { equals: workosUserId } },
+                limit: 1,
+              })
+
+              if (userResult.docs?.length) {
+                const payloadUserId = userResult.docs[0].id
+                const installationsResult = await c.env.PAYLOAD.find({
+                  collection: 'installations',
+                  where: { users: { contains: payloadUserId } },
+                  limit: 100,
+                })
+
+                if (installationsResult.docs?.length) {
+                  const installationIds = installationsResult.docs.map((i: any) => i.id)
+                  const reposResult = await c.env.PAYLOAD.find({
+                    collection: 'repos',
+                    where: { installation: { in: installationIds } },
+                    limit: 100,
+                  })
+
+                  const resources = (reposResult.docs || []).map((repo: any) => ({
+                    uri: `todo://${repo.fullName}/issues`,
+                    name: repo.fullName,
+                    description: `Issues for ${repo.fullName}`,
+                  }))
+
+                  return c.json({ resources })
+                }
+              }
+            }
+          } catch (e) {
+            console.error('Failed to fetch resources:', e)
+          }
+          return c.json({ resources: [] })
+        }
+
+        if (path === '/tools/call' && c.req.method === 'POST') {
+          // Handle tool calls via the TodoMCP server
+          try {
+            const body = await c.req.json()
+            const { name, arguments: args } = body
+
+            // Import and use the tool handlers directly
+            const { handleMcpToolCall } = await import('./mcp/tool-handler')
+            const result = await handleMcpToolCall(name, args, props, c.env, c.executionCtx)
+            return c.json(result)
+          } catch (e: any) {
+            return c.json({
+              content: [{ type: 'text', text: `Error: ${e.message}` }],
+              isError: true,
+            })
+          }
+        }
+
+        // Unknown path, fall through to OAuthProvider
+      }
+    }
+  }
+
+  // Fall back to OAuthProvider for standard OAuth 2.1 flow
   return mcp.fetch(c.req.raw, c.env, c.executionCtx)
 })
 
@@ -267,6 +382,10 @@ app.post('/github/webhook', async (c) => {
       return handleProject(c, payload)
     case 'projects_v2_item':
       return handleProjectItem(c, payload)
+    case 'pull_request':
+      return handlePullRequest(c, payload)
+    case 'pull_request_review':
+      return handlePullRequestReview(c, payload)
     default:
       return c.json({ status: 'ignored', event })
   }
@@ -607,6 +726,102 @@ async function handleProjectItem(c: any, payload: any): Promise<Response> {
 
   const result = await response.json()
   return c.json({ status: 'synced', result })
+}
+
+// Pull Request webhook
+async function handlePullRequest(c: any, payload: any): Promise<Response> {
+  const repo = payload.repository
+  const pr = payload.pull_request
+  const action = payload.action
+  const installationId = payload.installation?.id
+
+  if (!installationId) {
+    return c.json({ status: 'ignored', reason: 'no installation id' })
+  }
+
+  // Get PRDO instance using naming convention: {owner}/{repo}#{pr_number}
+  const doId = c.env.PRDO.idFromName(`${repo.full_name}#${pr.number}`)
+  const stub = c.env.PRDO.get(doId)
+
+  // Map webhook action to PRDO event
+  switch (action) {
+    case 'opened':
+    case 'reopened':
+      // Send PR_OPENED event
+      return stub.fetch(new Request('http://do/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'PR_OPENED',
+          prNumber: pr.number,
+          repoFullName: repo.full_name,
+          author: pr.user.login,
+          base: pr.base.ref,
+          head: pr.head.sha,
+          installationId,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    case 'synchronize':
+      // Send FIX_COMPLETE event (new commits pushed)
+      return stub.fetch(new Request('http://do/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'FIX_COMPLETE',
+          commits: payload.commits || [],
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    case 'closed':
+      // Send CLOSE event with merged flag
+      return stub.fetch(new Request('http://do/event', {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'CLOSE',
+          merged: pr.merged || false,
+        }),
+        headers: { 'Content-Type': 'application/json' },
+      }))
+
+    default:
+      return c.json({ status: 'ignored', action })
+  }
+}
+
+// Pull Request Review webhook
+async function handlePullRequestReview(c: any, payload: any): Promise<Response> {
+  const repo = payload.repository
+  const pr = payload.pull_request
+  const review = payload.review
+  const action = payload.action
+
+  // Only handle submitted reviews
+  if (action !== 'submitted') {
+    return c.json({ status: 'ignored', reason: 'action not submitted' })
+  }
+
+  // Only handle approved or changes_requested states
+  const reviewState = review.state.toLowerCase()
+  if (reviewState !== 'approved' && reviewState !== 'changes_requested') {
+    return c.json({ status: 'ignored', reason: `review state: ${reviewState}` })
+  }
+
+  // Get PRDO instance using naming convention: {owner}/{repo}#{pr_number}
+  const doId = c.env.PRDO.idFromName(`${repo.full_name}#${pr.number}`)
+  const stub = c.env.PRDO.get(doId)
+
+  // Send REVIEW_COMPLETE event
+  return stub.fetch(new Request('http://do/event', {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'REVIEW_COMPLETE',
+      reviewer: review.user.login,
+      decision: reviewState,
+      body: review.body || '',
+    }),
+    headers: { 'Content-Type': 'application/json' },
+  }))
 }
 
 // ============================================
