@@ -17,20 +17,10 @@ export interface Env {
   REPO: DurableObjectNamespace
   PROJECT: DurableObjectNamespace
   PRDO: DurableObjectNamespace
+  CLAUDE_SANDBOX: DurableObjectNamespace
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
-  // Sandbox binding for dispatching review/fix sessions
-  SANDBOX?: {
-    run(config: {
-      agent: string
-      pat: string
-      task: 'review' | 'fix'
-      prompt: string
-      repo: string
-      pr: number
-      callback: string
-    }): Promise<{ sessionId: string }>
-  }
+  ANTHROPIC_API_KEY: string
 }
 
 // =============================================================================
@@ -538,6 +528,93 @@ export class PRDO extends DurableObject<Env> {
   }
 
   /**
+   * Load reviewer config from D1 database
+   */
+  private async loadReviewerConfig(repoFullName: string): Promise<{
+    reviewers: ReviewerConfig[]
+    defaultAuthorPAT: string
+  }> {
+    // Query agents table for reviewers configured for this repo
+    const agents = await this.env.DB.prepare(`
+      SELECT
+        a.agentId, a.name, a.githubUsername, a.githubPat, a.reviewRole, a.instructions,
+        GROUP_CONCAT(e.agentId) as canEscalate
+      FROM agents a
+      LEFT JOIN agents e ON e.id IN (
+        SELECT value FROM json_each(a.canEscalate)
+      )
+      WHERE a.reviewRole IS NOT NULL
+      GROUP BY a.id
+      ORDER BY
+        CASE a.reviewRole
+          WHEN 'product' THEN 1
+          WHEN 'qa' THEN 2
+          WHEN 'security' THEN 3
+          ELSE 4
+        END
+    `).all()
+
+    // Default reviewers if none configured
+    if (!agents.results || agents.results.length === 0) {
+      return {
+        reviewers: [
+          { agent: 'quinn', type: 'agent' as const, canEscalate: ['sam'] }
+        ],
+        defaultAuthorPAT: '',
+      }
+    }
+
+    const reviewers: ReviewerConfig[] = agents.results.map((row: any) => ({
+      agent: row.agentId || row.name,
+      type: 'agent' as const,
+      pat: row.githubPat,
+      canEscalate: row.canEscalate?.split(',').filter(Boolean) || [],
+    }))
+
+    return { reviewers, defaultAuthorPAT: '' }
+  }
+
+  /**
+   * Dispatch a Claude Code session for review or fix
+   */
+  private async dispatchSandboxSession(config: {
+    agent: string
+    pat: string
+    task: 'review' | 'fix'
+    prompt: string
+    repo: string
+    pr: number
+    installationId: number
+  }): Promise<string> {
+    // Create a unique sandbox instance
+    const sandboxId = `prdo-${config.task}-${config.repo}-${config.pr}-${Date.now()}`
+    const doId = this.env.CLAUDE_SANDBOX.idFromName(sandboxId)
+    const sandbox = this.env.CLAUDE_SANDBOX.get(doId)
+
+    // Call the sandbox's execute endpoint
+    const response = await sandbox.fetch(new Request('http://sandbox/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        repo: config.repo,
+        installationId: config.installationId,
+        task: config.prompt,
+        // For reviews, we don't push - Claude submits via GitHub API
+        // For fixes, we push to the PR branch
+        push: config.task === 'fix',
+      }),
+    }))
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Sandbox session failed: ${error}`)
+    }
+
+    // Return the sandbox ID as session ID
+    return sandboxId
+  }
+
+  /**
    * Initialize SQL storage for PRDO-specific data (future: review outcomes, session logs)
    */
   private ensureInitialized() {
@@ -679,11 +756,52 @@ export class PRDO extends DurableObject<Env> {
       })
     }
 
-    // Send event to state machine
-    this.prActor.send(event)
+    // For PR_OPENED, initialize context and load config
+    if (event.type === 'PR_OPENED') {
+      // Update context with PR info
+      const prOpenedEvent = event as { type: 'PR_OPENED'; prNumber: number; author: string; repoFullName: string; installationId: number }
+
+      // Load reviewer config
+      const config = await this.loadReviewerConfig(prOpenedEvent.repoFullName)
+
+      // Initialize machine context
+      const context = this.prActor.getSnapshot().context
+      context.prNumber = prOpenedEvent.prNumber
+      context.repoFullName = prOpenedEvent.repoFullName
+      context.installationId = prOpenedEvent.installationId
+      context.authorAgent = prOpenedEvent.author
+      context.reviewers = config.reviewers
+      context.authorPAT = config.defaultAuthorPAT
+
+      // Store context
+      await this.ctx.storage.put('prContext', context)
+
+      // Send PR_OPENED then CONFIG_LOADED
+      this.prActor.send(event)
+      this.prActor.send({ type: 'CONFIG_LOADED', reviewers: config.reviewers, authorPAT: config.defaultAuthorPAT })
+    } else {
+      // Send event to state machine
+      this.prActor.send(event)
+    }
 
     // Get updated state
     const state = this.prActor.getSnapshot()
+
+    // Check if we need to dispatch a sandbox session
+    const sandboxSession = (globalThis as any).__sandboxSession
+    if (sandboxSession !== undefined) {
+      try {
+        const sessionId = await this.dispatchSandboxSession({
+          ...sandboxSession,
+          installationId: state.context.installationId,
+        })
+        this.prActor.send({ type: 'SESSION_STARTED', sessionId })
+      } catch (error) {
+        console.error('[PRDO] Failed to dispatch sandbox session:', error)
+        this.prActor.send({ type: 'SESSION_FAILED', error: String(error) })
+      }
+      ;(globalThis as any).__sandboxSession = undefined
+    }
 
     return Response.json({
       ok: true,

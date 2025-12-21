@@ -138,6 +138,44 @@ export const Agents: CollectionConfig = {
         description: 'Execution timeout in milliseconds (default: 5 minutes)',
       },
     },
+    // GitHub identity for PR reviews
+    {
+      name: 'githubUsername',
+      type: 'text',
+      index: true,
+      admin: {
+        description: 'GitHub username for this agent (e.g., quinn-qa-bot)',
+      },
+    },
+    {
+      name: 'githubPat',
+      type: 'text',
+      admin: {
+        description: 'GitHub Personal Access Token (encrypted in storage)',
+      },
+    },
+    {
+      name: 'reviewRole',
+      type: 'select',
+      options: [
+        { label: 'Product', value: 'product' },
+        { label: 'QA', value: 'qa' },
+        { label: 'Security', value: 'security' },
+        { label: 'General', value: 'general' },
+      ],
+      admin: {
+        description: 'Review role/persona for PRDO',
+      },
+    },
+    {
+      name: 'canEscalate',
+      type: 'relationship',
+      relationTo: 'agents',
+      hasMany: true,
+      admin: {
+        description: 'Agents this reviewer can escalate to (e.g., Quinn can escalate to Sam)',
+      },
+    },
     // Scope: either org-level or repo-level
     {
       name: 'org',

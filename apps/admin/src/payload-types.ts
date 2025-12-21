@@ -78,6 +78,8 @@ export interface Config {
     agents: Agent;
     'durable-objects': DurableObject;
     connections: Connection;
+    'tool-executions': ToolExecution;
+    models: Model;
     'payload-kv': PayloadKv;
     'payload-locked-documents': PayloadLockedDocument;
     'payload-preferences': PayloadPreference;
@@ -103,6 +105,8 @@ export interface Config {
     agents: AgentsSelect<false> | AgentsSelect<true>;
     'durable-objects': DurableObjectsSelect<false> | DurableObjectsSelect<true>;
     connections: ConnectionsSelect<false> | ConnectionsSelect<true>;
+    'tool-executions': ToolExecutionsSelect<false> | ToolExecutionsSelect<true>;
+    models: ModelsSelect<false> | ModelsSelect<true>;
     'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
     'payload-preferences': PayloadPreferencesSelect<false> | PayloadPreferencesSelect<true>;
@@ -247,6 +251,18 @@ export interface Installation {
    * Users connected to this installation
    */
   users?: (number | User)[] | null;
+  /**
+   * Tool configuration for all repos in this installation
+   */
+  toolConfig?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -338,6 +354,18 @@ export interface Repo {
      */
     requireHumanApproval?: boolean | null;
   };
+  /**
+   * Tool configuration for this repository (inherits from installation)
+   */
+  toolConfig?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -348,30 +376,61 @@ export interface Repo {
 export interface Agent {
   id: number;
   /**
-   * Agent identifier (e.g., "priya", "quinn", "sam")
+   * Unique identifier for this agent (e.g., code-reviewer, test-writer)
+   */
+  agentId: string;
+  /**
+   * Human-readable name for this agent
    */
   name: string;
   /**
-   * GitHub username for this agent
+   * Description of what this agent does
    */
-  githubUsername: string;
+  description?: string | null;
   /**
-   * GitHub Personal Access Token (encrypted at rest, admin-only)
+   * List of tools available to this agent
    */
-  pat?: string | null;
-  /**
-   * Description of the agent's review focus and personality
-   */
-  persona?: string | null;
-  /**
-   * List of agent names this agent can escalate to
-   */
-  canEscalate?:
+  tools?:
     | {
-        agentName: string;
-        id?: string | null;
-      }[]
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
     | null;
+  /**
+   * Execution tier: light (stateless), worker (CF Worker), or sandbox (isolated)
+   */
+  tier?: ('light' | 'worker' | 'sandbox') | null;
+  /**
+   * AI model to use (e.g., claude-3-5-sonnet-20241022, overall)
+   */
+  model?: string | null;
+  /**
+   * Agent framework to use for execution
+   */
+  framework?: ('ai-sdk' | 'claude-agent-sdk' | 'openai-agents' | 'claude-code') | null;
+  /**
+   * System instructions for this agent (markdown format)
+   */
+  instructions?: string | null;
+  /**
+   * Maximum number of tool execution steps
+   */
+  maxSteps?: number | null;
+  /**
+   * Execution timeout in milliseconds (default: 5 minutes)
+   */
+  timeout?: number | null;
+  /**
+   * Organization/installation this agent is scoped to (leave empty for global)
+   */
+  org?: (number | null) | Installation;
+  /**
+   * Repository this agent is scoped to (leave empty for org-level or global)
+   */
+  repo?: (number | null) | Repo;
   updatedAt: string;
   createdAt: string;
 }
@@ -446,6 +505,18 @@ export interface Issue {
    * Reason for closing the issue
    */
   closeReason?: string | null;
+  /**
+   * Tool configuration for this issue (inherits from repo → installation)
+   */
+  toolConfig?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -747,6 +818,144 @@ export interface Connection {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tool-executions".
+ */
+export interface ToolExecution {
+  id: number;
+  /**
+   * Durable Object ID that executed the tool
+   */
+  doId: string;
+  /**
+   * Tool name (e.g., GitHub.createPullRequest, Linear.createIssue)
+   */
+  tool: string;
+  /**
+   * Tool execution parameters
+   */
+  params:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Tool execution result (if successful)
+   */
+  result?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Error message if execution failed
+   */
+  error?: string | null;
+  /**
+   * Execution duration in milliseconds
+   */
+  durationMs: number;
+  /**
+   * When the tool was executed
+   */
+  executedAt: string;
+  /**
+   * User who initiated the tool execution
+   */
+  user: number | User;
+  /**
+   * Connection used for the tool execution
+   */
+  connection: number | Connection;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "models".
+ */
+export interface Model {
+  id: number;
+  /**
+   * OpenRouter model ID (e.g., anthropic/claude-3.5-sonnet)
+   */
+  modelId: string;
+  /**
+   * Human-readable model name
+   */
+  name?: string | null;
+  /**
+   * Model provider (e.g., anthropic, openai, google)
+   */
+  provider?: string | null;
+  /**
+   * Maximum context window in tokens
+   */
+  contextLength?: number | null;
+  /**
+   * Pricing: { prompt: number, completion: number } per token
+   */
+  pricing?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Capabilities: { vision: boolean, tools: boolean, streaming: boolean }
+   */
+  capabilities?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Last time model was synced from OpenRouter
+   */
+  lastSyncedAt?: string | null;
+  /**
+   * Curation status for UI filtering
+   */
+  status?: ('available' | 'recommended' | 'deprecated' | 'hidden') | null;
+  /**
+   * Model tier for categorization
+   */
+  tier?: ('fast' | 'balanced' | 'reasoning' | 'specialized') | null;
+  /**
+   * Use cases: ["coding", "research", "browser", "vision", etc.]
+   */
+  bestFor?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Internal notes about this model
+   */
+  notes?: string | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-kv".
  */
 export interface PayloadKv {
@@ -812,6 +1021,14 @@ export interface PayloadLockedDocument {
     | ({
         relationTo: 'connections';
         value: number | Connection;
+      } | null)
+    | ({
+        relationTo: 'tool-executions';
+        value: number | ToolExecution;
+      } | null)
+    | ({
+        relationTo: 'models';
+        value: number | Model;
       } | null);
   globalSlug?: string | null;
   user: {
@@ -915,6 +1132,7 @@ export interface InstallationsSelect<T extends boolean = true> {
   repositorySelection?: T;
   suspendedAt?: T;
   users?: T;
+  toolConfig?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -948,6 +1166,7 @@ export interface ReposSelect<T extends boolean = true> {
         autoMerge?: T;
         requireHumanApproval?: T;
       };
+  toolConfig?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -972,6 +1191,7 @@ export interface IssuesSelect<T extends boolean = true> {
   type?: T;
   closedAt?: T;
   closeReason?: T;
+  toolConfig?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1050,16 +1270,18 @@ export interface LinearIntegrationsSelect<T extends boolean = true> {
  * via the `definition` "agents_select".
  */
 export interface AgentsSelect<T extends boolean = true> {
+  agentId?: T;
   name?: T;
-  githubUsername?: T;
-  pat?: T;
-  persona?: T;
-  canEscalate?:
-    | T
-    | {
-        agentName?: T;
-        id?: T;
-      };
+  description?: T;
+  tools?: T;
+  tier?: T;
+  model?: T;
+  framework?: T;
+  instructions?: T;
+  maxSteps?: T;
+  timeout?: T;
+  org?: T;
+  repo?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -1094,6 +1316,42 @@ export interface ConnectionsSelect<T extends boolean = true> {
   scopes?: T;
   connectedAt?: T;
   expiresAt?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "tool-executions_select".
+ */
+export interface ToolExecutionsSelect<T extends boolean = true> {
+  doId?: T;
+  tool?: T;
+  params?: T;
+  result?: T;
+  error?: T;
+  durationMs?: T;
+  executedAt?: T;
+  user?: T;
+  connection?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "models_select".
+ */
+export interface ModelsSelect<T extends boolean = true> {
+  modelId?: T;
+  name?: T;
+  provider?: T;
+  contextLength?: T;
+  pricing?: T;
+  capabilities?: T;
+  lastSyncedAt?: T;
+  status?: T;
+  tier?: T;
+  bestFor?: T;
+  notes?: T;
   updatedAt?: T;
   createdAt?: T;
 }
