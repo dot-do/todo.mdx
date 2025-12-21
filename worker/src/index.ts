@@ -220,6 +220,15 @@ app.use('/api/*', rateLimitMiddleware('api'))
 // Apply CSRF protection to API routes (after auth, before handlers)
 // This protects cookie-based auth; token-based auth is automatically exempt
 app.use('/api/*', csrfProtection(ALLOWED_ORIGINS))
+
+// ============================================
+// Claude Sandbox API routes (mounted BEFORE api to avoid auth middleware)
+// The sandbox router has its own selective auth - /health is public
+// ============================================
+
+app.route('/api/sandbox', sandbox)
+
+// Mount API router (has its own auth middleware for all routes)
 app.route('/api', api)
 
 // ============================================
@@ -366,12 +375,6 @@ app.all('/mcp/*', rateLimitMiddleware('mcp'), async (c) => {
 app.all('/mcp', async (c) => {
   return mcp.fetch(c.req.raw, c.env, c.executionCtx)
 })
-
-// ============================================
-// Claude Sandbox API routes
-// ============================================
-
-app.route('/api/sandbox', sandbox)
 
 // ============================================
 // Workflows API routes (trigger/manage DevelopWorkflow)
