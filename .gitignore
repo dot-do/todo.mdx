@@ -53,3 +53,11 @@ tests/fixtures/.worktrees/
 
 # sbx-cli binaries
 packages/sbx-cli/sbx-stdio
+
+# Temp test files
+tests/.mcp-token
+tests/test-results/
+tests/scripts/
+apps/todo.mdx.do/TEST_RESULTS.md
+apps/todo.mdx.do/MIDDLEWARE_SECURITY.md
+apps/todo.mdx.do/*.sh
