@@ -3,6 +3,12 @@ import { describe, test, expect } from 'vitest'
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
 
+// Skip signature verification tests when running against production without the real secret
+// (The test-secret default won't match production's actual webhook secret)
+const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
+const hasRealSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
+const skipValidSignatureTest = isProduction && !hasRealSecret
+
 /**
  * Generate GitHub webhook signature for testing
  */
@@ -41,7 +47,7 @@ describe('GitHub webhook signature verification', () => {
     },
   }
 
-  test('accepts webhook with valid signature', async () => {
+  test.skipIf(skipValidSignatureTest)('accepts webhook with valid signature', async () => {
     const body = JSON.stringify(testPayload)
     const signature = await generateGitHubSignature(body, GITHUB_WEBHOOK_SECRET)
 
