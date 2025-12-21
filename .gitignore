@@ -30,9 +30,8 @@ coverage/
 # TypeScript cache
 *.tsbuildinfo
 
-# Lock files (use npm)
+# Lock files (keep pnpm-lock.yaml for CI)
 yarn.lock
-pnpm-lock.yaml
 bun.lockb
 # Next.js build output
 .next/
