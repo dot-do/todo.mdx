@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { parseTodoFile } from './parser.js'
 import type { Issue } from './types.js'
 import { updateIssue, closeIssue } from 'beads-workflows'
+import { getErrorMessage } from './errors.js'
 
 export interface WatchOptions {
   /** Directory containing .todo files */
@@ -155,9 +156,10 @@ export async function watch(options: WatchOptions = {}): Promise<() => void> {
 
       onEvent?.(event)
     } catch (error) {
-      log(`Error processing ${filepath}: ${error}`)
+      const errorMsg = getErrorMessage(error)
+      log(`Error processing ${filepath}: ${errorMsg}`)
       event.action = 'error'
-      event.error = error instanceof Error ? error.message : String(error)
+      event.error = errorMsg
       onEvent?.(event)
     }
   }
@@ -176,7 +178,7 @@ export async function watch(options: WatchOptions = {}): Promise<() => void> {
     const timer = setTimeout(() => {
       debounceTimers.delete(filepath)
       processFileChange(filepath, eventType).catch((error) => {
-        log(`Unhandled error in processFileChange: ${error}`)
+        log(`Unhandled error in processFileChange: ${getErrorMessage(error)}`)
       })
     }, debounceMs)
 

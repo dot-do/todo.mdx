@@ -155,3 +155,59 @@ export interface AgentProps extends ComponentProps {
 export interface StatsProps extends ComponentProps {
   showLeadTime?: boolean
 }
+
+/** Argument component props */
+export interface ArgumentProps extends ComponentProps {
+  name: string
+  description?: string
+  required?: boolean
+  default?: any
+  choices?: string[]
+}
+
+/** Flag component props */
+export interface FlagProps extends ComponentProps {
+  name: string
+  alias?: string
+  type?: 'string' | 'number' | 'boolean'
+  description?: string
+  required?: boolean
+  default?: any
+}
+
+/** Subcommand component props */
+export interface SubcommandProps extends ComponentProps {
+  name: string
+  description?: string
+  aliases?: string[]
+}
+
+/** Parsed command structure from MDX */
+export interface ParsedCommand {
+  name: string
+  description?: string
+  aliases?: string[]
+  arguments?: ParsedArgument[]
+  flags?: ParsedFlag[]
+  subcommands?: ParsedCommand[]
+  action?: (args: any, options: any) => void | Promise<void>
+}
+
+/** Parsed argument from MDX */
+export interface ParsedArgument {
+  name: string
+  description?: string
+  required?: boolean
+  default?: any
+  choices?: string[]
+}
+
+/** Parsed flag from MDX */
+export interface ParsedFlag {
+  name: string
+  alias?: string
+  type?: 'string' | 'number' | 'boolean'
+  description?: string
+  required?: boolean
+  default?: any
+}

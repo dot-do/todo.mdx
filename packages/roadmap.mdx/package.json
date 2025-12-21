@@ -47,6 +47,7 @@
     "directory": "packages/roadmap.mdx"
   },
   "dependencies": {
+    "@todo.mdx/shared": "workspace:*",
     "mdxld": "^1.0.0",
     "@mdxld/markdown": "^1.9.0"
   },

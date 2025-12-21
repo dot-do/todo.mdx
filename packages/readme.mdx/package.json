@@ -46,6 +46,7 @@
     "directory": "packages/readme.mdx"
   },
   "dependencies": {
+    "@todo.mdx/core": "workspace:^",
     "mdxld": "^1.0.0"
   },
   "devDependencies": {

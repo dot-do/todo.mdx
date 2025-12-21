@@ -17,6 +17,7 @@ import {
   renderPackage,
   renderStats,
 } from './components.js'
+import { FileSystemError, ValidationError } from '@todo.mdx/core'
 
 /** Frontmatter regex */
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
@@ -78,8 +79,12 @@ export async function compile(options: {
   let template: string
   try {
     template = await readFile(input, 'utf-8')
-  } catch {
-    throw new Error(`Template file not found: ${input}`)
+  } catch (error) {
+    throw new FileSystemError(`Template file not found`, {
+      cause: error,
+      filePath: input,
+      operation: 'read',
+    })
   }
 
   // Parse frontmatter
@@ -104,7 +109,13 @@ export async function compile(options: {
   // Load package data
   const pkg = await loadPackageData(finalConfig.packagePath)
   if (!pkg) {
-    throw new Error('Failed to load package.json')
+    throw new ValidationError('Failed to load package.json', {
+      field: 'packagePath',
+      value: finalConfig.packagePath,
+      context: {
+        message: 'Ensure package.json exists at the specified path',
+      },
+    })
   }
 
   // Parse GitHub repo

@@ -11,6 +11,9 @@ import type {
   CommandProps,
   StatsProps,
   AgentProps,
+  ArgumentProps,
+  FlagProps,
+  SubcommandProps,
   Issue,
   Milestone,
   Stats,
@@ -301,4 +304,67 @@ function getCheckbox(state: Issue['state']): string {
     default:
       return '[ ]'
   }
+}
+
+/** Argument - Positional argument for a command */
+export function Argument({
+  name,
+  description,
+  required = false,
+  default: defaultValue,
+  choices,
+  children,
+}: ArgumentProps) {
+  // This component is used for parsing only - it doesn't render directly
+  // The actual rendering happens in the Command component
+  return (
+    <>
+      <Text style={{ dim: true }}>
+        {'  '}
+        <Text style={{ color: 'cyan' }}>&lt;{name}&gt;</Text>
+        {required && <Text style={{ color: 'red' }}> (required)</Text>}
+        {description && ` - ${description}`}
+        {defaultValue !== undefined && ` (default: ${defaultValue})`}
+        {choices && ` (choices: ${choices.join(', ')})`}
+      </Text>
+      {'\n'}
+      {children}
+    </>
+  )
+}
+
+/** Flag - Named option for a command */
+export function Flag({
+  name,
+  alias,
+  type = 'string',
+  description,
+  required = false,
+  default: defaultValue,
+  children,
+}: FlagProps) {
+  // This component is used for parsing only - it doesn't render directly
+  // The actual rendering happens in the Command component
+  const flagText = alias ? `-${alias}, --${name}` : `--${name}`
+  const typeText = type === 'boolean' ? '' : ` <${type}>`
+
+  return (
+    <>
+      <Text style={{ dim: true }}>
+        {'  '}
+        <Text style={{ color: 'green' }}>{flagText}{typeText}</Text>
+        {required && <Text style={{ color: 'red' }}> (required)</Text>}
+        {description && ` - ${description}`}
+        {defaultValue !== undefined && ` (default: ${defaultValue})`}
+      </Text>
+      {'\n'}
+      {children}
+    </>
+  )
+}
+
+/** Subcommand - Nested command */
+export function Subcommand({ name, description, aliases, children }: SubcommandProps) {
+  // Subcommands are essentially the same as Commands
+  return <Command name={name} description={description} aliases={aliases}>{children}</Command>
 }

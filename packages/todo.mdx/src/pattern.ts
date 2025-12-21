@@ -3,6 +3,7 @@
  */
 
 import type { Issue, FilePattern } from './types.js'
+import { ValidationError } from './errors.js'
 
 /** Available variables for file patterns */
 const VARIABLE_EXTRACTORS: Record<string, (issue: Issue) => string> = {
@@ -43,7 +44,14 @@ export function parsePattern(template: string): FilePattern {
 
     const varName = match[1]
     if (!VARIABLE_EXTRACTORS[varName]) {
-      throw new Error(`Unknown variable: ${varName}. Available: ${Object.keys(VARIABLE_EXTRACTORS).join(', ')}`)
+      throw new ValidationError('Unknown variable in pattern', {
+        field: 'pattern',
+        context: {
+          variable: varName,
+          availableVariables: Object.keys(VARIABLE_EXTRACTORS),
+          template,
+        },
+      })
     }
 
     variables.push(varName)

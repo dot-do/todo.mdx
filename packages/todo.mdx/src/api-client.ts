@@ -4,6 +4,7 @@
  */
 
 import type { Issue } from './types.js'
+import { ApiError, ConfigurationError, getErrorMessage } from './errors.js'
 
 /** API client configuration */
 export interface ApiClientConfig {
@@ -103,7 +104,13 @@ export class TodoApiClient {
    */
   async fetchIssues(filter: IssueFilter = {}): Promise<Issue[]> {
     if (!this.owner || !this.repo) {
-      throw new Error('Repository owner and name must be configured')
+      throw new ConfigurationError('Repository owner and name must be configured', {
+        context: {
+          owner: this.owner,
+          repo: this.repo,
+          message: 'Set TODO_MDX_OWNER and TODO_MDX_REPO environment variables or provide via config',
+        },
+      })
     }
 
     const url = new URL(`/api/repos/${this.owner}/${this.repo}/issues`, this.baseUrl)
@@ -125,7 +132,15 @@ export class TodoApiClient {
       const response = await fetch(url.toString(), { headers })
 
       if (!response.ok) {
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+        throw new ApiError('API request failed', {
+          statusCode: response.status,
+          endpoint: url.toString(),
+          context: {
+            statusText: response.statusText,
+            owner: this.owner,
+            repo: this.repo,
+          },
+        })
       }
 
       const data = await response.json() as ApiResponse
@@ -169,10 +184,20 @@ export class TodoApiClient {
 
       return issues
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Failed to fetch issues: ${error.message}`)
+      // Re-throw if already one of our custom errors
+      if (error instanceof ApiError || error instanceof ConfigurationError) {
+        throw error
       }
-      throw error
+      // Wrap other errors
+      throw new ApiError('Failed to fetch issues', {
+        cause: error,
+        endpoint: url.toString(),
+        context: {
+          owner: this.owner,
+          repo: this.repo,
+          filter,
+        },
+      })
     }
   }
 
@@ -181,7 +206,14 @@ export class TodoApiClient {
    */
   async fetchIssue(id: string): Promise<Issue | null> {
     if (!this.owner || !this.repo) {
-      throw new Error('Repository owner and name must be configured')
+      throw new ConfigurationError('Repository owner and name must be configured', {
+        context: {
+          owner: this.owner,
+          repo: this.repo,
+          issueId: id,
+          message: 'Set TODO_MDX_OWNER and TODO_MDX_REPO environment variables or provide via config',
+        },
+      })
     }
 
     const url = new URL(`/api/repos/${this.owner}/${this.repo}/issues/${id}`, this.baseUrl)
@@ -202,16 +234,35 @@ export class TodoApiClient {
       }
 
       if (!response.ok) {
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+        throw new ApiError('API request failed', {
+          statusCode: response.status,
+          endpoint: url.toString(),
+          context: {
+            statusText: response.statusText,
+            owner: this.owner,
+            repo: this.repo,
+            issueId: id,
+          },
+        })
       }
 
       const data = await response.json() as { issue: PayloadIssue }
       return mapPayloadIssue(data.issue)
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Failed to fetch issue: ${error.message}`)
+      // Re-throw if already one of our custom errors
+      if (error instanceof ApiError || error instanceof ConfigurationError) {
+        throw error
       }
-      throw error
+      // Wrap other errors
+      throw new ApiError('Failed to fetch issue', {
+        cause: error,
+        endpoint: url.toString(),
+        context: {
+          owner: this.owner,
+          repo: this.repo,
+          issueId: id,
+        },
+      })
     }
   }
 }
@@ -238,8 +289,12 @@ export async function loadApiIssues(config?: ApiClientConfig): Promise<Issue[]> 
     const client = new TodoApiClient(finalConfig)
     return await client.fetchIssues({ status: 'all' })
   } catch (error) {
-    // Silently fail like loadBeadsIssues does
-    console.error('Failed to load API issues:', error)
+    // Log error with context instead of silently failing
+    if (error instanceof ApiError || error instanceof ConfigurationError) {
+      console.error(error.getFullMessage())
+    } else {
+      console.error('Failed to load API issues:', getErrorMessage(error))
+    }
     return []
   }
 }

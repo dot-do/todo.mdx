@@ -4,57 +4,11 @@
  */
 
 import type { Issue, ParsedTodoFile } from './types.js'
-
-/** YAML frontmatter regex */
-const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
-
-/** Parse YAML frontmatter (simple implementation) */
-function parseYaml(yaml: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  const lines = yaml.split('\n')
-
-  for (const line of lines) {
-    if (!line.trim() || line.trim().startsWith('#')) continue
-
-    const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) continue
-
-    const key = line.slice(0, colonIndex).trim()
-    let value: unknown = line.slice(colonIndex + 1).trim()
-
-    // Parse value types
-    if (value === 'true') value = true
-    else if (value === 'false') value = false
-    else if (value === 'null' || value === '') value = null
-    else if (/^\d+$/.test(value as string)) value = parseInt(value as string, 10)
-    else if (/^\d+\.\d+$/.test(value as string)) value = parseFloat(value as string)
-    else if ((value as string).startsWith('[') && (value as string).endsWith(']')) {
-      // Simple array parsing
-      value = (value as string)
-        .slice(1, -1)
-        .split(',')
-        .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
-        .filter(Boolean)
-    } else if ((value as string).startsWith('"') || (value as string).startsWith("'")) {
-      value = (value as string).slice(1, -1)
-    }
-
-    result[key] = value
-  }
-
-  return result
-}
+import { extractFrontmatter } from '@todo.mdx/shared/yaml'
 
 /** Parse a todo markdown file */
 export function parseTodoFile(content: string): ParsedTodoFile {
-  let frontmatter: Record<string, unknown> = {}
-  let body = content
-
-  const match = content.match(FRONTMATTER_REGEX)
-  if (match) {
-    frontmatter = parseYaml(match[1])
-    body = content.slice(match[0].length)
-  }
+  const { frontmatter, content: body } = extractFrontmatter(content)
 
   // Extract issue data from frontmatter
   const issue: Partial<Issue> = {}

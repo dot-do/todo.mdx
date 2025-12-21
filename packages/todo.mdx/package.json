@@ -45,6 +45,7 @@
     "directory": "packages/todo.mdx"
   },
   "dependencies": {
+    "@todo.mdx/shared": "workspace:*",
     "beads-workflows": "^0.1.1",
     "chokidar": "^4.0.0",
     "mdxld": "^1.0.0"

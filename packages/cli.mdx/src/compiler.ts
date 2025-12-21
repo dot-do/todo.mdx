@@ -12,6 +12,7 @@ import { setComponentData } from './components.js'
 import { loadAllData } from './loader.js'
 import type { CliConfig, RenderContext } from './types.js'
 import * as components from './components.js'
+import { extractFrontmatter, serializeYaml } from '@todo.mdx/shared/yaml'
 
 /** Compile MDX file to terminal or markdown output */
 export async function compile(config: CliConfig = {}): Promise<string> {
@@ -43,7 +44,7 @@ export async function compile(config: CliConfig = {}): Promise<string> {
   }
 
   // Parse frontmatter
-  const { frontmatter, content } = parseFrontmatter(mdxContent)
+  const { frontmatter, content } = extractFrontmatter(mdxContent)
 
   // Compile and run MDX
   let MDXComponent: React.ComponentType<any>
@@ -102,8 +103,8 @@ export async function compile(config: CliConfig = {}): Promise<string> {
 
     if (output) {
       // Add frontmatter back
-      const finalOutput = frontmatter
-        ? `---\n${serializeFrontmatter(frontmatter)}\n---\n\n${mdResult}`
+      const finalOutput = frontmatter && Object.keys(frontmatter).length > 0
+        ? `---\n${serializeYaml(frontmatter)}\n---\n\n${mdResult}`
         : mdResult
       await writeFile(output, finalOutput)
     }
@@ -114,57 +115,6 @@ export async function compile(config: CliConfig = {}): Promise<string> {
   }
 
   return result
-}
-
-/** Parse frontmatter from MDX content */
-function parseFrontmatter(content: string): {
-  frontmatter: Record<string, any> | null
-  content: string
-} {
-  const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
-  const match = content.match(frontmatterRegex)
-
-  if (!match) {
-    return { frontmatter: null, content }
-  }
-
-  const frontmatterYaml = match[1]
-  const frontmatter: Record<string, any> = {}
-
-  for (const line of frontmatterYaml.split('\n')) {
-    if (!line.trim() || line.trim().startsWith('#')) continue
-    const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) continue
-
-    const key = line.slice(0, colonIndex).trim()
-    let value: any = line.slice(colonIndex + 1).trim()
-
-    // Parse value
-    if (value === 'true') value = true
-    else if (value === 'false') value = false
-    else if (/^\d+$/.test(value)) value = parseInt(value, 10)
-    else if (value.startsWith('"') && value.endsWith('"')) {
-      value = value.slice(1, -1)
-    }
-
-    frontmatter[key] = value
-  }
-
-  const remainingContent = content.slice(match[0].length)
-
-  return { frontmatter, content: remainingContent }
-}
-
-/** Serialize frontmatter to YAML */
-function serializeFrontmatter(frontmatter: Record<string, any>): string {
-  return Object.entries(frontmatter)
-    .map(([key, value]) => {
-      if (typeof value === 'string') {
-        return `${key}: "${value}"`
-      }
-      return `${key}: ${value}`
-    })
-    .join('\n')
 }
 
 /** Compile and render to terminal (shorthand) */
@@ -181,3 +131,11 @@ export async function renderMarkdown(config: CliConfig = {}): Promise<void> {
 export async function renderDual(config: CliConfig = {}): Promise<void> {
   await compile({ ...config, mode: 'dual' })
 }
+
+// Re-export CLI compiler functions
+export {
+  parseMdxCommands,
+  buildCommanderProgram,
+  compileToCli,
+  executeCli,
+} from './cli-compiler.js'

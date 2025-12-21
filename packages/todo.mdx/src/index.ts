@@ -52,3 +52,21 @@ export type {
   WatchOptions,
   WatchEvent,
 } from './watcher.js'
+
+// Error types
+export {
+  TodoMdxError,
+  CompilationError,
+  ParserError,
+  ValidationError,
+  ApiError,
+  ConfigurationError,
+  FileSystemError,
+  AuthenticationError,
+  ProcessError,
+  GitHubError,
+  getErrorMessage,
+  getNodeErrorContext,
+  isTodoMdxError,
+  isErrorType,
+} from './errors.js'

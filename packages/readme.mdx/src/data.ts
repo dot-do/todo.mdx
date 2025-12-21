@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 import type { PackageData, GitHubData, NpmData } from './types.js'
+import { getErrorMessage } from '@todo.mdx/core'
 
 /** Load package.json data */
 export async function loadPackageData(packagePath?: string): Promise<PackageData | null> {
@@ -20,7 +21,10 @@ export async function loadPackageData(packagePath?: string): Promise<PackageData
     const pkg = JSON.parse(content) as PackageData
     return pkg
   } catch (error) {
-    console.error('Failed to load package.json:', error)
+    console.error('Failed to load package.json:', getErrorMessage(error))
+    if (error && typeof error === 'object' && 'code' in error) {
+      console.error('Error code:', error.code)
+    }
     return null
   }
 }
@@ -107,7 +111,7 @@ export async function fetchGitHubData(
       pushedAt: data.pushed_at,
     }
   } catch (error) {
-    console.error('Failed to fetch GitHub data:', error)
+    console.error('Failed to fetch GitHub data:', getErrorMessage(error))
     return null
   }
 }
@@ -183,7 +187,7 @@ export async function fetchNpmData(packageName: string): Promise<NpmData | null>
       updatedAt: pkgData.time?.modified || pkgData.time?.[latestVersion],
     }
   } catch (error) {
-    console.error('Failed to fetch npm data:', error)
+    console.error('Failed to fetch npm data:', getErrorMessage(error))
     return null
   }
 }

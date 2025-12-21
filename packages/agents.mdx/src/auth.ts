@@ -7,6 +7,7 @@
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { readFile } from 'node:fs/promises'
+import { AuthenticationError, ValidationError } from '@todo.mdx/core'
 
 // ============================================================================
 // Types
@@ -93,13 +94,23 @@ export async function getValidTokens(): Promise<AuthTokens> {
   const tokens = await loadTokens()
 
   if (!tokens) {
-    throw new Error('Not authenticated. Run `agents.mdx auth` to authenticate.')
+    throw new AuthenticationError('Not authenticated', {
+      context: {
+        message: 'Run `agents.mdx auth` to authenticate',
+      },
+    })
   }
 
   const validation = validateTokens(tokens)
 
   if (!validation.valid) {
-    throw new Error(validation.error || 'Invalid tokens')
+    throw new ValidationError(validation.error || 'Invalid tokens', {
+      field: 'authTokens',
+      context: {
+        expired: validation.expired,
+        expiresAt: validation.expiresAt?.toISOString(),
+      },
+    })
   }
 
   return tokens

@@ -6,6 +6,7 @@
 
 import { execa } from 'execa'
 import type { Issue } from './types.js'
+import { ProcessError } from '@todo.mdx/core'
 
 /**
  * Get all ready issues (no blockers)
@@ -28,10 +29,18 @@ export async function getReadyIssues(options?: {
     const { stdout } = await execa('bd', args)
     return JSON.parse(stdout) as Issue[]
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      throw new Error(`Failed to get ready issues: ${(error as any).stderr || error.message}`)
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      throw new ProcessError('Failed to get ready issues', {
+        cause: error,
+        command: 'bd ready --format=json',
+        stderr: (error as any).stderr,
+        stdout: (error as any).stdout,
+      })
     }
-    throw error
+    throw new ProcessError('Failed to get ready issues', {
+      cause: error,
+      command: 'bd ready --format=json',
+    })
   }
 }
 
@@ -43,10 +52,18 @@ export async function getIssue(issueId: string): Promise<Issue> {
     const { stdout } = await execa('bd', ['show', issueId, '--json'])
     return JSON.parse(stdout) as Issue
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      throw new Error(`Failed to get issue ${issueId}: ${(error as any).stderr || error.message}`)
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      throw new ProcessError(`Failed to get issue ${issueId}`, {
+        cause: error,
+        command: `bd show ${issueId} --format=json`,
+        stderr: (error as any).stderr,
+        stdout: (error as any).stdout,
+      })
     }
-    throw error
+    throw new ProcessError(`Failed to get issue ${issueId}`, {
+      cause: error,
+      command: `bd show ${issueId} --format=json`,
+    })
   }
 }
 
@@ -81,10 +98,18 @@ export async function listIssues(options?: {
     const { stdout } = await execa('bd', args)
     return JSON.parse(stdout) as Issue[]
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      throw new Error(`Failed to list issues: ${(error as any).stderr || error.message}`)
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      throw new ProcessError('Failed to list issues', {
+        cause: error,
+        command: `bd list ${args}`,
+        stderr: (error as any).stderr,
+        stdout: (error as any).stdout,
+      })
     }
-    throw error
+    throw new ProcessError('Failed to list issues', {
+      cause: error,
+      command: `bd list ${args}`,
+    })
   }
 }
 
@@ -98,10 +123,20 @@ export async function updateIssueStatus(
   try {
     await execa('bd', ['update', issueId, '--status', status])
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      throw new Error(`Failed to update issue ${issueId}: ${(error as any).stderr || error.message}`)
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      throw new ProcessError(`Failed to update issue ${issueId}`, {
+        cause: error,
+        command: `bd update ${issueId} --status ${status}`,
+        stderr: (error as any).stderr,
+        stdout: (error as any).stdout,
+        context: { status },
+      })
     }
-    throw error
+    throw new ProcessError(`Failed to update issue ${issueId}`, {
+      cause: error,
+      command: `bd update ${issueId} --status ${status}`,
+      context: { status },
+    })
   }
 }
 
@@ -118,10 +153,20 @@ export async function closeIssue(issueId: string, reason?: string): Promise<void
   try {
     await execa('bd', args)
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      throw new Error(`Failed to close issue ${issueId}: ${(error as any).stderr || error.message}`)
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      throw new ProcessError(`Failed to close issue ${issueId}`, {
+        cause: error,
+        command: `bd close ${issueId} ${args}`,
+        stderr: (error as any).stderr,
+        stdout: (error as any).stdout,
+        context: { reason },
+      })
     }
-    throw error
+    throw new ProcessError(`Failed to close issue ${issueId}`, {
+      cause: error,
+      command: `bd close ${issueId} ${args}`,
+      context: { reason },
+    })
   }
 }
 
@@ -152,9 +197,17 @@ export async function getStats(): Promise<{
     const { stdout } = await execa('bd', ['stats', '--json'])
     return JSON.parse(stdout)
   } catch (error) {
-    if (error instanceof Error && 'stderr' in error) {
-      throw new Error(`Failed to get stats: ${(error as any).stderr || error.message}`)
+    if (error && typeof error === 'object' && 'stderr' in error) {
+      throw new ProcessError('Failed to get stats', {
+        cause: error,
+        command: 'bd stats --format=json',
+        stderr: (error as any).stderr,
+        stdout: (error as any).stdout,
+      })
     }
-    throw error
+    throw new ProcessError('Failed to get stats', {
+      cause: error,
+      command: 'bd stats --format=json',
+    })
   }
 }

@@ -9,67 +9,7 @@ import { existsSync } from 'node:fs'
 import type { Issue, TodoConfig } from './types.js'
 import { parsePattern, DEFAULT_PATTERN } from './pattern.js'
 import { parseTodoFile } from './parser.js'
-
-/** Frontmatter regex */
-const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
-
-/** Simple YAML parser with array support */
-function parseYaml(yaml: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  const lines = yaml.split('\n')
-  let currentKey: string | null = null
-  let currentArray: string[] | null = null
-
-  for (const line of lines) {
-    if (!line.trim() || line.trim().startsWith('#')) continue
-
-    // Check for array item (starts with -)
-    if (line.trim().startsWith('- ') && currentKey && currentArray) {
-      currentArray.push(line.trim().slice(2).trim())
-      continue
-    }
-
-    // Save previous array if we're moving to a new key
-    if (currentKey && currentArray) {
-      result[currentKey] = currentArray
-      currentKey = null
-      currentArray = null
-    }
-
-    const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) continue
-
-    const key = line.slice(0, colonIndex).trim()
-    let value: unknown = line.slice(colonIndex + 1).trim()
-
-    // Check if this starts an array (empty after colon, or explicit [])
-    if (value === '' || value === '[]') {
-      currentKey = key
-      currentArray = []
-      continue
-    }
-
-    // Inline array: [item1, item2]
-    if (typeof value === 'string' && value.startsWith('[') && value.endsWith(']')) {
-      value = value.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
-      result[key] = value
-      continue
-    }
-
-    // Scalar values
-    if (value === 'true') value = true
-    else if (value === 'false') value = false
-    else if (/^\d+$/.test(value as string)) value = parseInt(value as string, 10)
-    result[key] = value
-  }
-
-  // Save final array if any
-  if (currentKey && currentArray) {
-    result[currentKey] = currentArray
-  }
-
-  return result
-}
+import { extractFrontmatter } from '@todo.mdx/shared/yaml'
 
 /** Load issues from API (internal helper) */
 async function loadApiIssuesInternal(config: TodoConfig): Promise<Issue[]> {
@@ -306,14 +246,7 @@ export async function compile(options: {
   }
 
   // Parse frontmatter
-  let frontmatter: Record<string, unknown> = {}
-  let content = template
-
-  const match = template.match(FRONTMATTER_REGEX)
-  if (match) {
-    frontmatter = parseYaml(match[1])
-    content = template.slice(match[0].length)
-  }
+  const { frontmatter, content } = extractFrontmatter(template)
 
   // Merge config from frontmatter
   const finalConfig: TodoConfig = {

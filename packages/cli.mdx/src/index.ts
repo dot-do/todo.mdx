@@ -20,8 +20,14 @@ export type {
   IssuesProps,
   RoadmapProps,
   CommandProps,
+  ArgumentProps,
+  FlagProps,
+  SubcommandProps,
   AgentProps,
   StatsProps,
+  ParsedCommand,
+  ParsedArgument,
+  ParsedFlag,
 } from './types.js'
 
 // Compiler
@@ -30,7 +36,11 @@ export {
   renderCli,
   renderMarkdown,
   renderDual,
-} from './simple-compiler.js'
+  parseMdxCommands,
+  buildCommanderProgram,
+  compileToCli,
+  executeCli,
+} from './compiler.js'
 
 // Renderer
 export {
@@ -48,6 +58,9 @@ export {
   Roadmap,
   Stats,
   Command,
+  Argument,
+  Flag,
+  Subcommand,
   Agent,
   setComponentData,
   getComponentData,

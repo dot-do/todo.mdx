@@ -10,26 +10,7 @@ import type { Milestone, Epic, RoadmapConfig } from './types.js'
 import { getComponent, setData } from './components/index.js'
 import { toMarkdown } from '@mdxld/markdown'
 import { parseRoadmapFile, calculateProgress } from './parser.js'
-
-/** Frontmatter regex */
-const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/
-
-/** Simple YAML parser */
-function parseYaml(yaml: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  for (const line of yaml.split('\n')) {
-    if (!line.trim() || line.trim().startsWith('#')) continue
-    const colonIndex = line.indexOf(':')
-    if (colonIndex === -1) continue
-    const key = line.slice(0, colonIndex).trim()
-    let value: unknown = line.slice(colonIndex + 1).trim()
-    if (value === 'true') value = true
-    else if (value === 'false') value = false
-    else if (/^\d+$/.test(value as string)) value = parseInt(value as string, 10)
-    result[key] = value
-  }
-  return result
-}
+import { extractFrontmatter } from '@todo.mdx/shared/yaml'
 
 /** Load epics from beads-workflows SDK */
 async function loadBeadsEpics(): Promise<Epic[]> {
@@ -184,14 +165,7 @@ export async function compile(options: {
   }
 
   // Parse frontmatter
-  let frontmatter: Record<string, unknown> = {}
-  let content = template
-
-  const match = template.match(FRONTMATTER_REGEX)
-  if (match) {
-    frontmatter = parseYaml(match[1])
-    content = template.slice(match[0].length)
-  }
+  const { frontmatter, content } = extractFrontmatter(template)
 
   // Merge config from frontmatter
   const finalConfig: RoadmapConfig = {
