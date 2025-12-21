@@ -16,6 +16,7 @@ import { describe, test, expect, beforeAll } from 'vitest'
 import { execa } from 'execa'
 import path from 'path'
 import fs from 'fs/promises'
+import { hasBdCli } from '../helpers/beads'
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'
@@ -25,7 +26,23 @@ const TEST_API_KEY = process.env.TEST_API_KEY
 // Path to test.mdx submodule
 const TEST_REPO_PATH = path.join(__dirname, '..', 'fixtures', 'test.mdx')
 
+// Check if bd and gh CLIs are available
+let hasBd = false
+let hasGh = false
+
+async function checkClis() {
+  hasBd = await hasBdCli()
+  try {
+    await execa('gh', ['--version'])
+    hasGh = !!process.env.GH_TOKEN || !!process.env.GITHUB_TOKEN
+  } catch {
+    hasGh = false
+  }
+}
+
 const hasCredentials = !!TEST_API_KEY
+// Skip tests if credentials are missing OR if bd/gh CLIs are not available
+// (the check happens in beforeAll since it's async)
 const describeWithCredentials = hasCredentials ? describe : describe.skip
 
 async function getRepoStatus(): Promise<{ issueCount: number; recentSyncs: any[] }> {
@@ -119,11 +136,23 @@ describeWithCredentials('beads → GitHub → worker sync', () => {
       console.log('Skipping E2E sync tests - missing TEST_API_KEY')
       return
     }
+    // Check if required CLIs are available
+    await checkClis()
+    if (!hasBd) {
+      console.log('Skipping beads-github-sync tests - bd CLI not installed')
+    }
+    if (!hasGh) {
+      console.log('Skipping beads-github-sync tests - gh CLI not available or GH_TOKEN not set')
+    }
     // Ensure we start with a clean state
-    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH }).catch(() => {})
+    if (hasBd && hasGh) {
+      await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH }).catch(() => {})
+    }
   })
 
-  test('pushing beads issue creates GitHub issue and syncs to worker', async () => {
+  test('pushing beads issue creates GitHub issue and syncs to worker', async (ctx) => {
+    // Skip if CLIs not available
+    if (!hasBd || !hasGh) ctx.skip()
     // 1. Create unique beads issue using bd create
     // NOTE: We must use bd create instead of appending to JSONL directly,
     // because the pre-commit hook runs `bd sync --flush-only` which overwrites
@@ -198,7 +227,8 @@ describeWithCredentials('beads → GitHub → worker sync', () => {
     expect(status.issueCount).toBeGreaterThan(0)
   }, 90000) // 90s timeout
 
-  test('GitHub issue shows correct labels from beads priority/type', async () => {
+  test('GitHub issue shows correct labels from beads priority/type', async (ctx) => {
+    if (!hasBd || !hasGh) ctx.skip()
     // Create issue with specific priority and type using bd create
     // NOTE: Using P1 instead of P0 due to bd merge bug that strips priority:0
     // See: https://github.com/steveyegge/beads/issues/671
@@ -252,7 +282,8 @@ describeWithCredentials('beads → GitHub → worker sync', () => {
     expect(labelNames).toContain('bug')
   }, 60000)
 
-  test('GitHub issue syncs back to beads issues.jsonl', async () => {
+  test('GitHub issue syncs back to beads issues.jsonl', async (ctx) => {
+    if (!hasBd || !hasGh) ctx.skip()
     // 1. Create a GitHub issue directly via gh CLI
     const timestamp = Date.now()
     const issueTitle = `GitHub-created issue ${timestamp}`

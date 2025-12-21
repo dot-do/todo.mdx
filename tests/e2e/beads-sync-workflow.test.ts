@@ -12,6 +12,7 @@
 import { describe, test, expect, beforeAll } from 'vitest'
 import { execa } from 'execa'
 import path from 'path'
+import { hasBdCli } from '../helpers/beads'
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'
@@ -19,6 +20,20 @@ const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const TEST_API_KEY = process.env.TEST_API_KEY
 
 const TEST_REPO_PATH = path.join(__dirname, '..', 'fixtures', 'test.mdx')
+
+// Check if required CLIs are available
+let hasBd = false
+let hasGh = false
+
+async function checkClis() {
+  hasBd = await hasBdCli()
+  try {
+    await execa('gh', ['--version'])
+    hasGh = !!process.env.GH_TOKEN || !!process.env.GITHUB_TOKEN
+  } catch {
+    hasGh = false
+  }
+}
 
 const hasCredentials = !!TEST_API_KEY
 const describeWithCredentials = hasCredentials ? describe : describe.skip
@@ -84,11 +99,24 @@ async function getGitHubIssueCount(): Promise<number> {
 
 describeWithCredentials('BeadsSyncWorkflow', () => {
   beforeAll(async () => {
+    // Check if required CLIs are available
+    await checkClis()
+    if (!hasBd) {
+      console.log('Skipping beads-sync-workflow tests - bd CLI not installed')
+    }
+    if (!hasGh) {
+      console.log('Skipping beads-sync-workflow tests - gh CLI not available or GH_TOKEN not set')
+    }
     // Ensure we have latest from remote
-    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH }).catch(() => {})
+    if (hasBd && hasGh) {
+      await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH }).catch(() => {})
+    }
   })
 
-  test('sync/init triggers workflow that creates GitHub issues for all beads issues', async () => {
+  test('sync/init triggers workflow that creates GitHub issues for all beads issues', async (ctx) => {
+    // Skip if CLIs not available
+    if (!hasBd || !hasGh) ctx.skip()
+
     // Get initial counts
     const beadsCount = await getBeadsIssueCount()
     const initialGhCount = await getGitHubIssueCount()
@@ -115,7 +143,10 @@ describeWithCredentials('BeadsSyncWorkflow', () => {
     expect(finalGhCount).toBeGreaterThanOrEqual(initialGhCount)
   }, 180000) // 3 minute timeout for large syncs
 
-  test('workflow is idempotent - running twice does not duplicate issues', async () => {
+  test('workflow is idempotent - running twice does not duplicate issues', async (ctx) => {
+    // Skip if CLIs not available
+    if (!hasBd || !hasGh) ctx.skip()
+
     const beforeCount = await getGitHubIssueCount()
 
     // Trigger sync again
