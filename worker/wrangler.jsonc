@@ -6,6 +6,12 @@
   "compatibility_date": "2024-12-01",
   "compatibility_flags": ["nodejs_compat"],
 
+  // Bundle configuration - shim packages for Workers compatibility
+  "alias": {
+    "file-type": "./shims/file-type.js",
+    "undici": "./shims/undici.js"
+  },
+
   // Static assets from public/ directory
   // run_worker_first: true ensures worker code runs for auth before serving assets
   "assets": {
@@ -117,15 +123,6 @@
       "binding": "BULK_EMBED_WORKFLOW",
       "name": "bulk-embed-workflow",
       "class_name": "BulkEmbedWorkflow"
-    }
-  ],
-
-  // Service Bindings - Payload RPC
-  "services": [
-    {
-      "binding": "PAYLOAD",
-      "service": "admin-todo-mdx",
-      "entrypoint": "PayloadRPC"
     }
   ],
 

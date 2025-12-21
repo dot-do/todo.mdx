@@ -647,12 +647,13 @@ export class RepoDO extends DurableObject {
     const updated: string[] = []
 
     // Get current issues to track deletions (need github_number before deleting)
+    // Also get last_sync_at to protect recently-synced issues from concurrent commit deletion
     const currentIssues = new Map(
       (
         this.sql
-          .exec('SELECT id, github_number FROM issues')
-          .toArray() as Array<{ id: string; github_number: number | null }>
-      ).map((row) => [row.id, row.github_number])
+          .exec('SELECT id, github_number, last_sync_at FROM issues')
+          .toArray() as Array<{ id: string; github_number: number | null; last_sync_at: string | null }>
+      ).map((row) => [row.id, { github_number: row.github_number, last_sync_at: row.last_sync_at }])
     )
 
     for (const issue of issues) {
@@ -667,9 +668,22 @@ export class RepoDO extends DurableObject {
     }
 
     // Track deleted issues with their github_numbers before removing them
+    // Protect issues that were synced very recently (within 60s) to prevent
+    // concurrent commit race conditions from deleting newly-created issues
     const deleted: Array<{ id: string; github_number: number | null }> = []
-    for (const [id, github_number] of currentIssues) {
-      deleted.push({ id, github_number })
+    const PROTECTION_WINDOW_MS = 60_000 // 60 seconds
+    const now = Date.now()
+
+    for (const [id, data] of currentIssues) {
+      // Skip deleting issues that were synced very recently
+      if (data.last_sync_at) {
+        const syncTime = new Date(data.last_sync_at).getTime()
+        if (now - syncTime < PROTECTION_WINDOW_MS) {
+          console.log(`[RepoDO] Protecting recently-synced issue from deletion: ${id} (synced ${now - syncTime}ms ago)`)
+          continue
+        }
+      }
+      deleted.push({ id, github_number: data.github_number })
       this.sql.exec('DELETE FROM issues WHERE id = ?', id)
     }
 
@@ -762,6 +776,19 @@ export class RepoDO extends DurableObject {
     // Find existing issue by GitHub number
     let existing = this.getIssueByGitHubNumber(ghIssue.number)
 
+    // Race condition fix: If not found by github_number, also search by title.
+    // This handles the case where createGitHubIssue was just called but the
+    // github_number hasn't been set yet (the webhook arrives before SQL update).
+    if (!existing) {
+      const byTitle = this.sql
+        .exec('SELECT * FROM issues WHERE title = ? AND github_number IS NULL LIMIT 1', ghIssue.title)
+        .toArray() as Issue[]
+      if (byTitle.length > 0) {
+        existing = byTitle[0]
+        console.log(`[RepoDO] Found issue by title match (race condition): ${existing.id}`)
+      }
+    }
+
     // Generate beads-style ID if new
     const id = existing?.id || `gh-${ghIssue.number}`
 
@@ -808,10 +835,14 @@ export class RepoDO extends DurableObject {
 
     this.logSync('github', action, { issueId: id, githubNumber: ghIssue.number })
 
-    // Note: We don't commit back here because:
-    // 1. The DO stores the github_number mapping persistently
-    // 2. Committing would trigger another push webhook (sync loop potential)
-    // 3. The next `bd sync` from local will naturally update the repo
+    // Commit back to repo so GitHub issues appear in beads
+    // Uses retry logic to handle 409 SHA conflicts
+    try {
+      await this.commitBeadsJsonl()
+    } catch (error) {
+      // Log but don't fail - the DO has the data, local sync will catch up
+      console.error('[RepoDO] Failed to commit back to repo:', error)
+    }
   }
 
   // ===========================================================================
