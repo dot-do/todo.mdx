@@ -463,8 +463,8 @@ export const webhooks = {
 // Workflow API
 export const workflows = {
   async triggerIssueReady(
-    issue: { id: string; title: string },
-    repo: { owner: string; name: string; fullName: string },
+    issue: { id: string; title: string; description?: string },
+    repo: { owner: string; name: string; fullName?: string },
     installationId: number
   ): Promise<Response> {
     return workerFetch('/api/workflows/issue/ready', {
@@ -476,10 +476,114 @@ export const workflows = {
   async getWorkflowStatus(workflowId: string): Promise<{
     id: string
     status: string
-    result?: any
+    output?: any
+    error?: string
   }> {
     const response = await workerFetch(`/api/workflows/${workflowId}`)
     return response.json()
+  },
+
+  async createPR(options: {
+    repo: { owner: string; name: string }
+    branch: string
+    title: string
+    body: string
+    installationId: number
+  }): Promise<{ number: number; url: string; state: string }> {
+    const response = await workerFetch('/api/workflows/pr/create', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    })
+    return response.json()
+  },
+
+  async submitReview(options: {
+    repo: { owner: string; name: string }
+    prNumber: number
+    action: 'approve' | 'request_changes' | 'comment'
+    body: string
+    installationId: number
+  }): Promise<{ id: number; state: string }> {
+    const response = await workerFetch('/api/workflows/pr/review', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    })
+    return response.json()
+  },
+
+  async mergePR(options: {
+    repo: { owner: string; name: string }
+    prNumber: number
+    mergeMethod?: 'merge' | 'squash' | 'rebase'
+    installationId: number
+  }): Promise<{ merged: boolean; sha: string; message?: string }> {
+    const response = await workerFetch('/api/workflows/pr/merge', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    })
+    return response.json()
+  },
+}
+
+// Sandbox API
+export interface SandboxExecuteOptions {
+  repo: string
+  task: string
+  branch?: string
+  push?: boolean
+  installationId?: number
+  timeout?: number
+}
+
+export interface SandboxResult {
+  diff: string
+  summary: string
+  filesChanged: string[]
+  exitCode: number
+  branch?: string
+  commitSha?: string
+  pushed?: boolean
+}
+
+export const sandbox = {
+  async execute(options: SandboxExecuteOptions): Promise<SandboxResult> {
+    const response = await workerFetch('/api/sandbox/execute', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    })
+
+    if (!response.ok) {
+      const error = await response.json() as { error: string }
+      throw new Error(`Sandbox execution failed: ${error.error}`)
+    }
+
+    return response.json()
+  },
+
+  async executeStream(options: SandboxExecuteOptions): Promise<Response> {
+    return workerFetch('/api/sandbox/execute/stream', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    })
+  },
+
+  async createSession(options: SandboxExecuteOptions): Promise<{ sessionId: string }> {
+    const response = await workerFetch('/api/sandbox/sessions', {
+      method: 'POST',
+      body: JSON.stringify(options),
+    })
+    return response.json()
+  },
+
+  async getSession(sessionId: string): Promise<any> {
+    const response = await workerFetch(`/api/sandbox/sessions/${sessionId}`)
+    return response.json()
+  },
+
+  async abortSession(sessionId: string): Promise<void> {
+    await workerFetch(`/api/sandbox/sessions/${sessionId}`, {
+      method: 'DELETE',
+    })
   },
 }
 

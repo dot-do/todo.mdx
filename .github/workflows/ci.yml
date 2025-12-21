@@ -52,7 +52,7 @@ jobs:
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45  # Allow time for full autonomous loop test (sandbox + PR lifecycle)
     # Only run on main branch pushes (not PRs) to avoid hitting rate limits
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: ci
