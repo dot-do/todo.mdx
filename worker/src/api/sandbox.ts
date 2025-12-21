@@ -18,6 +18,8 @@ import type { ExecuteOptions } from '../sandbox/claude'
 const app = new Hono<{ Bindings: Env }>()
 
 // Health check endpoint (no auth required)
+// Use ?wait=true to wait for container to spawn (up to 60s)
+// Use ?wait=false (default) for quick binding check only
 app.get('/health', async (c) => {
   try {
     // Check if Sandbox binding exists
@@ -25,35 +27,50 @@ app.get('/health', async (c) => {
       return c.json({ available: false, reason: 'Sandbox binding not configured' }, 200)
     }
 
-    // Try to get a sandbox instance to verify it's operational
+    // Quick check mode - just verify binding exists
+    const wait = c.req.query('wait') === 'true'
+    if (!wait) {
+      return c.json({ available: true, status: 'binding_available' }, 200)
+    }
+
+    // Full check - wait for container to spawn and respond
     const testId = 'health-check'
     const doId = c.env.Sandbox.idFromName(testId)
     const sandbox = c.env.Sandbox.get(doId)
 
-    // Make a simple ping request with short timeout
+    // Container cold starts can take 30-60+ seconds
+    const timeoutMs = 60000
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 2000)
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
 
     try {
+      const startTime = Date.now()
       const response = await sandbox.fetch(new Request('http://sandbox/health', {
         method: 'GET',
         signal: controller.signal,
       }))
       clearTimeout(timeoutId)
 
-      // If we got a response (even error), sandbox is available
-      return c.json({ available: true }, 200)
+      const spawnTime = Date.now() - startTime
+      return c.json({
+        available: true,
+        status: 'container_ready',
+        spawnTimeMs: spawnTime
+      }, 200)
     } catch (error) {
       clearTimeout(timeoutId)
-      // Sandbox exists but not responding
+      const message = error instanceof Error ? error.message : 'Sandbox not responding'
+      // Differentiate timeout from other errors
+      const isTimeout = message.includes('aborted') || message.includes('timeout')
       return c.json({
         available: false,
-        reason: error instanceof Error ? error.message : 'Sandbox not responding'
+        status: isTimeout ? 'spawn_timeout' : 'error',
+        reason: isTimeout ? `Container did not respond within ${timeoutMs/1000}s` : message
       }, 200)
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
-    return c.json({ available: false, reason: message }, 200)
+    return c.json({ available: false, status: 'error', reason: message }, 200)
   }
 })
 
