@@ -38,7 +38,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm typecheck
+        # Skip admin - it requires wrangler auth for D1 and is deployed separately
+        run: pnpm turbo run typecheck --filter='!@todo.mdx/admin'
 
       - name: Build
         # Skip admin build - it requires wrangler auth for D1 and is deployed separately
