@@ -23,6 +23,7 @@ import {
   createSessionToken,
   SESSION_TTL_SECONDS,
 } from '../auth/session'
+import { createDirectDb } from '../db/direct'
 import type { Env } from '../types'
 
 const app = new Hono<{ Bindings: Env }>()
@@ -125,30 +126,23 @@ app.get('/callback', async (c) => {
 
     const user = authResult.user
 
-    // Ensure user exists in Payload (create or update)
+    // Ensure user exists in database (create or update)
     try {
-      const existingUser = await c.env.PAYLOAD.find({
-        collection: 'users',
-        where: { workosUserId: { equals: user.id } },
-        limit: 1,
-      })
+      const db = createDirectDb(c.env)
+      const existingUser = await db.users.findByWorkosUserId(user.id)
 
-      if (!existingUser.docs?.length) {
-        // Create new user in Payload
-        await c.env.PAYLOAD.create({
-          collection: 'users',
-          data: {
-            email: user.email,
-            workosUserId: user.id,
-            name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
-            roles: ['user'],
-          },
+      if (!existingUser) {
+        // Create new user
+        await db.users.create({
+          email: user.email,
+          workosUserId: user.id,
+          name: `${user.firstName || ''} ${user.lastName || ''}`.trim() || user.email,
         })
-        console.log(`[Auth] Created Payload user for WorkOS user ${user.id}`)
+        console.log(`[Auth] Created user for WorkOS user ${user.id}`)
       }
     } catch (err) {
-      console.error('[Auth] Failed to sync user to Payload:', err)
-      // Continue with login even if Payload sync fails
+      console.error('[Auth] Failed to sync user to database:', err)
+      // Continue with login even if sync fails
     }
 
     // Create session

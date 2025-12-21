@@ -1,116 +1,44 @@
 /**
- * Payload CMS client for the worker
+ * Payload CMS client stub for the worker
  *
- * Uses the same D1 database as the admin app, with overrideAccess
- * for server-to-server operations (webhooks, internal API calls).
+ * The Payload local API has compatibility issues with Cloudflare Workers bundling.
+ * This stub provides the interface but throws if actually used.
+ * Use createDirectDb() from './db/direct' for webhook handlers instead.
  */
 
-import { getPayload, Payload } from 'payload'
-import { createWorkerConfig } from '@todo.mdx/admin'
 import type { Env } from './types'
 
-// Cache the payload instance per request context
-let payloadInstance: Payload | null = null
-let configuredEnv: Env | null = null
-
-/**
- * Get a Payload instance configured for this worker
- *
- * Uses a cached instance if the env hasn't changed.
- * Always uses overrideAccess: true for server-side operations.
- */
-export async function getPayloadClient(env: Env): Promise<Payload> {
-  // Return cached instance if env matches
-  if (payloadInstance && configuredEnv === env) {
-    return payloadInstance
-  }
-
-  // Create a new config with the worker's D1 binding
-  const config = await createWorkerConfig({
-    D1: env.DB,
-    PAYLOAD_SECRET: env.PAYLOAD_SECRET,
-  })
-
-  // Initialize Payload
-  payloadInstance = await getPayload({ config })
-  configuredEnv = env
-
-  return payloadInstance
+// Minimal Payload-like interface for type compatibility
+interface PayloadLike {
+  find: (args: any) => Promise<any>
+  findByID: (args: any) => Promise<any>
+  create: (args: any) => Promise<any>
+  update: (args: any) => Promise<any>
+  delete: (args: any) => Promise<any>
 }
 
 /**
- * Payload operations wrapper with overrideAccess: true
+ * Get a Payload instance - STUB
  *
- * Provides a simple interface for common Payload operations
- * that bypasses access control for server-side code.
+ * @deprecated Use createDirectDb() from './db/direct' instead.
+ * Payload local API is not compatible with Cloudflare Workers bundling.
  */
-export function createPayloadOps(payload: Payload) {
-  return {
-    async find<T = any>(args: {
-      collection: string
-      where?: Record<string, unknown>
-      limit?: number
-      depth?: number
-      sort?: string
-    }): Promise<{ docs: T[]; totalDocs: number }> {
-      return payload.find({
-        collection: args.collection as any,
-        where: args.where as any,
-        limit: args.limit,
-        depth: args.depth,
-        sort: args.sort,
-        overrideAccess: true,
-      }) as any
-    },
-
-    async findByID<T = any>(args: {
-      collection: string
-      id: string | number
-      depth?: number
-    }): Promise<T> {
-      return payload.findByID({
-        collection: args.collection as any,
-        id: args.id,
-        depth: args.depth,
-        overrideAccess: true,
-      }) as any
-    },
-
-    async create<T = any>(args: {
-      collection: string
-      data: Record<string, unknown>
-    }): Promise<T> {
-      return payload.create({
-        collection: args.collection as any,
-        data: args.data as any,
-        overrideAccess: true,
-      }) as any
-    },
-
-    async update<T = any>(args: {
-      collection: string
-      id: string | number
-      data: Record<string, unknown>
-    }): Promise<T> {
-      return payload.update({
-        collection: args.collection as any,
-        id: args.id,
-        data: args.data as any,
-        overrideAccess: true,
-      }) as any
-    },
-
-    async delete(args: {
-      collection: string
-      id: string | number
-    }): Promise<void> {
-      await payload.delete({
-        collection: args.collection as any,
-        id: args.id,
-        overrideAccess: true,
-      })
-    },
-  }
+export async function getPayloadClient(env: Env): Promise<PayloadLike> {
+  throw new Error(
+    'getPayloadClient is not available in Workers. ' +
+    'Use createDirectDb() from "./db/direct" for database operations.'
+  )
 }
 
-export type PayloadOps = ReturnType<typeof createPayloadOps>
+/**
+ * Payload operations wrapper - STUB
+ * @deprecated Use createDirectDb() from './db/direct' instead.
+ */
+export function createPayloadOps(payload: PayloadLike) {
+  throw new Error(
+    'createPayloadOps is not available in Workers. ' +
+    'Use createDirectDb() from "./db/direct" for database operations.'
+  )
+}
+
+export type PayloadOps = any
