@@ -1,5 +1,6 @@
 import { beforeAll, afterAll } from 'vitest'
 import { cleanupAllWorktrees } from './helpers/worktree'
+import { ensureWorkerCredentials } from './helpers/worker'
 
 // Track oauth.do login status (set during setup)
 export let hasOAuthCredentials = false
@@ -33,6 +34,8 @@ beforeAll(async () => {
     const { ensureLoggedIn } = await import('oauth.do/node')
     await ensureLoggedIn()
     hasOAuthCredentials = true
+    // Also populate the worker credentials cache
+    await ensureWorkerCredentials()
   } catch (err) {
     console.warn(
       '\n⚠️  oauth.do not authenticated.\n' +

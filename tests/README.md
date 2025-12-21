@@ -41,23 +41,45 @@ pnpm --filter @todo.mdx/tests test -- -t "GitHub sync"
 
 ## Environment Variables
 
-### Required Variables
+### Authentication
 
-These variables are required for most tests to run:
+Tests authenticate with the worker API using one of two methods:
+
+#### Option 1: oauth.do (Recommended for local development)
+
+```bash
+# Run once to authenticate via WorkOS
+npx oauth.do login
+
+# Then run tests - tokens are managed automatically
+pnpm --filter @todo.mdx/tests test
+```
+
+The oauth.do CLI handles token storage, refresh, and injection. After logging in once, tokens persist across sessions.
+
+#### Option 2: WORKER_ACCESS_TOKEN (Required for CI)
+
+Set `WORKER_ACCESS_TOKEN` in your `.env` file or environment:
+
+```bash
+# WorkOS API key format (sk_live_* or sk_test_*)
+WORKER_ACCESS_TOKEN=sk_live_xxxxxxxxxxxxxxxxxxxx
+
+# Or an OAuth bearer token
+WORKER_ACCESS_TOKEN=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+Get tokens from:
+- WorkOS Dashboard → API Keys (for sk_live_* keys)
+- The oauth.do flow (for OAuth tokens)
+
+### Base URLs
 
 #### `WORKER_BASE_URL`
 - **Required for**: Worker API tests, webhook tests, sync tests
 - **Description**: Base URL of the deployed todo.mdx worker
-- **Example**: `https://todo.mdx.do`
-- **Default**: `http://localhost:8787` (local development)
-
-#### `WORKER_ACCESS_TOKEN`
-- **Required for**: Authenticated worker API calls
-- **Description**: Bearer token for authenticating with the worker API
-- **How to obtain**:
-  - Via WorkOS AuthKit OAuth flow
-  - Generate in admin dashboard (if implemented)
-  - For development, can be obtained from WorkOS dashboard
+- **Example**: `https://todo.mdx.do` (production)
+- **Default**: `https://todo.mdx.do`
 
 ### GitHub Integration Variables
 

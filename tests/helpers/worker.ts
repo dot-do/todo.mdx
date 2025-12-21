@@ -1,14 +1,55 @@
 /**
  * Worker API Helper
  * Helpers for communicating with the todo.mdx worker API
+ * Authentication via oauth.do (WorkOS tokens) or WORKER_ACCESS_TOKEN env var.
  */
+
+import { getToken } from 'oauth.do/node'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
 const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
 
+// Cached token from oauth.do
+let cachedToken: string | null = null
+
+/**
+ * Get authentication token
+ * Priority: env var > cached > oauth.do
+ */
+async function getAuthToken(): Promise<string | null> {
+  // Environment variable takes priority (useful for CI)
+  if (WORKER_ACCESS_TOKEN) {
+    return WORKER_ACCESS_TOKEN
+  }
+
+  if (cachedToken) return cachedToken
+
+  try {
+    // Get token from oauth.do storage
+    cachedToken = (await getToken()) ?? null
+    return cachedToken
+  } catch (err) {
+    console.error('oauth.do authentication failed:', err)
+    return null
+  }
+}
+
+/**
+ * Check if oauth.do credentials are available (async)
+ * Call this in beforeAll to populate the token cache
+ */
+export async function ensureWorkerCredentials(): Promise<boolean> {
+  const token = await getAuthToken()
+  return !!token
+}
+
+/**
+ * Check if worker credentials are available (sync)
+ * Returns true if WORKER_ACCESS_TOKEN is set or oauth.do token is cached
+ */
 export function hasWorkerCredentials(): boolean {
-  return !!WORKER_ACCESS_TOKEN
+  return !!WORKER_ACCESS_TOKEN || !!cachedToken
 }
 
 /**
@@ -36,13 +77,15 @@ async function workerFetch(
   path: string,
   options: RequestInit = {}
 ): Promise<Response> {
+  const token = await getAuthToken()
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
   }
 
-  if (WORKER_ACCESS_TOKEN) {
-    headers['Authorization'] = `Bearer ${WORKER_ACCESS_TOKEN}`
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
   }
 
   return fetch(`${WORKER_BASE_URL}${path}`, {
