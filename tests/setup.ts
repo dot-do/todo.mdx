@@ -1,8 +1,15 @@
 import { beforeAll, afterAll } from 'vitest'
 import { config } from 'dotenv'
 import { resolve } from 'path'
+import { WebSocket } from 'ws'
 import { cleanupAllWorktrees } from './helpers/worktree'
 import { hasWorkerCredentials } from './helpers/worker'
+
+// Polyfill WebSocket for Node.js (Bun has native support)
+if (typeof globalThis.WebSocket === 'undefined') {
+  // @ts-expect-error - WebSocket types differ slightly between ws and native
+  globalThis.WebSocket = WebSocket
+}
 
 // Load .env from project root
 config({ path: resolve(__dirname, '../.env') })

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "vitest run unit/",
-    "test:e2e": "bun vitest run e2e/",
+    "test:e2e": "vitest run e2e/",
     "test:all": "vitest run",
     "test:watch": "vitest",
     "test:mcp": "vitest run e2e/mcp-server.test.ts",
@@ -25,9 +25,11 @@
     "@octokit/app": "^14.0.0",
     "@octokit/core": "^7.0.6",
     "@playwright/test": "^1.49.0",
+    "@types/ws": "^8.18.1",
     "dotenv": "16.4.7",
     "execa": "^9.0.0",
     "vitest": "^2.0.0",
+    "ws": "^8.18.3",
     "xstate": "^5.25.0"
   },
   "dependencies": {
