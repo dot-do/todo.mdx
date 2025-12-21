@@ -25,11 +25,11 @@
     },
   ],
   "services": [
-    // The service should match the "name" of your worker
-    // {
-    //   "binding": "WORKER_SELF_REFERENCE",
-    //   "service": "my-app"
-    // },
+    // Self-reference for PayloadRPC internal calls
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "admin-todo-mdx"
+    },
   ],
   "r2_buckets": [
     {

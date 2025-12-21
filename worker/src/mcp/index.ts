@@ -41,7 +41,7 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		// Step 2: Find installations the user has access to
 		const installationsResult = await env.PAYLOAD.find({
 			collection: "installations",
-			where: { users: { contains: payloadUserId } },
+			where: { 'users.id': { equals: payloadUserId } },
 			limit: 100,
 		});
 

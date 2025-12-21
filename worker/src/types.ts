@@ -2,6 +2,39 @@
  * Worker environment types
  */
 
+// PayloadRPC interface - matches the PayloadRPC WorkerEntrypoint in admin worker
+export interface PayloadRPC {
+  find(args: {
+    collection: string
+    where?: Record<string, unknown>
+    limit?: number
+    depth?: number
+    sort?: string
+  }): Promise<{ docs: any[]; totalDocs: number }>
+
+  findByID(args: {
+    collection: string
+    id: string | number
+    depth?: number
+  }): Promise<any>
+
+  create(args: {
+    collection: string
+    data: Record<string, unknown>
+  }): Promise<any>
+
+  update(args: {
+    collection: string
+    id: string | number
+    data: Record<string, unknown>
+  }): Promise<any>
+
+  delete(args: {
+    collection: string
+    id: string | number
+  }): Promise<any>
+}
+
 export interface Env {
   // Bindings
   DB: D1Database
@@ -15,8 +48,8 @@ export interface Env {
   LOADER: any
   OAUTH_KV: KVNamespace
 
-  // Payload CMS (local instance using shared D1)
-  PAYLOAD_SECRET: string
+  // Payload CMS via Workers RPC
+  PAYLOAD: PayloadRPC
 
   // Cloudflare Workflows
   DEVELOP_WORKFLOW: WorkflowNamespace

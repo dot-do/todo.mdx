@@ -295,7 +295,23 @@ export class RepoDO extends DurableObject {
 
   private async generateGitHubAppJWT(): Promise<string> {
     const now = Math.floor(Date.now() / 1000)
-    const privateKeyPEM = (this.env as Env).GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n')
+    let privateKeyPEM = (this.env as Env).GITHUB_PRIVATE_KEY
+
+    // Handle different key formats:
+    // 1. Base64 encoded PEM
+    // 2. PEM with escaped newlines (\\n)
+    // 3. Raw PEM
+    if (!privateKeyPEM.includes('-----BEGIN')) {
+      // Assume base64 encoded
+      try {
+        privateKeyPEM = atob(privateKeyPEM)
+      } catch {
+        // Not valid base64, try as-is
+      }
+    }
+    // Convert escaped newlines to actual newlines
+    privateKeyPEM = privateKeyPEM.replace(/\\n/g, '\n')
+
     const key = await importPKCS8(privateKeyPEM, 'RS256')
 
     return new SignJWT({})

@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { isInternalRequest } from '../access/internal'
 
 /**
  * Issues (todos) within a repository.
@@ -13,28 +14,36 @@ export const Issues: CollectionConfig = {
   },
   access: {
     // Users can read issues from repos they have access to
-    read: ({ req: { user } }) => {
+    read: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return {
         'repo.installation.users.id': { equals: user.id },
       }
     },
-    create: ({ req: { user } }) => {
+    create: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return {
         'repo.installation.users.id': { equals: user.id },
       }
     },
-    update: ({ req: { user } }) => {
+    update: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return {
         'repo.installation.users.id': { equals: user.id },
       }
     },
-    delete: ({ req: { user } }) => {
+    delete: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return {

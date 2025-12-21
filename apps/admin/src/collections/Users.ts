@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { isInternalRequest, internalOrAdmin } from '../access/internal'
 
 /**
  * Users collection with GitHub OAuth and role-based access control.
@@ -13,20 +14,24 @@ export const Users: CollectionConfig = {
   auth: true,
   access: {
     // Users can read their own profile, admins can read all
-    read: ({ req: { user } }) => {
+    read: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return { id: { equals: user.id } }
     },
     // Only admins can create users directly (OAuth creates users automatically)
-    create: ({ req: { user } }) => user?.roles?.includes('admin'),
+    create: internalOrAdmin,
     // Users can update their own profile, admins can update all
-    update: ({ req: { user } }) => {
+    update: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return { id: { equals: user.id } }
     },
-    delete: ({ req: { user } }) => user?.roles?.includes('admin'),
+    delete: internalOrAdmin,
   },
   fields: [
     // RBAC

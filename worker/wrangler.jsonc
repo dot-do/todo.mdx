@@ -107,11 +107,12 @@
     }
   ],
 
-  // Service Bindings - Payload HTTP API (using fetch, not RPC)
+  // Service Bindings - Payload RPC
   "services": [
     {
-      "binding": "PAYLOAD_SERVICE",
-      "service": "admin-todo-mdx"
+      "binding": "PAYLOAD",
+      "service": "admin-todo-mdx",
+      "entrypoint": "PayloadRPC"
     }
   ],
 
@@ -126,5 +127,6 @@
   // Environment variables (set via wrangler secret)
   // GitHub App: GITHUB_APP_ID, GITHUB_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET
   // WorkOS AuthKit: WORKOS_CLIENT_ID, WORKOS_CLIENT_SECRET, COOKIE_ENCRYPTION_KEY
+  // Payload: PAYLOAD_SECRET (shared with admin worker)
   // AI: ANTHROPIC_API_KEY
 }

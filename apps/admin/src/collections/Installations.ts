@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { isInternalRequest, internalOrAdmin } from '../access/internal'
 
 /**
  * GitHub App installations.
@@ -13,7 +14,10 @@ export const Installations: CollectionConfig = {
   },
   access: {
     // Only authenticated users can read installations they have access to
-    read: ({ req: { user } }) => {
+    read: ({ req }) => {
+      // Allow internal RPC calls
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       // Admins can see all
       if (user.roles?.includes('admin')) return true
@@ -22,10 +26,10 @@ export const Installations: CollectionConfig = {
         'users.id': { equals: user.id },
       }
     },
-    // Only system/webhooks can create/update/delete
-    create: ({ req: { user } }) => user?.roles?.includes('admin'),
-    update: ({ req: { user } }) => user?.roles?.includes('admin'),
-    delete: ({ req: { user } }) => user?.roles?.includes('admin'),
+    // Internal RPC or admins can create/update/delete
+    create: internalOrAdmin,
+    update: internalOrAdmin,
+    delete: internalOrAdmin,
   },
   fields: [
     {

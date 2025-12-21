@@ -1,9 +1,14 @@
 {
-  "name": "with-cloudflare-d1",
+  "name": "@todo.mdx/admin",
   "version": "1.0.0",
-  "description": "A blank template to get started with Payload 3.0",
+  "description": "Payload CMS admin for todo.mdx",
   "license": "MIT",
   "type": "module",
+  "exports": {
+    ".": "./src/worker-config.ts",
+    "./collections": "./src/collections/index.ts",
+    "./types": "./src/payload-types.ts"
+  },
   "scripts": {
     "build": "cross-env NODE_OPTIONS=\"--no-deprecation --max-old-space-size=8000\" next build",
     "deploy": "pnpm run deploy:database && pnpm run deploy:app",

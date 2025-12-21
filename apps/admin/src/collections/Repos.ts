@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { isInternalRequest, internalOrAdmin } from '../access/internal'
 
 /**
  * GitHub repositories.
@@ -13,15 +14,19 @@ export const Repos: CollectionConfig = {
   },
   access: {
     // Users can read repos they have access to via installation
-    read: ({ req: { user } }) => {
+    read: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       return {
         'installation.users.id': { equals: user.id },
       }
     },
-    create: ({ req: { user } }) => user?.roles?.includes('admin'),
-    update: ({ req: { user } }) => {
+    create: internalOrAdmin,
+    update: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       // Users can update repos they have access to
@@ -29,7 +34,7 @@ export const Repos: CollectionConfig = {
         'installation.users.id': { equals: user.id },
       }
     },
-    delete: ({ req: { user } }) => user?.roles?.includes('admin'),
+    delete: internalOrAdmin,
   },
   fields: [
     {
