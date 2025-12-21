@@ -35,12 +35,14 @@ import type {
 export { RepoDO } from './do/repo'
 export { ProjectDO } from './do/project'
 export { PRDO } from './do/pr'
+export { IssueDO } from './do/issue'
 export { SessionDO } from './do/session'
 export { ClaudeSandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { BeadsSyncWorkflow } from './workflows/sync'
 export { TodoMCP }
+export { PersistenceRPC } from './rpc'
 
 // Re-export Env type for external use
 export type { Env }
