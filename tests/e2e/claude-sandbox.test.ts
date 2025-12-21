@@ -340,6 +340,168 @@ describeWithCredentials('Full autonomous development workflow', () => {
     },
     300_000 // 5 minute timeout for full workflow
   )
+
+  test.skipIf(!hasFullIntegration)(
+    'PR review cycle: request changes, address feedback, approve',
+    async () => {
+      const issueId = `review-test-${Date.now()}`
+      const branchName = `claude/${issueId}`
+
+      // Step 1: Create initial PR
+      const createResponse = await apiRequest('/api/sandbox/execute', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: 'dot-do/test.mdx',
+          task: `Create a file "reviews/${issueId}.md" with a simple greeting`,
+          branch: branchName,
+          push: true,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(createResponse.ok).toBe(true)
+
+      // Create the PR
+      const prResponse = await apiRequest('/api/workflows/pr/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          branch: branchName,
+          title: `feat: ${issueId}`,
+          body: `Test PR for review cycle\n\nCloses #${issueId}`,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(prResponse.ok).toBe(true)
+      const { number: prNumber } = await prResponse.json() as { number: number }
+
+      // Step 2: Request changes (simulated via API)
+      const reviewResponse = await apiRequest('/api/workflows/pr/review', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          prNumber,
+          action: 'request_changes',
+          body: 'Please add a timestamp to the file',
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(reviewResponse.ok).toBe(true)
+
+      // Step 3: Claude addresses feedback
+      const addressResponse = await apiRequest('/api/sandbox/execute', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: 'dot-do/test.mdx',
+          task: `Add a timestamp to the file "reviews/${issueId}.md" as requested in the review`,
+          branch: branchName,
+          push: true,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(addressResponse.ok).toBe(true)
+      const addressResult = await addressResponse.json() as { filesChanged: string[] }
+      expect(addressResult.filesChanged.length).toBeGreaterThan(0)
+
+      // Step 4: Re-request review
+      const reRequestResponse = await apiRequest('/api/workflows/pr/review/request', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          prNumber,
+          reviewers: ['test-reviewer'],
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      // May fail if test-reviewer doesn't exist, but should not error
+      expect(reRequestResponse.status).not.toBe(500)
+
+      // Step 5: Approve the PR
+      const approveResponse = await apiRequest('/api/workflows/pr/review', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          prNumber,
+          action: 'approve',
+          body: 'LGTM!',
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(approveResponse.ok).toBe(true)
+
+      const approveResult = await approveResponse.json() as { state: string }
+      expect(approveResult.state).toBe('APPROVED')
+    },
+    600_000 // 10 minute timeout for full review cycle
+  )
+
+  test.skipIf(!hasFullIntegration)(
+    'PR merge and issue close',
+    async () => {
+      const issueId = `merge-test-${Date.now()}`
+      const branchName = `claude/${issueId}`
+
+      // Step 1: Create a simple change
+      const createResponse = await apiRequest('/api/sandbox/execute', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: 'dot-do/test.mdx',
+          task: `Create a file "merges/${issueId}.md" with merge test content`,
+          branch: branchName,
+          push: true,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(createResponse.ok).toBe(true)
+
+      // Step 2: Create PR
+      const prResponse = await apiRequest('/api/workflows/pr/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          branch: branchName,
+          title: `feat: ${issueId}`,
+          body: `Merge test PR\n\nCloses #${issueId}`,
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(prResponse.ok).toBe(true)
+      const { number: prNumber } = await prResponse.json() as { number: number }
+
+      // Step 3: Merge the PR
+      const mergeResponse = await apiRequest('/api/workflows/pr/merge', {
+        method: 'POST',
+        body: JSON.stringify({
+          repo: { owner: 'dot-do', name: 'test.mdx' },
+          prNumber,
+          mergeMethod: 'squash',
+          installationId: parseInt(GITHUB_INSTALLATION_ID!),
+        }),
+      })
+
+      expect(mergeResponse.ok).toBe(true)
+
+      const mergeResult = await mergeResponse.json() as {
+        merged: boolean
+        sha: string
+      }
+
+      expect(mergeResult.merged).toBe(true)
+      expect(mergeResult.sha).toMatch(/^[0-9a-f]{40}$/)
+
+      // Step 4: Verify issue was closed (if linked)
+      // The "Closes #issueId" in PR body should auto-close the issue
+      // We'd verify via GitHub API, but for now just check merge succeeded
+    },
+    300_000 // 5 minute timeout
+  )
 })
 
 // ============================================================================
