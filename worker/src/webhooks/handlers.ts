@@ -89,6 +89,29 @@ export async function handleInstallation(
         }
         timing.reposSync = Date.now() - t3
         console.log(`[Installation] Synced ${repos.length} repos (${created} created, ${updated} skipped existing) (${timing.reposSync}ms)`)
+
+        // Trigger BeadsSyncWorkflow for each repo to sync beads issues to GitHub
+        const t4 = Date.now()
+        let workflowsTriggered = 0
+        for (const repo of repos) {
+          try {
+            const sanitizedName = repo.full_name.replace(/[^a-zA-Z0-9]/g, '-')
+            const workflowId = `sync-${sanitizedName}-${Date.now()}`
+
+            await c.env.BEADS_SYNC_WORKFLOW.create({
+              id: workflowId,
+              params: {
+                repoFullName: repo.full_name,
+                installationId: installation.id,
+              },
+            })
+            workflowsTriggered++
+          } catch (err) {
+            console.error(`[Installation] Failed to trigger sync for ${repo.full_name}:`, err)
+          }
+        }
+        timing.workflowTrigger = Date.now() - t4
+        console.log(`[Installation] Triggered ${workflowsTriggered} sync workflows (${timing.workflowTrigger}ms)`)
       }
 
       timing.total = Date.now() - t0

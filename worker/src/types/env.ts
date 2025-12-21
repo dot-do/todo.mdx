@@ -29,6 +29,7 @@ export interface Env {
   DEVELOP_WORKFLOW: WorkflowNamespace
   EMBED_WORKFLOW: WorkflowNamespace
   BULK_EMBED_WORKFLOW: WorkflowNamespace
+  BEADS_SYNC_WORKFLOW: WorkflowNamespace
 
   // GitHub App secrets
   GITHUB_APP_ID: string

@@ -105,22 +105,48 @@ workflows.post('/pr/approved', async (c) => {
 })
 
 /**
- * Get workflow status
+ * Get workflow status - supports multiple workflow types
  */
 workflows.get('/status/:workflowId', async (c) => {
-  try {
-    const workflowId = c.req.param('workflowId')
+  return getWorkflowStatus(c)
+})
 
-    const instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
+/**
+ * Get workflow status by ID (alternative route for simpler API)
+ */
+workflows.get('/:workflowId', async (c) => {
+  return getWorkflowStatus(c)
+})
+
+async function getWorkflowStatus(c: any) {
+  const workflowId = c.req.param('workflowId')
+
+  // Try each workflow type based on prefix
+  try {
+    let instance: any
+
+    if (workflowId.startsWith('sync-')) {
+      instance = await c.env.BEADS_SYNC_WORKFLOW.get(workflowId)
+    } else if (workflowId.startsWith('develop-')) {
+      instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
+    } else {
+      // Default to DEVELOP_WORKFLOW for backwards compatibility
+      instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
+    }
+
+    // status() is a method, not a property
+    const statusInfo = await instance.status()
 
     return c.json({
       id: instance.id,
-      status: instance.status,
+      status: statusInfo.status,
+      output: statusInfo.output,
+      error: statusInfo.error,
     })
   } catch (error) {
     return c.json({ error: 'Workflow not found' }, 404)
   }
-})
+}
 
 /**
  * List recent workflows

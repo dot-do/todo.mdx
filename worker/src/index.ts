@@ -39,6 +39,7 @@ export { SessionDO } from './do/session'
 export { ClaudeSandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
+export { BeadsSyncWorkflow } from './workflows/sync'
 export { TodoMCP }
 
 // Re-export Env type for external use
@@ -1273,6 +1274,86 @@ app.post('/api/repos/:owner/:name/import', authMiddleware, async (c) => {
   return response
 })
 
+// API: Trigger beads sync workflow (durable, handles all issues)
+app.post('/api/repos/:owner/:name/sync/init', authMiddleware, async (c) => {
+  const owner = c.req.param('owner')
+  const name = c.req.param('name')
+  const fullName = `${owner}/${name}`
+
+  // Get installation ID - try D1 first, then query param fallback, then GitHub API
+  let installationId: number | null = null
+
+  // 1. Try D1 lookup
+  const repo = await c.env.DB.prepare(
+    'SELECT installation_id FROM repos WHERE full_name = ?'
+  ).bind(fullName).first<{ installation_id: number }>()
+
+  if (repo) {
+    installationId = repo.installation_id
+  } else {
+    // 2. Try query param fallback (for testing or manual triggers)
+    const installParam = c.req.query('installation_id')
+    if (installParam) {
+      installationId = parseInt(installParam, 10)
+    } else {
+      // 3. Try to find installation by org/owner
+      const installation = await c.env.DB.prepare(
+        'SELECT installation_id FROM installations WHERE account_login = ?'
+      ).bind(owner).first<{ installation_id: number }>()
+
+      if (installation) {
+        installationId = installation.installation_id
+      }
+    }
+  }
+
+  if (!installationId) {
+    return c.json({
+      error: 'No installation found for this repo',
+      hint: 'Install the GitHub App or pass ?installation_id=123',
+    }, { status: 404 })
+  }
+
+  // Create workflow instance (sanitize ID: only alphanumeric and hyphens allowed)
+  const sanitizedName = fullName.replace(/[^a-zA-Z0-9]/g, '-')
+  const workflowId = `sync-${sanitizedName}-${Date.now()}`
+
+  try {
+    await c.env.BEADS_SYNC_WORKFLOW.create({
+      id: workflowId,
+      params: {
+        repoFullName: fullName,
+        installationId,
+      },
+    })
+
+    return c.json({
+      workflowId,
+      status: 'started',
+      repo: fullName,
+    })
+  } catch (error) {
+    console.error('[sync/init] Failed to start workflow:', error)
+    return c.json({ error: String(error) }, { status: 500 })
+  }
+})
+
+// API: Debug - List installations and repos in D1
+app.get('/api/debug/installations', authMiddleware, async (c) => {
+  const installations = await c.env.DB.prepare(
+    'SELECT id, installation_id, account_login, account_type FROM installations'
+  ).all()
+
+  const repos = await c.env.DB.prepare(
+    'SELECT id, installation_id, full_name, owner FROM repos'
+  ).all()
+
+  return c.json({
+    installations: installations.results,
+    repos: repos.results,
+  })
+})
+
 // API: Bulk sync beads issues to GitHub (creates GitHub issues for issues without github_number)
 app.post('/api/repos/:owner/:name/sync/bulk', authMiddleware, async (c) => {
   const owner = c.req.param('owner')
@@ -1280,11 +1361,11 @@ app.post('/api/repos/:owner/:name/sync/bulk', authMiddleware, async (c) => {
   const fullName = `${owner}/${name}`
 
   // Get installation ID for this repo
-  const installation = await c.env.DB.prepare(
-    'SELECT id FROM Installations WHERE repos LIKE ?'
-  ).bind(`%${fullName}%`).first<{ id: number }>()
+  const repo = await c.env.DB.prepare(
+    'SELECT installation_id FROM repos WHERE full_name = ?'
+  ).bind(fullName).first<{ installation_id: number }>()
 
-  if (!installation) {
+  if (!repo) {
     return c.json({ error: 'No installation found for this repo' }, { status: 404 })
   }
 
@@ -1294,7 +1375,7 @@ app.post('/api/repos/:owner/:name/sync/bulk', authMiddleware, async (c) => {
   // Set context first (required for GitHub API calls)
   await stub.fetch(new Request('http://do/context', {
     method: 'POST',
-    body: JSON.stringify({ repoFullName: fullName, installationId: installation.id }),
+    body: JSON.stringify({ repoFullName: fullName, installationId: repo.installation_id }),
   }))
 
   // Get query params

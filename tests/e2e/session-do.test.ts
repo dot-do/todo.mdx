@@ -120,7 +120,7 @@ describe('embed endpoint', () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
 
-    const token = await getAuthToken()
+    const token = getAuthToken()
     const response = await fetch(
       `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed?token=${encodeURIComponent(token!)}`,
       { redirect: 'manual' }
@@ -170,7 +170,7 @@ describe('embed endpoint', () => {
     const session = await createSession()
     createdSessions.push(session.sandboxId)
 
-    const token = await getAuthToken()
+    const token = getAuthToken()
     const response = await fetch(
       `${getWorkerBaseUrl()}/api/stdio/${session.sandboxId}/embed?token=${encodeURIComponent(token!)}&cmd=node&arg=-v`
     )
@@ -215,7 +215,7 @@ describe('concurrent session stress test', () => {
     await Promise.all(sessions.map(s => deleteSession(s.sandboxId)))
 
     // All should be gone
-    const token = await getAuthToken()
+    const token = getAuthToken()
     const statusResults = await Promise.allSettled(
       sessions.map(s =>
         fetch(`${getWorkerBaseUrl()}/api/stdio/${s.sandboxId}/status`, {
@@ -232,8 +232,7 @@ describe('concurrent session stress test', () => {
   })
 })
 
-// Helper to get auth token
-async function getAuthToken(): Promise<string | null> {
-  const { getToken } = await import('oauth.do/node')
-  return getToken() ?? null
+// Helper to get auth token - use TEST_API_KEY consistently with createSession/deleteSession
+function getAuthToken(): string | null {
+  return process.env.TEST_API_KEY || null
 }
