@@ -46,6 +46,7 @@ export class PayloadRPC extends WorkerEntrypoint {
     // Use public URL since self-reference binding has initialization issues
     const baseUrl = 'https://admin-todo-mdx.dotdo.workers.dev';
     const url = new URL(path, baseUrl);
+    console.log(\`[PayloadRPC] \${options.method || 'GET'} \${url.pathname}\`);
     const response = await fetch(url.toString(), {
       method: options.method || 'GET',
       headers: {
@@ -57,6 +58,7 @@ export class PayloadRPC extends WorkerEntrypoint {
     });
     if (!response.ok) {
       const text = await response.text();
+      console.error(\`[PayloadRPC] Error: \${response.status} \${text}\`);
       throw new Error(\`Payload API error: \${response.status} \${text}\`);
     }
     return response.json();
@@ -80,27 +82,34 @@ export class PayloadRPC extends WorkerEntrypoint {
 
     const queryString = params.toString();
     const path = \`/api/\${args.collection}/\${args.id}\${queryString ? '?' + queryString : ''}\`;
+    // findByID returns the doc directly from the API
     return this._fetch(path);
   }
 
   async create(args) {
-    return this._fetch(\`/api/\${args.collection}\`, {
+    // Payload API returns {doc, message} - extract doc to match local API behavior
+    const result = await this._fetch(\`/api/\${args.collection}\`, {
       method: 'POST',
       body: args.data,
     });
+    return result.doc;
   }
 
   async update(args) {
-    return this._fetch(\`/api/\${args.collection}/\${args.id}\`, {
+    // Payload API returns {doc, message} - extract doc to match local API behavior
+    const result = await this._fetch(\`/api/\${args.collection}/\${args.id}\`, {
       method: 'PATCH',
       body: args.data,
     });
+    return result.doc;
   }
 
   async delete(args) {
-    return this._fetch(\`/api/\${args.collection}/\${args.id}\`, {
+    // Payload API returns {doc, message} - extract doc to match local API behavior
+    const result = await this._fetch(\`/api/\${args.collection}/\${args.id}\`, {
       method: 'DELETE',
     });
+    return result.doc;
   }
 }
 `
