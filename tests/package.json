@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run unit/",
+    "test:e2e": "vitest run e2e/",
+    "test:all": "vitest run",
     "test:watch": "vitest",
     "test:mcp": "vitest run e2e/mcp-server.test.ts",
     "test:browser": "playwright test",
