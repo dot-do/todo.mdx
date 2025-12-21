@@ -17,7 +17,47 @@ import type { ExecuteOptions } from '../sandbox/claude'
 
 const app = new Hono<{ Bindings: Env }>()
 
-// All sandbox routes require authentication
+// Health check endpoint (no auth required)
+app.get('/health', async (c) => {
+  try {
+    // Check if CLAUDE_SANDBOX binding exists
+    if (!c.env.CLAUDE_SANDBOX) {
+      return c.json({ available: false, reason: 'Sandbox binding not configured' }, 200)
+    }
+
+    // Try to get a sandbox instance to verify it's operational
+    const testId = 'health-check'
+    const doId = c.env.CLAUDE_SANDBOX.idFromName(testId)
+    const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
+
+    // Make a simple ping request with short timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 2000)
+
+    try {
+      const response = await sandbox.fetch(new Request('http://sandbox/health', {
+        method: 'GET',
+        signal: controller.signal,
+      }))
+      clearTimeout(timeoutId)
+
+      // If we got a response (even error), sandbox is available
+      return c.json({ available: true }, 200)
+    } catch (error) {
+      clearTimeout(timeoutId)
+      // Sandbox exists but not responding
+      return c.json({
+        available: false,
+        reason: error instanceof Error ? error.message : 'Sandbox not responding'
+      }, 200)
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    return c.json({ available: false, reason: message }, 200)
+  }
+})
+
+// All other sandbox routes require authentication
 app.use('/*', authMiddleware)
 
 // ============================================================================
@@ -41,6 +81,12 @@ app.post('/execute', async (c) => {
     }
     // installationId is optional for public repos
 
+    // Validate sandbox binding is available
+    if (!c.env.CLAUDE_SANDBOX) {
+      console.error('[Sandbox API] CLAUDE_SANDBOX binding not found')
+      return c.json({ error: 'Sandbox service is not available - CLAUDE_SANDBOX binding not configured' }, 500)
+    }
+
     // Get or create sandbox instance
     const sandboxId = `sandbox-${body.repo.replace('/', '-')}-${Date.now()}`
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
@@ -53,16 +99,18 @@ app.post('/execute', async (c) => {
       body: JSON.stringify(body),
     }))
 
-    const result = await response.json()
+    const result = await response.json() as { error?: string }
 
     if (!response.ok) {
-      return c.json(result, response.status as 400 | 500)
+      const errorMsg = result.error || 'Sandbox execution failed'
+      console.error('[Sandbox API] Execute failed:', errorMsg)
+      return c.json({ error: errorMsg }, response.status as 400 | 500)
     }
 
     return c.json(result)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[Sandbox API] Execute error:', message)
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Execute error:', error)
     return c.json({ error: message }, 500)
   }
 })
@@ -84,6 +132,12 @@ app.post('/execute/stream', async (c) => {
     }
     // installationId is optional for public repos
 
+    // Validate sandbox binding is available
+    if (!c.env.CLAUDE_SANDBOX) {
+      console.error('[Sandbox API] CLAUDE_SANDBOX binding not found')
+      return c.json({ error: 'Sandbox service is not available - CLAUDE_SANDBOX binding not configured' }, 500)
+    }
+
     // Get or create sandbox instance
     const sandboxId = `sandbox-${body.repo.replace('/', '-')}-${Date.now()}`
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sandboxId)
@@ -96,6 +150,14 @@ app.post('/execute/stream', async (c) => {
       body: JSON.stringify(body),
     }))
 
+    // Check if the response is an error (non-streaming)
+    if (!response.ok) {
+      const result = await response.json() as { error?: string }
+      const errorMsg = result.error || 'Sandbox execution failed'
+      console.error('[Sandbox API] Stream execute failed:', errorMsg)
+      return c.json({ error: errorMsg }, response.status as 400 | 500)
+    }
+
     // Return the SSE stream
     return new Response(response.body, {
       headers: {
@@ -105,8 +167,8 @@ app.post('/execute/stream', async (c) => {
       },
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[Sandbox API] Stream error:', message)
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Stream error:', error)
     return c.json({ error: message }, 500)
   }
 })
@@ -132,6 +194,12 @@ app.post('/sessions', async (c) => {
     }
     // installationId is optional for public repos
 
+    // Validate sandbox binding is available
+    if (!c.env.CLAUDE_SANDBOX) {
+      console.error('[Sandbox API] CLAUDE_SANDBOX binding not found')
+      return c.json({ error: 'Sandbox service is not available - CLAUDE_SANDBOX binding not configured' }, 500)
+    }
+
     // Create session ID
     const sessionId = crypto.randomUUID()
 
@@ -150,8 +218,8 @@ app.post('/sessions', async (c) => {
 
     return c.json({ sessionId })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[Sandbox API] Start session error:', message)
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Start session error:', error)
     return c.json({ error: message }, 500)
   }
 })
@@ -164,18 +232,25 @@ app.get('/sessions/:id', async (c) => {
   try {
     const sessionId = c.req.param('id')
 
+    if (!c.env.CLAUDE_SANDBOX) {
+      return c.json({ error: 'Sandbox service is not available' }, 500)
+    }
+
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
     const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
 
     const response = await sandbox.fetch(new Request(`http://sandbox/session/${sessionId}`))
 
     if (!response.ok) {
-      return c.json({ error: 'Session not found' }, 404)
+      const result = await response.json() as { error?: string }
+      const errorMsg = result.error || 'Session not found'
+      return c.json({ error: errorMsg }, 404)
     }
 
     return c.json(await response.json())
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Get session error:', error)
     return c.json({ error: message }, 500)
   }
 })
@@ -188,6 +263,10 @@ app.get('/sessions/:id/stream', async (c) => {
   try {
     const sessionId = c.req.param('id')
 
+    if (!c.env.CLAUDE_SANDBOX) {
+      return c.json({ error: 'Sandbox service is not available' }, 500)
+    }
+
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
     const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
 
@@ -195,6 +274,13 @@ app.get('/sessions/:id/stream', async (c) => {
     const response = await sandbox.fetch(new Request('http://sandbox/stream', {
       method: 'GET',
     }))
+
+    // Check if the response is an error (non-streaming)
+    if (!response.ok) {
+      const result = await response.json() as { error?: string }
+      const errorMsg = result.error || 'Failed to stream session'
+      return c.json({ error: errorMsg }, response.status as 400 | 404 | 500)
+    }
 
     // Return the SSE stream
     return new Response(response.body, {
@@ -205,7 +291,8 @@ app.get('/sessions/:id/stream', async (c) => {
       },
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Stream session error:', error)
     return c.json({ error: message }, 500)
   }
 })
@@ -223,6 +310,10 @@ app.post('/sessions/:id/feedback', async (c) => {
       return c.json({ error: 'Missing required field: message' }, 400)
     }
 
+    if (!c.env.CLAUDE_SANDBOX) {
+      return c.json({ error: 'Sandbox service is not available' }, 500)
+    }
+
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
     const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
 
@@ -233,13 +324,15 @@ app.post('/sessions/:id/feedback', async (c) => {
     }))
 
     if (!response.ok) {
-      const error = await response.json() as { error: string }
-      return c.json(error, response.status as 400 | 404)
+      const error = await response.json() as { error?: string }
+      const errorMsg = error.error || 'Failed to send feedback'
+      return c.json({ error: errorMsg }, response.status as 400 | 404)
     }
 
     return c.json({ success: true })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Feedback error:', error)
     return c.json({ error: message }, 500)
   }
 })
@@ -252,6 +345,10 @@ app.delete('/sessions/:id', async (c) => {
   try {
     const sessionId = c.req.param('id')
 
+    if (!c.env.CLAUDE_SANDBOX) {
+      return c.json({ error: 'Sandbox service is not available' }, 500)
+    }
+
     const doId = c.env.CLAUDE_SANDBOX.idFromName(sessionId)
     const sandbox = c.env.CLAUDE_SANDBOX.get(doId)
 
@@ -260,13 +357,15 @@ app.delete('/sessions/:id', async (c) => {
     }))
 
     if (!response.ok) {
-      const error = await response.json() as { error: string }
-      return c.json(error, response.status as 400 | 404)
+      const error = await response.json() as { error?: string }
+      const errorMsg = error.error || 'Failed to abort session'
+      return c.json({ error: errorMsg }, response.status as 400 | 404)
     }
 
     return c.json({ success: true })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[Sandbox API] Abort session error:', error)
     return c.json({ error: message }, 500)
   }
 })

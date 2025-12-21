@@ -120,8 +120,8 @@ async function handleExecute(
     const result = await executeClaudeCode(env, sandbox, opts)
     return Response.json(result)
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    console.error('[ClaudeSandbox] Execute error:', message)
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[ClaudeSandbox] Execute error:', error)
     return Response.json({ error: message }, { status: 500 })
   }
 }
@@ -213,6 +213,16 @@ async function executeClaudeCode(
 ): Promise<ExecuteResult> {
   const { repo, task, context, installationId, branch = 'main', push, targetBranch, commitMessage } = opts
 
+  // Validate sandbox is available
+  if (!sandbox) {
+    throw new Error('Cloudflare Sandbox SDK is not available')
+  }
+
+  // Validate required environment variables
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is not configured')
+  }
+
   // Parse repo URL to get owner/repo
   const repoPath = parseRepoPath(repo)
 
@@ -220,13 +230,18 @@ async function executeClaudeCode(
   let cloneUrl: string
   let token: string | null = null
   if (installationId) {
-    token = await getGitHubToken(
-      env,
-      installationId.toString(),
-      'installation'
-    )
+    try {
+      token = await getGitHubToken(
+        env,
+        installationId.toString(),
+        'installation'
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to retrieve GitHub token'
+      throw new Error(`Authentication failed: ${message}`)
+    }
     if (!token) {
-      throw new Error(`No GitHub token for installation ${installationId}`)
+      throw new Error(`Authentication failed: No GitHub token found for installation ${installationId}`)
     }
     cloneUrl = `https://x-access-token:${token}@github.com/${repoPath}.git`
   } else {
@@ -236,12 +251,19 @@ async function executeClaudeCode(
 
   // Clone the repository using git command
   console.log(`[ClaudeSandbox] Cloning ${repoPath}...`)
-  const cloneResult = await sandbox.exec(
-    `git clone --depth 1 --branch ${branch} ${cloneUrl} /workspace`
-  )
+  let cloneResult
+  try {
+    cloneResult = await sandbox.exec(
+      `git clone --depth 1 --branch ${branch} ${cloneUrl} /workspace`
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sandbox execution failed'
+    throw new Error(`Failed to execute git clone: ${message}`)
+  }
 
   if (!cloneResult.success) {
-    throw new Error(`Failed to clone repo: ${cloneResult.stderr}`)
+    const errorMsg = cloneResult.stderr || 'Unknown git clone error'
+    throw new Error(`Failed to clone repository: ${errorMsg}`)
   }
 
   // Configure git user for commits
@@ -260,10 +282,22 @@ async function executeClaudeCode(
   // Run Claude Code in the workspace
   console.log(`[ClaudeSandbox] Running Claude Code for task: ${task.slice(0, 100)}...`)
 
-  const claudeResult = await sandbox.exec(
-    `cd /workspace && ANTHROPIC_API_KEY="${env.ANTHROPIC_API_KEY}" claude-code --print "${escapeShell(fullTask)}" --system "${escapeShell(systemPrompt)}"`,
-    { timeout: 600000 } // 10 minute timeout
-  )
+  let claudeResult
+  try {
+    claudeResult = await sandbox.exec(
+      `cd /workspace && ANTHROPIC_API_KEY="${env.ANTHROPIC_API_KEY}" claude-code --print "${escapeShell(fullTask)}" --system "${escapeShell(systemPrompt)}"`,
+      { timeout: 600000 } // 10 minute timeout
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sandbox execution failed'
+    throw new Error(`Failed to execute Claude Code: ${message}`)
+  }
+
+  // Check if execution failed
+  if (!claudeResult.success && claudeResult.stderr) {
+    console.error('[ClaudeSandbox] Claude Code execution failed:', claudeResult.stderr)
+    // Don't throw - we still want to return the diff even if Claude Code had issues
+  }
 
   // Capture the git diff
   const diffResult = await sandbox.exec('cd /workspace && git diff')
@@ -347,18 +381,34 @@ async function executeClaudeCodeWithStreaming(
     writer.write(encoder.encode(`event: ${event.type}\ndata: ${event.data || ''}\n\n`))
   }
 
+  // Validate sandbox is available
+  if (!sandbox) {
+    throw new Error('Cloudflare Sandbox SDK is not available')
+  }
+
+  // Validate required environment variables
+  if (!env.ANTHROPIC_API_KEY) {
+    throw new Error('ANTHROPIC_API_KEY is not configured')
+  }
+
   const repoPath = parseRepoPath(repo)
 
   // Get GitHub token if installationId provided
   let cloneUrl: string
   if (installationId) {
-    const token = await getGitHubToken(
-      env,
-      installationId.toString(),
-      'installation'
-    )
+    let token: string | null
+    try {
+      token = await getGitHubToken(
+        env,
+        installationId.toString(),
+        'installation'
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to retrieve GitHub token'
+      throw new Error(`Authentication failed: ${message}`)
+    }
     if (!token) {
-      throw new Error(`No GitHub token for installation ${installationId}`)
+      throw new Error(`Authentication failed: No GitHub token found for installation ${installationId}`)
     }
     cloneUrl = `https://x-access-token:${token}@github.com/${repoPath}.git`
   } else {
@@ -369,12 +419,19 @@ async function executeClaudeCodeWithStreaming(
   // Clone repository
   sendEvent({ type: 'stdout', data: `Cloning ${repoPath}...\n` })
 
-  const cloneResult = await sandbox.exec(
-    `git clone --depth 1 --branch ${branch} ${cloneUrl} /workspace`
-  )
+  let cloneResult
+  try {
+    cloneResult = await sandbox.exec(
+      `git clone --depth 1 --branch ${branch} ${cloneUrl} /workspace`
+    )
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sandbox execution failed'
+    throw new Error(`Failed to execute git clone: ${message}`)
+  }
 
   if (!cloneResult.success) {
-    throw new Error(`Failed to clone repo: ${cloneResult.stderr}`)
+    const errorMsg = cloneResult.stderr || 'Unknown git clone error'
+    throw new Error(`Failed to clone repository: ${errorMsg}`)
   }
 
   // Build prompt
@@ -432,14 +489,36 @@ async function runInteractiveSession(
   const { repo, task, installationId } = opts
 
   try {
+    // Validate sandbox is available
+    if (!sandbox) {
+      ws.send(JSON.stringify({ type: 'error', error: 'Cloudflare Sandbox SDK is not available' }))
+      ws.close(1011, 'Sandbox unavailable')
+      return
+    }
+
+    // Validate required environment variables
+    if (!env.ANTHROPIC_API_KEY) {
+      ws.send(JSON.stringify({ type: 'error', error: 'ANTHROPIC_API_KEY is not configured' }))
+      ws.close(1011, 'Missing API key')
+      return
+    }
+
     // Get GitHub token
-    const token = await getGitHubToken(
-      env,
-      installationId.toString(),
-      'installation'
-    )
+    let token: string | null
+    try {
+      token = await getGitHubToken(
+        env,
+        installationId.toString(),
+        'installation'
+      )
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to retrieve GitHub token'
+      ws.send(JSON.stringify({ type: 'error', error: `Authentication failed: ${message}` }))
+      ws.close(1008, 'Auth failed')
+      return
+    }
     if (!token) {
-      ws.send(JSON.stringify({ type: 'error', error: 'No GitHub token' }))
+      ws.send(JSON.stringify({ type: 'error', error: `Authentication failed: No GitHub token found for installation ${installationId}` }))
       ws.close(1008, 'No token')
       return
     }

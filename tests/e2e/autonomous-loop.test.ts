@@ -51,7 +51,7 @@ const WORKFLOW_TIMEOUT = 600_000 // 10 minutes for full workflow
 const POLL_INTERVAL = 5_000 // 5 seconds between status checks
 
 // ============================================================================
-// Credential Checks
+// Credential and Sandbox Checks
 // ============================================================================
 
 function hasRequiredCredentials(): boolean {
@@ -67,7 +67,41 @@ function hasRequiredCredentials(): boolean {
   return true
 }
 
+interface SandboxHealthResponse {
+  available: boolean
+  reason?: string
+}
+
+let sandboxAvailable = false
+
+async function checkSandboxAvailability(): Promise<boolean> {
+  try {
+    const response = await fetch(`${WORKER_BASE_URL}/api/sandbox/health`)
+
+    if (!response.ok) {
+      console.log(`Sandbox health check failed: HTTP ${response.status}`)
+      return false
+    }
+
+    const health = await response.json() as SandboxHealthResponse
+
+    if (!health.available) {
+      console.log(`Sandbox not available: ${health.reason || 'Unknown reason'}`)
+      return false
+    }
+
+    return true
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.log(`Sandbox health check error: ${message}`)
+    return false
+  }
+}
+
 const describeWithCredentials = hasRequiredCredentials() ? describe : describe.skip
+const describeIfSandboxAvailable = (name: string, fn: () => void) => {
+  return sandboxAvailable ? describe(name, fn) : describe.skip(name, fn)
+}
 
 // ============================================================================
 // API Helpers
@@ -351,7 +385,7 @@ async function cleanupTestContext(ctx: TestContext): Promise<void> {
 // ============================================================================
 
 describeWithCredentials('Full Autonomous Development Loop', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     console.log('='.repeat(60))
     console.log('AUTONOMOUS LOOP E2E TEST')
     console.log('='.repeat(60))
@@ -359,6 +393,18 @@ describeWithCredentials('Full Autonomous Development Loop', () => {
     console.log(`Test Repo: ${TEST_REPO_OWNER}/${TEST_REPO_NAME}`)
     console.log(`Installation ID: ${GITHUB_INSTALLATION_ID}`)
     console.log('='.repeat(60))
+
+    // Check if sandbox is available
+    console.log('Checking sandbox availability...')
+    sandboxAvailable = await checkSandboxAvailability()
+
+    if (!sandboxAvailable) {
+      console.log('⚠️  Sandbox is not available - sandbox-dependent tests will be skipped')
+      console.log('='.repeat(60))
+    } else {
+      console.log('✓ Sandbox is available')
+      console.log('='.repeat(60))
+    }
   })
 
   afterAll(async () => {
@@ -372,7 +418,7 @@ describeWithCredentials('Full Autonomous Development Loop', () => {
   // Component Tests (building blocks)
   // --------------------------------------------------------------------------
 
-  describe('Component: Sandbox Execution', () => {
+  describeIfSandboxAvailable('Component: Sandbox Execution', () => {
     test('Claude can execute a task and return diff', async () => {
       const issueId = `e2e-sandbox-${Date.now()}`
       const branch = `e2e/${issueId}`
@@ -398,7 +444,7 @@ describeWithCredentials('Full Autonomous Development Loop', () => {
     }, SANDBOX_TIMEOUT)
   })
 
-  describe('Component: PR Lifecycle', () => {
+  describeIfSandboxAvailable('Component: PR Lifecycle', () => {
     let ctx: TestContext
 
     beforeAll(async () => {
@@ -490,7 +536,7 @@ describeWithCredentials('Full Autonomous Development Loop', () => {
   // Integration Test (full loop)
   // --------------------------------------------------------------------------
 
-  describe('Integration: Full Autonomous Loop', () => {
+  describeIfSandboxAvailable('Integration: Full Autonomous Loop', () => {
     test('complete issue → develop → PR → review → merge cycle', async () => {
       const issueId = `e2e-full-${Date.now()}`
       const branch = `claude/${issueId}`
@@ -622,7 +668,7 @@ LGTM! Ready to merge.`,
   // Workflow Trigger Test
   // --------------------------------------------------------------------------
 
-  describe('Integration: DevelopWorkflow Trigger', () => {
+  describeIfSandboxAvailable('Integration: DevelopWorkflow Trigger', () => {
     test('triggering issue.ready starts DevelopWorkflow', async () => {
       const issueId = `e2e-workflow-${Date.now()}`
       const ctx: TestContext = { issueId, branch: `claude/${issueId}` }
