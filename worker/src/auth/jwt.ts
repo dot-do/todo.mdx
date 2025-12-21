@@ -1,34 +1,47 @@
 /**
  * OAuth Token Verification using jose
- * Validates JWTs from oauth.do
+ * Validates JWTs from WorkOS (via oauth.do custom domain)
+ *
+ * WorkOS JWKS URL format: https://api.workos.com/sso/jwks/<clientId>
+ * See: https://workos.com/docs/user-management/sessions
  */
 
-import { jwtVerify, createRemoteJWKSet, JWTPayload } from 'jose'
+import { jwtVerify, createRemoteJWKSet, decodeJwt } from 'jose'
 
 export interface OAuthSession {
   userId: string
   email?: string
-  scopes: string[]
+  permissions: string[]
+  organizationId?: string
 }
 
-// Cache the JWKS - jose handles caching internally
-const getJWKS = (issuer: string) =>
-  createRemoteJWKSet(new URL(`${issuer}/.well-known/jwks.json`))
+// Cache JWKS per client ID - jose handles caching internally
+const jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>()
+
+function getWorkOSJWKS(clientId: string) {
+  if (!jwksCache.has(clientId)) {
+    // WorkOS JWKS endpoint format
+    const jwksUrl = new URL(`https://api.workos.com/sso/jwks/${clientId}`)
+    jwksCache.set(clientId, createRemoteJWKSet(jwksUrl))
+  }
+  return jwksCache.get(clientId)!
+}
 
 export async function validateOAuthToken(
   token: string,
-  env: { OAUTH_DO_ISSUER?: string; OAUTH_DO_CLIENT_ID?: string }
+  env: { WORKOS_CLIENT_ID?: string }
 ): Promise<OAuthSession> {
-  const issuer = env.OAUTH_DO_ISSUER || 'https://oauth.do'
-  const audience = env.OAUTH_DO_CLIENT_ID || 'todo-mdx'
+  const clientId = env.WORKOS_CLIENT_ID
+
+  if (!clientId) {
+    throw new Error('WORKOS_CLIENT_ID not configured')
+  }
 
   try {
-    const JWKS = getJWKS(issuer)
+    const JWKS = getWorkOSJWKS(clientId)
 
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer,
-      audience,
-    })
+    // Verify JWT signature using WorkOS JWKS
+    const { payload } = await jwtVerify(token, JWKS)
 
     if (!payload.sub) {
       throw new Error('Missing subject in token')
@@ -37,12 +50,34 @@ export async function validateOAuthToken(
     return {
       userId: payload.sub,
       email: payload.email as string | undefined,
-      scopes: typeof payload.scope === 'string'
-        ? payload.scope.split(' ')
+      permissions: Array.isArray(payload.permissions)
+        ? payload.permissions as string[]
         : [],
+      organizationId: payload.org_id as string | undefined,
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     throw new Error(`Invalid OAuth token: ${message}`)
+  }
+}
+
+/**
+ * Decode JWT without verification (for trusted contexts only)
+ * Use when token was just obtained from WorkOS API
+ */
+export function decodeOAuthToken(token: string): OAuthSession {
+  const payload = decodeJwt(token)
+
+  if (!payload.sub) {
+    throw new Error('Missing subject in token')
+  }
+
+  return {
+    userId: payload.sub,
+    email: payload.email as string | undefined,
+    permissions: Array.isArray(payload.permissions)
+      ? payload.permissions as string[]
+      : [],
+    organizationId: payload.org_id as string | undefined,
   }
 }

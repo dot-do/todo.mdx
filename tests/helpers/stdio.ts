@@ -6,7 +6,7 @@
  * Authentication via oauth.do (WorkOS tokens).
  */
 
-import { ensureLoggedIn, isAuthenticated } from 'oauth.do/node'
+import { getToken } from 'oauth.do/node'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
 
@@ -15,22 +15,14 @@ let cachedToken: string | null = null
 
 /**
  * Get authentication token via oauth.do
- * Uses cached token if available, otherwise triggers login flow
+ * Uses cached token if available
  */
 async function getAuthToken(): Promise<string | null> {
   if (cachedToken) return cachedToken
 
   try {
-    // Check if already authenticated
-    if (await isAuthenticated()) {
-      const auth = await ensureLoggedIn()
-      cachedToken = auth.token ?? null
-      return cachedToken
-    }
-
-    // Trigger login flow (will prompt user in terminal)
-    const auth = await ensureLoggedIn()
-    cachedToken = auth.token ?? null
+    // Get token from oauth.do storage
+    cachedToken = await getToken() ?? null
     return cachedToken
   } catch (err) {
     console.error('oauth.do authentication failed:', err)
@@ -290,11 +282,12 @@ export async function runCommand(
 
 /**
  * Check if sandbox credentials are available
- * Returns true if oauth.do has a valid token
+ * Returns true if oauth.do has a stored token
  */
 export async function hasSandboxCredentials(): Promise<boolean> {
   try {
-    return await isAuthenticated()
+    const token = await getToken()
+    return !!token
   } catch {
     return false
   }

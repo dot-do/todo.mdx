@@ -3,7 +3,7 @@
  */
 
 export { authMiddleware, optionalAuthMiddleware, type AuthContext, type AuthType } from './middleware'
-export { validateOAuthToken, type OAuthSession } from './jwt'
+export { validateOAuthToken, decodeOAuthToken, type OAuthSession } from './jwt'
 export { validateApiKey, getWidgetToken, type ApiKeySession } from './workos'
 export {
   storeSecret,
