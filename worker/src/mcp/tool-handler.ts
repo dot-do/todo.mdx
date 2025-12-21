@@ -22,6 +22,7 @@ async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
     collection: "users",
     where: { workosUserId: { equals: workosUserId } },
     limit: 1,
+    overrideAccess: true,
   });
 
   if (!userResult.docs?.length) {
@@ -34,6 +35,7 @@ async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
     collection: "installations",
     where: { users: { contains: payloadUserId } },
     limit: 100,
+    overrideAccess: true,
   });
 
   if (!installationsResult.docs?.length) {
@@ -46,6 +48,7 @@ async function getUserRepos(env: Env, workosUserId: string): Promise<any[]> {
     collection: "repos",
     where: { installation: { in: installationIds } },
     limit: 100,
+    overrideAccess: true,
   });
 
   return reposResult.docs || [];

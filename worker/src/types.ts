@@ -5,11 +5,11 @@
 // PayloadRPC type - the actual implementation is in the admin app
 // We use a generic interface here since we access it via RPC
 export interface PayloadRPC {
-  find(args: { collection: string; where?: Record<string, unknown>; limit?: number; depth?: number; sort?: string }): Promise<{ docs: any[]; totalDocs: number }>
-  findByID(args: { collection: string; id: string; depth?: number }): Promise<any>
-  create(args: { collection: string; data: Record<string, unknown> }): Promise<any>
-  update(args: { collection: string; id: string; data: Record<string, unknown> }): Promise<any>
-  delete(args: { collection: string; id: string }): Promise<any>
+  find(args: { collection: string; where?: Record<string, unknown>; limit?: number; depth?: number; sort?: string; overrideAccess?: boolean }): Promise<{ docs: any[]; totalDocs: number }>
+  findByID(args: { collection: string; id: string; depth?: number; overrideAccess?: boolean }): Promise<any>
+  create(args: { collection: string; data: Record<string, unknown>; overrideAccess?: boolean }): Promise<any>
+  update(args: { collection: string; id: string; data: Record<string, unknown>; overrideAccess?: boolean }): Promise<any>
+  delete(args: { collection: string; id: string; overrideAccess?: boolean }): Promise<any>
 }
 
 export interface Env {

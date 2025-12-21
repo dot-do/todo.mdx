@@ -59,14 +59,14 @@ export async function validateWorkosJwt(
     // Look up user in Payload by WorkOS user ID (sub claim)
     const workosUserId = decoded.sub;
 
-    // Try to fetch user from Payload, but don't fail if lookup errors
-    // The RPC call may fail due to access control issues
+    // Try to fetch user from Payload with overrideAccess to bypass access control
     let payloadUser: any = null;
     try {
       const users = await env.PAYLOAD.find({
         collection: "users",
         where: { workosUserId: { equals: workosUserId } },
         limit: 1,
+        overrideAccess: true,
       });
       if (users.docs?.length) {
         payloadUser = users.docs[0];

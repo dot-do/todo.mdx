@@ -146,11 +146,12 @@ app.all('/mcp/*', async (c) => {
           try {
             const workosUserId = props.user?.id
             if (workosUserId) {
-              // Get user's repos
+              // Get user's repos with overrideAccess to bypass access control
               const userResult = await c.env.PAYLOAD.find({
                 collection: 'users',
                 where: { workosUserId: { equals: workosUserId } },
                 limit: 1,
+                overrideAccess: true,
               })
 
               if (userResult.docs?.length) {
@@ -159,6 +160,7 @@ app.all('/mcp/*', async (c) => {
                   collection: 'installations',
                   where: { users: { contains: payloadUserId } },
                   limit: 100,
+                  overrideAccess: true,
                 })
 
                 if (installationsResult.docs?.length) {
@@ -167,6 +169,7 @@ app.all('/mcp/*', async (c) => {
                     collection: 'repos',
                     where: { installation: { in: installationIds } },
                     limit: 100,
+                    overrideAccess: true,
                   })
 
                   const resources = (reposResult.docs || []).map((repo: any) => ({
