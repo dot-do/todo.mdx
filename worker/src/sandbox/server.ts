@@ -7,6 +7,7 @@
 
 import { RpcTarget, newWorkersRpcResponse } from 'capnweb'
 import type { Env } from '../types'
+import { getPayloadClient } from '../payload'
 
 /**
  * Safe APIs exposed to sandboxed workflow code
@@ -31,15 +32,18 @@ export class SandboxedWorkflowAPI extends RpcTarget {
   // ============================================
 
   async getIssue(issueId: string) {
-    const result = await this.env.PAYLOAD.find({
+    const payload = await getPayloadClient(this.env)
+    const result = await payload.find({
       collection: 'issues',
       where: { localId: { equals: issueId } },
       limit: 1,
+      overrideAccess: true,
     })
     return result.docs?.[0] || null
   }
 
   async listIssues(options?: { status?: string; limit?: number }) {
+    const payload = await getPayloadClient(this.env)
     const where: any = {
       'repo.fullName': { equals: this.repoFullName },
     }
@@ -47,10 +51,11 @@ export class SandboxedWorkflowAPI extends RpcTarget {
       where.status = { equals: options.status }
     }
 
-    const result = await this.env.PAYLOAD.find({
+    const result = await payload.find({
       collection: 'issues',
       where,
       limit: options?.limit || 50,
+      overrideAccess: true,
     })
     return result.docs || []
   }
@@ -60,21 +65,24 @@ export class SandboxedWorkflowAPI extends RpcTarget {
     title?: string
     body?: string
   }) {
+    const payload = await getPayloadClient(this.env)
     // Find the issue first
-    const existing = await this.env.PAYLOAD.find({
+    const existing = await payload.find({
       collection: 'issues',
       where: { localId: { equals: issueId } },
       limit: 1,
+      overrideAccess: true,
     })
 
     if (!existing.docs?.length) {
       throw new Error(`Issue not found: ${issueId}`)
     }
 
-    return this.env.PAYLOAD.update({
+    return payload.update({
       collection: 'issues',
       id: existing.docs[0].id,
       data,
+      overrideAccess: true,
     })
   }
 
@@ -106,15 +114,18 @@ export class SandboxedWorkflowAPI extends RpcTarget {
   // ============================================
 
   async getMilestone(milestoneId: string) {
-    const result = await this.env.PAYLOAD.find({
+    const payload = await getPayloadClient(this.env)
+    const result = await payload.find({
       collection: 'milestones',
       where: { localId: { equals: milestoneId } },
       limit: 1,
+      overrideAccess: true,
     })
     return result.docs?.[0] || null
   }
 
   async listMilestones(options?: { state?: string; limit?: number }) {
+    const payload = await getPayloadClient(this.env)
     const where: any = {
       'repo.fullName': { equals: this.repoFullName },
     }
@@ -122,10 +133,11 @@ export class SandboxedWorkflowAPI extends RpcTarget {
       where.state = { equals: options.state }
     }
 
-    const result = await this.env.PAYLOAD.find({
+    const result = await payload.find({
       collection: 'milestones',
       where,
       limit: options?.limit || 50,
+      overrideAccess: true,
     })
     return result.docs || []
   }
@@ -136,20 +148,23 @@ export class SandboxedWorkflowAPI extends RpcTarget {
     description?: string
     dueOn?: string
   }) {
-    const existing = await this.env.PAYLOAD.find({
+    const payload = await getPayloadClient(this.env)
+    const existing = await payload.find({
       collection: 'milestones',
       where: { localId: { equals: milestoneId } },
       limit: 1,
+      overrideAccess: true,
     })
 
     if (!existing.docs?.length) {
       throw new Error(`Milestone not found: ${milestoneId}`)
     }
 
-    return this.env.PAYLOAD.update({
+    return payload.update({
       collection: 'milestones',
       id: existing.docs[0].id,
       data,
+      overrideAccess: true,
     })
   }
 
