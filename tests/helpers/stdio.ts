@@ -265,14 +265,21 @@ export async function runCommand(
       }
     }
 
-    ws.onerror = (error) => {
+    ws.onerror = (event: Event) => {
       clearTimeout(timeoutId)
-      reject(new Error(`WebSocket error: ${error}`))
+      // ErrorEvent has limited info in browsers/Node; try to extract what's available
+      const errorEvent = event as ErrorEvent
+      const message = errorEvent.message || errorEvent.error?.message || 'Unknown WebSocket error'
+      reject(new Error(`WebSocket error: ${message} (type: ${event.type})`))
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event: CloseEvent) => {
       clearTimeout(timeoutId)
       if (output.exitCode === null && output.error === null) {
+        // Check if close was abnormal
+        if (event.code !== 1000 && event.code !== 1005) {
+          output.error = `WebSocket closed: code=${event.code}, reason=${event.reason || 'none'}`
+        }
         output.exitCode = 0 // Assume success if no exit message received
       }
       resolve(output)
