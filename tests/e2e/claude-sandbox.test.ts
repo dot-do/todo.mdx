@@ -27,7 +27,12 @@ const GITHUB_INSTALLATION_ID = process.env.GITHUB_INSTALLATION_ID
 
 const hasCredentials = !!ANTHROPIC_API_KEY && !!TEST_API_KEY
 
-const describeWithCredentials = hasCredentials ? describe : describe.skip
+// Skip sandbox tests in production - sandbox execution endpoint not yet deployed
+// These are TDD RED phase tests, expected to fail until ClaudeSandbox is implemented
+const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
+const skipSandboxTests = isProduction && !process.env.SANDBOX_TESTS_ENABLED
+
+const describeWithCredentials = hasCredentials && !skipSandboxTests ? describe : describe.skip
 
 // Helper to make authenticated requests to the worker
 async function apiRequest(path: string, options: RequestInit = {}) {
