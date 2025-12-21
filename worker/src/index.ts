@@ -15,6 +15,7 @@ import stdio from './api/stdio'
 import auth from './api/auth'
 import { authMiddleware, type AuthContext } from './auth'
 import { validateWorkosJwt, mightBeWorkosJwt } from './mcp/workos-jwt'
+import { getSessionFromRequest } from './auth/session'
 import type { Env } from './types'
 
 export { RepoDO } from './do/repo'
@@ -113,6 +114,66 @@ app.post('/api/webhooks/github', async (c) => {
       return handlePullRequestReview(c, payload)
     default:
       return c.json({ status: 'ignored', event })
+  }
+})
+
+// ============================================
+// Widget Pages (HTML, embeddable)
+// Require auth via session cookie
+// ============================================
+
+// Terminal widget - serves terminal.html with auth
+app.get('/terminal', async (c) => {
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+
+  if (!session) {
+    // Redirect to login with return URL
+    const returnUrl = encodeURIComponent(c.req.url)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  }
+
+  // Serve terminal.html from assets
+  try {
+    const htmlRequest = new Request(new URL('/terminal.html', c.req.url).toString())
+    return await c.env.ASSETS.fetch(htmlRequest)
+  } catch (e) {
+    return c.text('Error loading terminal', 500)
+  }
+})
+
+// Claude Code widget - serves code.html with auth
+app.get('/code/:org/:repo', async (c) => {
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+
+  if (!session) {
+    const returnUrl = encodeURIComponent(c.req.url)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  }
+
+  // Serve code.html from assets (preserves URL path for parsing)
+  try {
+    const htmlRequest = new Request(new URL('/code.html', c.req.url).toString())
+    return await c.env.ASSETS.fetch(htmlRequest)
+  } catch (e) {
+    return c.text('Error loading Claude Code', 500)
+  }
+})
+
+// Claude Code widget with branch/ref
+app.get('/code/:org/:repo/:ref', async (c) => {
+  const session = await getSessionFromRequest(c.req.raw, c.env.COOKIE_ENCRYPTION_KEY)
+
+  if (!session) {
+    const returnUrl = encodeURIComponent(c.req.url)
+    return c.redirect(`/api/auth/login?return=${returnUrl}`)
+  }
+
+  // Serve code.html from assets (preserves URL path for parsing)
+  try {
+    const htmlRequest = new Request(new URL('/code.html', c.req.url).toString())
+    return await c.env.ASSETS.fetch(htmlRequest)
+  } catch (e) {
+    return c.text('Error loading Claude Code', 500)
   }
 })
 
@@ -441,44 +502,83 @@ async function handleInstallation(c: any, payload: any): Promise<Response> {
       const installation = payload.installation
       timing.setup = Date.now() - t0
 
-      // Create installation via Payload RPC
+      // Check if installation already exists (for webhook redeliveries)
       const t1 = Date.now()
-      const installResult = await c.env.PAYLOAD.create({
+      const existing = await c.env.PAYLOAD.find({
         collection: 'installations',
-        data: {
-          installationId: installation.id,
-          accountType: installation.account.type,
-          accountId: installation.account.id,
-          accountLogin: installation.account.login,
-          accountAvatarUrl: installation.account.avatar_url,
-          permissions: installation.permissions,
-          events: installation.events,
-          repositorySelection: installation.repository_selection,
-        },
+        where: { installationId: { equals: installation.id } },
+        limit: 1,
       })
-      timing.installInsert = Date.now() - t1
-      console.log(`[Installation] Created installation id=${installResult.id} (${timing.installInsert}ms)`)
+      timing.findExisting = Date.now() - t1
 
-      // Create repos via Payload RPC
+      let installResult
+      const installData = {
+        installationId: installation.id,
+        accountType: installation.account.type,
+        accountId: installation.account.id,
+        accountLogin: installation.account.login,
+        accountAvatarUrl: installation.account.avatar_url,
+        permissions: installation.permissions,
+        events: installation.events,
+        repositorySelection: installation.repository_selection,
+      }
+
+      const t2 = Date.now()
+      if (existing.docs?.length > 0) {
+        // Update existing installation
+        installResult = await c.env.PAYLOAD.update({
+          collection: 'installations',
+          id: existing.docs[0].id,
+          data: installData,
+        })
+        timing.installUpdate = Date.now() - t2
+        console.log(`[Installation] Updated existing installation id=${installResult.id} (${timing.installUpdate}ms)`)
+      } else {
+        // Create new installation
+        installResult = await c.env.PAYLOAD.create({
+          collection: 'installations',
+          data: installData,
+        })
+        timing.installCreate = Date.now() - t2
+        console.log(`[Installation] Created new installation id=${installResult.id} (${timing.installCreate}ms)`)
+      }
+
+      // Upsert repos via Payload RPC
       const repos = payload.repositories || []
       if (repos.length > 0) {
-        const t2 = Date.now()
-        // Create repos sequentially (Payload doesn't have batch create)
+        const t3 = Date.now()
+        let created = 0, updated = 0
         for (const repo of repos) {
-          await c.env.PAYLOAD.create({
+          const existingRepo = await c.env.PAYLOAD.find({
             collection: 'repos',
-            data: {
-              githubId: repo.id,
-              name: repo.name,
-              fullName: repo.full_name,
-              owner: repo.full_name.split('/')[0],
-              private: repo.private,
-              installation: installResult.id,
-            },
+            where: { githubId: { equals: repo.id } },
+            limit: 1,
           })
+          const repoData = {
+            githubId: repo.id,
+            name: repo.name,
+            fullName: repo.full_name,
+            owner: repo.full_name.split('/')[0],
+            private: repo.private,
+            installation: installResult.id,
+          }
+          if (existingRepo.docs?.length > 0) {
+            await c.env.PAYLOAD.update({
+              collection: 'repos',
+              id: existingRepo.docs[0].id,
+              data: repoData,
+            })
+            updated++
+          } else {
+            await c.env.PAYLOAD.create({
+              collection: 'repos',
+              data: repoData,
+            })
+            created++
+          }
         }
-        timing.reposCreate = Date.now() - t2
-        console.log(`[Installation] Created ${repos.length} repos (${timing.reposCreate}ms)`)
+        timing.reposUpsert = Date.now() - t3
+        console.log(`[Installation] Upserted ${repos.length} repos (${created} created, ${updated} updated) (${timing.reposUpsert}ms)`)
       }
 
       timing.total = Date.now() - t0
@@ -1059,6 +1159,37 @@ app.get('/api/projects/:nodeId/milestones', authMiddleware, async (c) => {
 
   const response = await stub.fetch(new Request('http://do/milestones'))
   return response
+})
+
+// ============================================
+// Static file serving (fallback)
+// Serves HTML, CSS, JS from public/ directory
+// ============================================
+
+// Serve static files from assets binding
+app.get('*', async (c) => {
+  // Only serve files with extensions or known paths
+  const url = new URL(c.req.url)
+  const path = url.pathname
+
+  // Only serve static files (has extension or is a known static file)
+  if (path.includes('.') || path === '/terminal.html' || path === '/code.html') {
+    try {
+      // Forward to ASSETS binding
+      const assetResponse = await c.env.ASSETS.fetch(c.req.raw)
+
+      // If found, return it
+      if (assetResponse.status !== 404) {
+        return assetResponse
+      }
+    } catch (e) {
+      // Assets binding might not be available in dev
+      console.warn('Assets fetch failed:', e)
+    }
+  }
+
+  // If not a static file or not found, return 404
+  return c.json({ error: 'Not found' }, 404)
 })
 
 export default app
