@@ -76,6 +76,50 @@ app.route('/api/linear', linear)
 app.route('/api/stdio', stdio)
 
 // ============================================
+// GitHub webhook (must be before protected API routes)
+// ============================================
+
+app.post('/api/webhooks/github', async (c) => {
+  const signature = c.req.header('x-hub-signature-256')
+  const event = c.req.header('x-github-event')
+  const deliveryId = c.req.header('x-github-delivery')
+
+  // Verify webhook signature
+  const body = await c.req.text()
+  const isValid = await verifyGitHubSignature(body, signature, c.env.GITHUB_WEBHOOK_SECRET)
+
+  if (!isValid) {
+    console.warn(`Invalid webhook signature for delivery ${deliveryId}`)
+    return c.json({ error: 'Invalid signature' }, 401)
+  }
+
+  const payload = JSON.parse(body)
+
+  console.log(`Received GitHub webhook: ${event} (${deliveryId})`)
+
+  switch (event) {
+    case 'installation':
+      return handleInstallation(c, payload)
+    case 'issues':
+      return handleIssues(c, payload)
+    case 'milestone':
+      return handleMilestone(c, payload)
+    case 'push':
+      return handlePush(c, payload)
+    case 'projects_v2':
+      return handleProject(c, payload)
+    case 'projects_v2_item':
+      return handleProjectItem(c, payload)
+    case 'pull_request':
+      return handlePullRequest(c, payload)
+    case 'pull_request_review':
+      return handlePullRequestReview(c, payload)
+    default:
+      return c.json({ status: 'ignored', event })
+  }
+})
+
+// ============================================
 // Protected API routes (repos, issues, milestones, search)
 // ============================================
 
@@ -353,27 +397,21 @@ async function verifyGitHubSignature(
   }
 }
 
-// ============================================
-// GitHub webhook handler
-// ============================================
-
+// Legacy webhook route (keep for backwards compatibility)
 app.post('/github/webhook', async (c) => {
   const signature = c.req.header('x-hub-signature-256')
   const event = c.req.header('x-github-event')
   const deliveryId = c.req.header('x-github-delivery')
 
-  // Verify webhook signature
   const body = await c.req.text()
   const isValid = await verifyGitHubSignature(body, signature, c.env.GITHUB_WEBHOOK_SECRET)
 
   if (!isValid) {
-    console.warn(`Invalid webhook signature for delivery ${deliveryId}`)
     return c.json({ error: 'Invalid signature' }, 401)
   }
 
   const payload = JSON.parse(body)
-
-  console.log(`Received webhook: ${event} (${deliveryId})`)
+  console.log(`Received GitHub webhook (legacy route): ${event} (${deliveryId})`)
 
   switch (event) {
     case 'installation':
