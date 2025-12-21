@@ -21,9 +21,9 @@ export const SyncEvents: CollectionConfig = {
       }
     },
     // Only system can create/update sync events
-    create: ({ req: { user } }) => user?.roles?.includes('admin'),
-    update: ({ req: { user } }) => user?.roles?.includes('admin'),
-    delete: ({ req: { user } }) => user?.roles?.includes('admin'),
+    create: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
+    update: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
+    delete: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
   },
   fields: [
     {

@@ -47,7 +47,7 @@ export const Users: CollectionConfig = {
       required: true,
       saveToJWT: true,
       access: {
-        update: ({ req: { user } }) => user?.roles?.includes('admin'),
+        update: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
       },
     },
     // GitHub OAuth fields

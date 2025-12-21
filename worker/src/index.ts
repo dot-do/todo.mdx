@@ -20,6 +20,7 @@ import { validateWorkosJwt, mightBeWorkosJwt, isOAuthProviderToken, validateOAut
 import { getSessionFromRequest } from './auth/session'
 import { getPayloadClient } from './payload'
 import { handlePRApproval } from './workflows/webhook-handlers'
+import { rateLimitMiddleware } from './middleware/ratelimit'
 import type { Env } from './types'
 import type {
   InstallationEvent,
@@ -37,12 +38,14 @@ export { ProjectDO } from './do/project'
 export { PRDO } from './do/pr'
 export { IssueDO } from './do/issue'
 export { SessionDO } from './do/session'
+export { RateLimitDO } from './do/ratelimit'
 export { ClaudeSandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { BeadsSyncWorkflow } from './workflows/sync'
 export { TodoMCP }
 export { PersistenceRPC } from './rpc'
+export { AgentRPC, AiSdkAgentRPC } from './agents'
 
 // Re-export Env type for external use
 export type { Env }
@@ -66,15 +69,19 @@ app.get('/', (c) => {
 
 // ============================================
 // Voice API routes (STT/TTS/Chat)
+// Rate limited due to AI cost
 // ============================================
 
+app.use('/api/voice/*', rateLimitMiddleware('voice'))
 app.route('/api/voice', voice)
 
 // ============================================
 // Unified Auth routes (login/logout/callback)
 // No auth required - these establish the session
+// Strict rate limiting to prevent brute force
 // ============================================
 
+app.use('/api/auth/*', rateLimitMiddleware('auth'))
 app.route('/api/auth', auth)
 
 // ============================================
@@ -196,8 +203,10 @@ app.get('/code/:org/:repo/:ref', async (c) => {
 
 // ============================================
 // Protected API routes (repos, issues, milestones, search)
+// General rate limiting for API endpoints
 // ============================================
 
+app.use('/api/*', rateLimitMiddleware('api'))
 app.route('/api', api)
 
 // ============================================
@@ -219,7 +228,8 @@ app.all('/sse', async (c) => mcp.fetch(c.req.raw, c.env, c.executionCtx))
 
 // Forward /mcp requests to OAuthProvider (pass as-is, OAuthProvider routes by apiRoute)
 // With fallback support for WorkOS JWTs (from oauth.do) and OAuth provider tokens
-app.all('/mcp/*', async (c) => {
+// Apply rate limiting to MCP endpoints
+app.all('/mcp/*', rateLimitMiddleware('mcp'), async (c) => {
   // Check if the request has a token we can validate
   const authHeader = c.req.header('Authorization')
 

@@ -12,6 +12,7 @@ export interface Env {
   PRDO: DurableObjectNamespace
   ISSUE: DurableObjectNamespace
   SESSION: DurableObjectNamespace
+  RATELIMIT: DurableObjectNamespace
   MCP_OBJECT: DurableObjectNamespace
   CLAUDE_SANDBOX: DurableObjectNamespace
 
@@ -54,6 +55,30 @@ export interface Env {
     getConnections(userId: string, apps?: string[]): Promise<any[]>
     getDOState(doId: string): Promise<any | null>
     getToolExecutions(doId: string, limit?: number): Promise<any[]>
+  }
+
+  // Agent RPC Services
+  AGENT: Fetcher & {
+    create(def: any): any // AgentDef → Agent stub
+    get(agentId: string, context?: { orgId?: string; repoId?: string }): Promise<any>
+    list(context?: { orgId?: string; repoId?: string }): Promise<string[]>
+  }
+
+  AI_SDK_AGENT: Fetcher & {
+    create(def: any): any // AgentDef → AiSdkAgent stub
+  }
+
+  // Placeholder bindings for future agent frameworks
+  CLAUDE_CODE_AGENT: Fetcher & {
+    create(def: any): any
+  }
+
+  CLAUDE_AGENT: Fetcher & {
+    create(def: any): any
+  }
+
+  OPENAI_AGENT: Fetcher & {
+    create(def: any): any
   }
 
   // GitHub App secrets

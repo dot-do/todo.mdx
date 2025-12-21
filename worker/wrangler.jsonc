@@ -84,6 +84,7 @@
       { "name": "PRDO", "class_name": "PRDO" },
       { "name": "ISSUE", "class_name": "IssueDO" },
       { "name": "SESSION", "class_name": "SessionDO" },
+      { "name": "RATELIMIT", "class_name": "RateLimitDO" },
       { "name": "MCP_OBJECT", "class_name": "TodoMCP" },
       { "name": "CLAUDE_SANDBOX", "class_name": "ClaudeSandbox" }
     ]
@@ -113,6 +114,10 @@
     {
       "tag": "v6",
       "new_sqlite_classes": ["IssueDO"]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["RateLimitDO"]
     }
   ],
 
@@ -154,6 +159,16 @@
       "binding": "WORKER",
       "service": "todo-mdx",
       "entrypoint": "PersistenceRPC"
+    },
+    {
+      "binding": "AGENT",
+      "service": "todo-mdx",
+      "entrypoint": "AgentRPC"
+    },
+    {
+      "binding": "AI_SDK_AGENT",
+      "service": "todo-mdx",
+      "entrypoint": "AiSdkAgentRPC"
     }
   ],
 

@@ -1,4 +1,4 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, Where } from 'payload'
 import { isInternalRequest, internalOrAdmin } from '../access/internal'
 
 /**
@@ -20,13 +20,12 @@ export const Agents: CollectionConfig = {
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       // Users can see agents in their installations or repos
-      return {
-        or: [
-          { 'org.users.id': { equals: user.id } },
-          { 'repo.installation.users.id': { equals: user.id } },
-          { org: { exists: false }, repo: { exists: false } }, // Global agents
-        ],
-      }
+      const orConditions: Where[] = [
+        { 'org.users.id': { equals: user.id } },
+        { 'repo.installation.users.id': { equals: user.id } },
+        { and: [{ org: { exists: false } }, { repo: { exists: false } }] }, // Global agents
+      ]
+      return { or: orConditions }
     },
     // Internal RPC or admins can create/update/delete
     create: internalOrAdmin,
@@ -36,12 +35,11 @@ export const Agents: CollectionConfig = {
       if (!user) return false
       if (user.roles?.includes('admin')) return true
       // Users can update agents in their installations/repos
-      return {
-        or: [
-          { 'org.users.id': { equals: user.id } },
-          { 'repo.installation.users.id': { equals: user.id } },
-        ],
-      }
+      const orConditions: Where[] = [
+        { 'org.users.id': { equals: user.id } },
+        { 'repo.installation.users.id': { equals: user.id } },
+      ]
+      return { or: orConditions }
     },
     delete: internalOrAdmin,
   },

@@ -191,6 +191,78 @@ export const Issues: CollectionConfig = {
         description: 'Tool configuration for this issue (inherits from repo → installation)',
       },
     },
+    // Approval gate configuration (issue-level overrides)
+    {
+      name: 'approvalGates',
+      type: 'group',
+      admin: {
+        description: 'Issue-specific approval gate settings (overrides repo/org defaults)',
+      },
+      fields: [
+        {
+          name: 'inheritFromRepo',
+          type: 'checkbox',
+          defaultValue: true,
+          admin: {
+            description: 'Inherit approval gate settings from repository',
+          },
+        },
+        {
+          name: 'requireHumanApproval',
+          type: 'checkbox',
+          admin: {
+            description: 'Require human approval for PRs related to this issue',
+            condition: (data) => !data.approvalGates?.inheritFromRepo,
+          },
+        },
+        {
+          name: 'approvers',
+          type: 'array',
+          admin: {
+            description: 'GitHub usernames who can approve PRs for this issue',
+            condition: (data) => !data.approvalGates?.inheritFromRepo,
+          },
+          fields: [
+            {
+              name: 'username',
+              type: 'text',
+              required: true,
+              admin: {
+                description: 'GitHub username',
+              },
+            },
+          ],
+        },
+        {
+          name: 'teamApprovers',
+          type: 'array',
+          admin: {
+            description: 'GitHub teams who can approve PRs for this issue (format: org/team-slug)',
+            condition: (data) => !data.approvalGates?.inheritFromRepo,
+          },
+          fields: [
+            {
+              name: 'team',
+              type: 'text',
+              required: true,
+              admin: {
+                description: 'GitHub team in format: org/team-slug',
+              },
+            },
+          ],
+        },
+        {
+          name: 'riskScore',
+          type: 'number',
+          min: 0,
+          max: 100,
+          admin: {
+            description: 'Calculated risk score for this issue (0-100)',
+            condition: (data) => !data.approvalGates?.inheritFromRepo,
+          },
+        },
+      ],
+    },
   ],
   timestamps: true,
 }
