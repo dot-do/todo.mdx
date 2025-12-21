@@ -215,6 +215,131 @@ describeWithCredentials('beads sync roundtrip', () => {
     expect(closedIssue?.state).toBe('closed')
   })
 
+  test('title and description sync: beads changes → GitHub', async () => {
+    await beads.init(worktree, 'sync')
+
+    // Create issue with initial title/description
+    const timestamp = Date.now()
+    const originalTitle = `Title sync test ${timestamp}`
+    const issueId = await beads.create(worktree, {
+      title: originalTitle,
+      type: 'task',
+      description: 'Original description',
+    })
+
+    // Push initial state
+    await execa('git', ['add', '.'], { cwd: worktree.path })
+    await execa('git', ['commit', '-m', 'Initial issue'], { cwd: worktree.path })
+    await execa('git', ['push', '-u', 'origin', worktree.branch], {
+      cwd: worktree.path,
+    })
+    await beads.sync(worktree)
+
+    // Wait for initial issue on GitHub
+    const initialIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title === originalTitle)
+      },
+      { timeout: 10000, description: 'initial issue on GitHub' }
+    )
+    expect(initialIssue).toBeDefined()
+    expect(initialIssue?.body).toContain('Original description')
+
+    // Update title and description using bd CLI
+    const updatedTitle = `Updated: ${originalTitle}`
+    await execa('bd', [
+      'update', issueId,
+      '--title', updatedTitle,
+      '--description', 'Updated description with more details',
+    ], { cwd: worktree.path })
+
+    // Push update
+    await execa('git', ['add', '.'], { cwd: worktree.path })
+    await execa('git', ['commit', '-m', 'Update title and description'], {
+      cwd: worktree.path,
+    })
+    await execa('git', ['push'], { cwd: worktree.path })
+    await beads.sync(worktree)
+
+    // Wait for GitHub issue to have updated title/body
+    const updatedIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        return issues.find((i: any) => i.title === updatedTitle)
+      },
+      { timeout: 10000, description: 'GitHub issue with updated title' }
+    )
+    expect(updatedIssue).toBeDefined()
+    expect(updatedIssue?.title).toBe(updatedTitle)
+    expect(updatedIssue?.body).toContain('Updated description')
+  })
+
+  test('priority sync: beads priority change → GitHub labels', async () => {
+    await beads.init(worktree, 'sync')
+
+    // Create issue with initial priority
+    const uniqueTitle = `Priority sync test ${Date.now()}`
+    const issueId = await beads.create(worktree, {
+      title: uniqueTitle,
+      type: 'task',
+      priority: 2, // Start with P2
+    })
+
+    // Push initial state
+    await execa('git', ['add', '.'], { cwd: worktree.path })
+    await execa('git', ['commit', '-m', 'Initial issue with P2'], { cwd: worktree.path })
+    await execa('git', ['push', '-u', 'origin', worktree.branch], {
+      cwd: worktree.path,
+    })
+    await beads.sync(worktree)
+
+    // Wait for initial issue with P2 label
+    const initialIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        const issue = issues.find((i: any) => i.title.includes(uniqueTitle))
+        const labels = issue?.labels.map((l: any) =>
+          typeof l === 'string' ? l : l.name
+        ) || []
+        return labels.includes('P2') ? issue : undefined
+      },
+      { timeout: 10000, description: 'initial issue with P2 label' }
+    )
+    expect(initialIssue).toBeDefined()
+
+    // Update priority to P1
+    await beads.update(worktree, issueId, { priority: 1 })
+
+    // Push update
+    await execa('git', ['add', '.'], { cwd: worktree.path })
+    await execa('git', ['commit', '-m', 'Update priority to P1'], {
+      cwd: worktree.path,
+    })
+    await execa('git', ['push'], { cwd: worktree.path })
+    await beads.sync(worktree)
+
+    // Wait for GitHub issue to have P1 label (and not P2)
+    const updatedIssue = await waitFor(
+      async () => {
+        const issues = await github.listIssues({ state: 'open' })
+        const issue = issues.find((i: any) => i.title.includes(uniqueTitle))
+        const labels = issue?.labels.map((l: any) =>
+          typeof l === 'string' ? l : l.name
+        ) || []
+        return labels.includes('P1') && !labels.includes('P2') ? issue : undefined
+      },
+      { timeout: 10000, description: 'GitHub issue with P1 label' }
+    )
+    expect(updatedIssue).toBeDefined()
+
+    const labels = updatedIssue?.labels.map((l: any) =>
+      typeof l === 'string' ? l : l.name
+    ) || []
+    expect(labels).toContain('P1')
+    expect(labels).not.toContain('P2')
+  })
+
   test('dependency sync: blocked issues sync correctly', async () => {
     await beads.init(worktree, 'sync')
 

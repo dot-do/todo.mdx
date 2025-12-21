@@ -323,4 +323,180 @@ describeWithCredentials('beads → GitHub → worker sync', () => {
     expect(syncedIssue?.priority).toBe(1) // P1
     expect(syncedIssue?.issue_type).toBe('task')
   }, 60000)
+
+  test('GitHub issue close syncs back to beads as closed', async (ctx) => {
+    if (!hasBd || !hasGh) ctx.skip()
+    // 1. Create a GitHub issue
+    const timestamp = Date.now()
+    const issueTitle = `GitHub close sync ${timestamp}`
+
+    const { stdout: createOutput } = await execa('gh', [
+      'issue', 'create',
+      '--repo', `${TEST_REPO_OWNER}/${TEST_REPO_NAME}`,
+      '--title', issueTitle,
+      '--body', 'Issue to test close sync from GitHub to beads',
+      '--label', 'P2,task',
+    ])
+
+    const issueUrl = createOutput.trim()
+    const issueNumber = issueUrl.split('/').pop()
+    console.log(`Created GitHub issue #${issueNumber}`)
+
+    // 2. Wait for initial sync to beads
+    await new Promise((r) => setTimeout(r, 10000))
+    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH })
+
+    // 3. Verify issue exists in beads as open
+    let jsonlPath = path.join(TEST_REPO_PATH, '.beads', 'issues.jsonl')
+    let jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
+    let issues = jsonlContent.trim().split('\n').map((line) => JSON.parse(line))
+    let syncedIssue = issues.find(
+      (i) => i.title === issueTitle || i.external_ref?.includes(issueNumber)
+    )
+    expect(syncedIssue).toBeDefined()
+    expect(syncedIssue?.status).toBe('open')
+
+    // 4. Close the issue on GitHub
+    await execa('gh', [
+      'issue', 'close',
+      '--repo', `${TEST_REPO_OWNER}/${TEST_REPO_NAME}`,
+      issueNumber!,
+    ])
+    console.log(`Closed GitHub issue #${issueNumber}`)
+
+    // 5. Wait for close webhook to sync back
+    await new Promise((r) => setTimeout(r, 15000))
+    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH })
+
+    // 6. Verify issue is now closed in beads
+    jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
+    issues = jsonlContent.trim().split('\n').map((line) => JSON.parse(line))
+    syncedIssue = issues.find(
+      (i) => i.title === issueTitle || i.external_ref?.includes(issueNumber)
+    )
+
+    expect(syncedIssue).toBeDefined()
+    expect(syncedIssue?.status).toBe('closed')
+  }, 90000)
+
+  test('GitHub label changes sync back to beads priority and type', async (ctx) => {
+    if (!hasBd || !hasGh) ctx.skip()
+    // 1. Create a GitHub issue with initial labels
+    const timestamp = Date.now()
+    const issueTitle = `GitHub label sync ${timestamp}`
+
+    const { stdout: createOutput } = await execa('gh', [
+      'issue', 'create',
+      '--repo', `${TEST_REPO_OWNER}/${TEST_REPO_NAME}`,
+      '--title', issueTitle,
+      '--body', 'Issue to test label sync from GitHub to beads',
+      '--label', 'P2,task',
+    ])
+
+    const issueUrl = createOutput.trim()
+    const issueNumber = issueUrl.split('/').pop()
+    console.log(`Created GitHub issue #${issueNumber} with P2,task`)
+
+    // 2. Wait for initial sync
+    await new Promise((r) => setTimeout(r, 10000))
+    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH })
+
+    // 3. Verify initial state
+    let jsonlPath = path.join(TEST_REPO_PATH, '.beads', 'issues.jsonl')
+    let jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
+    let issues = jsonlContent.trim().split('\n').map((line) => JSON.parse(line))
+    let syncedIssue = issues.find(
+      (i) => i.title === issueTitle || i.external_ref?.includes(issueNumber)
+    )
+    expect(syncedIssue).toBeDefined()
+    expect(syncedIssue?.priority).toBe(2)
+    expect(syncedIssue?.issue_type).toBe('task')
+
+    // 4. Update labels on GitHub (change priority to P1, type to bug)
+    await execa('gh', [
+      'issue', 'edit',
+      '--repo', `${TEST_REPO_OWNER}/${TEST_REPO_NAME}`,
+      issueNumber!,
+      '--remove-label', 'P2,task',
+      '--add-label', 'P1,bug',
+    ])
+    console.log(`Updated GitHub issue #${issueNumber} to P1,bug`)
+
+    // 5. Wait for label change webhook to sync
+    await new Promise((r) => setTimeout(r, 15000))
+    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH })
+
+    // 6. Verify labels synced to beads
+    jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
+    issues = jsonlContent.trim().split('\n').map((line) => JSON.parse(line))
+    syncedIssue = issues.find(
+      (i) => i.title === issueTitle || i.external_ref?.includes(issueNumber)
+    )
+
+    expect(syncedIssue).toBeDefined()
+    expect(syncedIssue?.priority).toBe(1) // P1
+    expect(syncedIssue?.issue_type).toBe('bug')
+  }, 90000)
+
+  test('GitHub title and body updates sync back to beads', async (ctx) => {
+    if (!hasBd || !hasGh) ctx.skip()
+    // 1. Create a GitHub issue
+    const timestamp = Date.now()
+    const originalTitle = `GitHub edit sync ${timestamp}`
+    const originalBody = 'Original body content'
+
+    const { stdout: createOutput } = await execa('gh', [
+      'issue', 'create',
+      '--repo', `${TEST_REPO_OWNER}/${TEST_REPO_NAME}`,
+      '--title', originalTitle,
+      '--body', originalBody,
+      '--label', 'P2,task',
+    ])
+
+    const issueUrl = createOutput.trim()
+    const issueNumber = issueUrl.split('/').pop()
+    console.log(`Created GitHub issue #${issueNumber}`)
+
+    // 2. Wait for initial sync
+    await new Promise((r) => setTimeout(r, 10000))
+    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH })
+
+    // 3. Verify initial state
+    let jsonlPath = path.join(TEST_REPO_PATH, '.beads', 'issues.jsonl')
+    let jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
+    let issues = jsonlContent.trim().split('\n').map((line) => JSON.parse(line))
+    let syncedIssue = issues.find(
+      (i) => i.title === originalTitle || i.external_ref?.includes(issueNumber)
+    )
+    expect(syncedIssue).toBeDefined()
+    expect(syncedIssue?.title).toBe(originalTitle)
+
+    // 4. Update title and body on GitHub
+    const updatedTitle = `Updated: ${originalTitle}`
+    const updatedBody = 'Updated body content with more details'
+
+    await execa('gh', [
+      'issue', 'edit',
+      '--repo', `${TEST_REPO_OWNER}/${TEST_REPO_NAME}`,
+      issueNumber!,
+      '--title', updatedTitle,
+      '--body', updatedBody,
+    ])
+    console.log(`Updated GitHub issue #${issueNumber} title and body`)
+
+    // 5. Wait for edit webhook to sync
+    await new Promise((r) => setTimeout(r, 15000))
+    await execa('git', ['pull', '--rebase'], { cwd: TEST_REPO_PATH })
+
+    // 6. Verify updates synced to beads
+    jsonlContent = await fs.readFile(jsonlPath, 'utf-8')
+    issues = jsonlContent.trim().split('\n').map((line) => JSON.parse(line))
+    syncedIssue = issues.find(
+      (i) => i.title === updatedTitle || i.external_ref?.includes(issueNumber)
+    )
+
+    expect(syncedIssue).toBeDefined()
+    expect(syncedIssue?.title).toBe(updatedTitle)
+    expect(syncedIssue?.description).toContain('Updated body content')
+  }, 90000)
 })
