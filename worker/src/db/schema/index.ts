@@ -220,6 +220,41 @@ export const media = sqliteTable('media', {
 })
 
 // ============================================
+// Models
+// ============================================
+
+export const models = sqliteTable('models', {
+  id: integer('id').primaryKey(),
+  modelId: text('model_id').notNull().unique(),
+  name: text('name'),
+  provider: text('provider'),
+  contextLength: real('context_length'),
+  pricing: text('pricing'), // JSON
+  capabilities: text('capabilities'), // JSON
+  lastSyncedAt: text('last_synced_at'),
+  status: text('status').default('available'),
+  tier: text('tier'),
+  bestFor: text('best_for'), // JSON array
+  notes: text('notes'),
+  updatedAt: text('updated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+
+// ============================================
+// Model Defaults
+// ============================================
+
+export const modelDefaults = sqliteTable('model_defaults', {
+  id: integer('id').primaryKey(),
+  useCase: text('use_case').notNull(),
+  taskType: text('task_type'),
+  modelId: integer('model_id').notNull().references(() => models.id, { onDelete: 'cascade' }),
+  orgId: integer('org_id').references(() => installations.id, { onDelete: 'cascade' }),
+  updatedAt: text('updated_at').notNull(),
+  createdAt: text('created_at').notNull(),
+})
+
+// ============================================
 // Relations
 // ============================================
 
@@ -262,6 +297,21 @@ export const milestonesRelations = relations(milestones, ({ one, many }) => ({
   issues: many(issues),
 }))
 
+export const modelsRelations = relations(models, ({ many }) => ({
+  defaults: many(modelDefaults),
+}))
+
+export const modelDefaultsRelations = relations(modelDefaults, ({ one }) => ({
+  model: one(models, {
+    fields: [modelDefaults.modelId],
+    references: [models.id],
+  }),
+  org: one(installations, {
+    fields: [modelDefaults.orgId],
+    references: [installations.id],
+  }),
+}))
+
 // ============================================
 // Type exports
 // ============================================
@@ -289,3 +339,9 @@ export type NewLinearIntegration = typeof linearIntegrations.$inferInsert
 
 export type Media = typeof media.$inferSelect
 export type NewMedia = typeof media.$inferInsert
+
+export type Model = typeof models.$inferSelect
+export type NewModel = typeof models.$inferInsert
+
+export type ModelDefault = typeof modelDefaults.$inferSelect
+export type NewModelDefault = typeof modelDefaults.$inferInsert

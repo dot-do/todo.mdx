@@ -19,6 +19,8 @@ import { Agents } from './collections/Agents'
 import { DurableObjects } from './collections/DurableObjects'
 import { Connections } from './collections/Connections'
 import { ToolExecutions } from './collections/ToolExecutions'
+import { Models } from './collections/Models'
+import { ModelDefaults } from './collections/ModelDefaults'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -43,7 +45,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions],
+  collections: [Users, Media, Installations, Repos, Issues, Milestones, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions, Models, ModelDefaults],
   editor: lexicalEditor(),
   secret,
   typescript: {

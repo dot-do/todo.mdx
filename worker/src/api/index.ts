@@ -9,6 +9,7 @@ import { issues } from './issues.js'
 import { milestones } from './milestones.js'
 import { widget } from './widget.js'
 import { search } from './search.js'
+import { models } from './models.js'
 import code from './code.js'
 import terminal from './terminal.js'
 import type { Env } from '../types.js'
@@ -22,6 +23,7 @@ api.use('/*', authMiddleware)
 api.route('/repos', repos)
 api.route('/widget', widget)
 api.route('/search', search)
+api.route('/models', models)
 api.route('/code', code)
 api.route('/terminal', terminal)
 

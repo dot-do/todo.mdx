@@ -1,109 +1,161 @@
 import type { CollectionConfig } from 'payload'
-import { encrypt, decrypt, isEncrypted } from '../lib/encryption'
+import { isInternalRequest, internalOrAdmin } from '../access/internal'
 
 /**
- * Agents collection for autonomous code review system.
- * Stores agent personas (Priya, Quinn, Sam) with encrypted GitHub PATs.
+ * AI Agents configuration.
+ * Defines agents that can be dispatched for code review, testing, debugging, etc.
  */
 export const Agents: CollectionConfig = {
   slug: 'agents',
   admin: {
     useAsTitle: 'name',
-    defaultColumns: ['name', 'githubUsername', 'canEscalate', 'createdAt'],
-    group: 'System',
+    defaultColumns: ['name', 'agentId', 'tier', 'framework', 'org', 'repo'],
+    group: 'Configuration',
   },
   access: {
-    // All authenticated users can read agents (to see who can review)
-    read: ({ req: { user } }) => !!user,
-    // Only admins can create/update/delete agents
-    create: ({ req: { user } }) => user?.roles?.includes('admin'),
-    update: ({ req: { user } }) => user?.roles?.includes('admin'),
-    delete: ({ req: { user } }) => user?.roles?.includes('admin'),
-  },
-  hooks: {
-    beforeChange: [
-      async ({ data, req }) => {
-        // Encrypt PAT before saving (only if not already encrypted)
-        if (data.pat && req.payload.secret && !isEncrypted(data.pat)) {
-          data.pat = await encrypt(data.pat, req.payload.secret)
-        }
-        return data
-      },
-    ],
-    afterRead: [
-      async ({ doc, req }) => {
-        // Decrypt PAT after reading (only for admins)
-        // For non-admins, mask the PAT completely
-        if (doc.pat) {
-          if (req.user?.roles?.includes('admin') && req.payload.secret && isEncrypted(doc.pat)) {
-            try {
-              doc.pat = await decrypt(doc.pat, req.payload.secret)
-            } catch (error) {
-              console.error('Failed to decrypt agent PAT:', error)
-              doc.pat = '***decryption-failed***'
-            }
-          } else if (!req.user?.roles?.includes('admin')) {
-            // Non-admins should never see the PAT
-            doc.pat = '***hidden***'
-          }
-        }
-        return doc
-      },
-    ],
+    // Users can read agents in their installations/repos
+    read: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
+      if (!user) return false
+      if (user.roles?.includes('admin')) return true
+      // Users can see agents in their installations or repos
+      return {
+        or: [
+          { 'org.users.id': { equals: user.id } },
+          { 'repo.installation.users.id': { equals: user.id } },
+          { org: { exists: false }, repo: { exists: false } }, // Global agents
+        ],
+      }
+    },
+    // Internal RPC or admins can create/update/delete
+    create: internalOrAdmin,
+    update: ({ req }) => {
+      if (isInternalRequest(req)) return true
+      const { user } = req
+      if (!user) return false
+      if (user.roles?.includes('admin')) return true
+      // Users can update agents in their installations/repos
+      return {
+        or: [
+          { 'org.users.id': { equals: user.id } },
+          { 'repo.installation.users.id': { equals: user.id } },
+        ],
+      }
+    },
+    delete: internalOrAdmin,
   },
   fields: [
     {
-      name: 'name',
+      name: 'agentId',
       type: 'text',
       required: true,
       unique: true,
       index: true,
       admin: {
-        description: 'Agent identifier (e.g., "priya", "quinn", "sam")',
+        description: 'Unique identifier for this agent (e.g., code-reviewer, test-writer)',
       },
     },
     {
-      name: 'githubUsername',
+      name: 'name',
       type: 'text',
       required: true,
-      index: true,
       admin: {
-        description: 'GitHub username for this agent',
+        description: 'Human-readable name for this agent',
       },
     },
     {
-      name: 'pat',
-      type: 'text',
-      admin: {
-        description: 'GitHub Personal Access Token (encrypted at rest, admin-only)',
-        // Component will be visible but value will be masked for non-admins via afterRead hook
-      },
-      access: {
-        // Only admins can read/update the PAT field
-        read: ({ req: { user } }) => user?.roles?.includes('admin'),
-        update: ({ req: { user } }) => user?.roles?.includes('admin'),
-      },
-    },
-    {
-      name: 'persona',
+      name: 'description',
       type: 'textarea',
       admin: {
-        description: 'Description of the agent\'s review focus and personality',
+        description: 'Description of what this agent does',
       },
     },
     {
-      name: 'canEscalate',
-      type: 'array',
+      name: 'tools',
+      type: 'json',
+      defaultValue: [],
       admin: {
-        description: 'List of agent names this agent can escalate to',
+        description: 'List of tools available to this agent',
       },
-      fields: [
-        {
-          name: 'agentName',
-          type: 'text',
-          required: true,
-        },
+    },
+    {
+      name: 'tier',
+      type: 'select',
+      options: [
+        { label: 'Light', value: 'light' },
+        { label: 'Worker', value: 'worker' },
+        { label: 'Sandbox', value: 'sandbox' },
       ],
+      defaultValue: 'light',
+      admin: {
+        description: 'Execution tier: light (stateless), worker (CF Worker), or sandbox (isolated)',
+      },
+    },
+    {
+      name: 'model',
+      type: 'text',
+      defaultValue: 'overall',
+      admin: {
+        description: 'AI model to use (e.g., claude-3-5-sonnet-20241022, overall)',
+      },
+    },
+    {
+      name: 'framework',
+      type: 'select',
+      options: [
+        { label: 'AI SDK (Vercel)', value: 'ai-sdk' },
+        { label: 'Claude Agent SDK', value: 'claude-agent-sdk' },
+        { label: 'OpenAI Agents', value: 'openai-agents' },
+        { label: 'Claude Code', value: 'claude-code' },
+      ],
+      defaultValue: 'ai-sdk',
+      admin: {
+        description: 'Agent framework to use for execution',
+      },
+    },
+    {
+      name: 'instructions',
+      type: 'code',
+      admin: {
+        language: 'markdown',
+        description: 'System instructions for this agent (markdown format)',
+      },
+    },
+    {
+      name: 'maxSteps',
+      type: 'number',
+      defaultValue: 10,
+      admin: {
+        description: 'Maximum number of tool execution steps',
+      },
+    },
+    {
+      name: 'timeout',
+      type: 'number',
+      defaultValue: 300000,
+      admin: {
+        description: 'Execution timeout in milliseconds (default: 5 minutes)',
+      },
+    },
+    // Scope: either org-level or repo-level
+    {
+      name: 'org',
+      type: 'relationship',
+      relationTo: 'installations',
+      index: true,
+      admin: {
+        description: 'Organization/installation this agent is scoped to (leave empty for global)',
+      },
+    },
+    {
+      name: 'repo',
+      type: 'relationship',
+      relationTo: 'repos',
+      index: true,
+      admin: {
+        description: 'Repository this agent is scoped to (leave empty for org-level or global)',
+      },
     },
   ],
   timestamps: true,

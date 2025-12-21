@@ -11,6 +11,8 @@ export { Agents } from './Agents'
 export { DurableObjects } from './DurableObjects'
 export { Connections } from './Connections'
 export { ToolExecutions } from './ToolExecutions'
+export { Models } from './Models'
+export { ModelDefaults } from './ModelDefaults'
 
 // Re-export for convenience
 export const collections = [
@@ -26,6 +28,8 @@ export const collections = [
   'durableObjects',
   'connections',
   'toolExecutions',
+  'models',
+  'model-defaults',
 ] as const
 
 export type CollectionSlug = (typeof collections)[number]
