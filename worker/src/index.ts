@@ -40,13 +40,13 @@ export { PRDO } from './do/pr'
 export { IssueDO } from './do/issue'
 export { SessionDO } from './do/session'
 export { RateLimitDO } from './do/ratelimit'
-export { ClaudeSandbox } from './sandbox'
+export { Sandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { BeadsSyncWorkflow } from './workflows/sync'
 export { TodoMCP }
 export { PersistenceRPC } from './rpc'
-export { AgentRPC, AiSdkAgentRPC, ClaudeAgentSdkAgentRPC } from './agents'
+export { AgentRPC, AiSdkAgentRPC, ClaudeAgentSdkAgentRPC, ClaudeCodeAgentRPC, OpenAiAgentRPC } from './agents'
 
 // Re-export Env type for external use
 export type { Env }

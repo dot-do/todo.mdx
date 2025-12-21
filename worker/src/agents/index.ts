@@ -10,7 +10,7 @@ export {
   type AgentEvent,
 } from './base'
 
-export { AiSdkAgent, ClaudeCodeAgent, ClaudeAgentSdkAgent } from './impl'
+export { AiSdkAgent, ClaudeCodeAgent, ClaudeAgentSdkAgent, OpenAiAgentsAgent } from './impl'
 
 export { resolveModel, type ResolvedModel } from './models'
 
@@ -20,3 +20,4 @@ export { AgentRPC, type AgentResolutionContext } from './rpc'
 export { AiSdkAgentRPC } from './rpc/ai-sdk'
 export { ClaudeCodeAgentRPC } from './rpc/claude-code'
 export { ClaudeAgentSdkAgentRPC } from './rpc/claude-agent'
+export { OpenAiAgentRPC } from './rpc/openai-agents'

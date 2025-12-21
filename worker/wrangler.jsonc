@@ -66,13 +66,12 @@
     }
   ],
 
-  // Containers - Claude Code sandbox
+  // Containers for Cloudflare Sandbox
   "containers": [
     {
-      "class_name": "ClaudeSandbox",
+      "class_name": "Sandbox",
       "image": "./Dockerfile.claude",
-      "instance_type": "basic",
-      "max_instances": 10
+      "instance_type": "basic"
     }
   ],
 
@@ -86,7 +85,7 @@
       { "name": "SESSION", "class_name": "SessionDO" },
       { "name": "RATELIMIT", "class_name": "RateLimitDO" },
       { "name": "MCP_OBJECT", "class_name": "TodoMCP" },
-      { "name": "CLAUDE_SANDBOX", "class_name": "ClaudeSandbox" }
+      { "name": "Sandbox", "class_name": "Sandbox" }
     ]
   },
 
@@ -101,7 +100,7 @@
     },
     {
       "tag": "v3",
-      "new_sqlite_classes": ["ClaudeSandbox"]
+      "new_sqlite_classes": ["Sandbox"]
     },
     {
       "tag": "v4",
@@ -174,6 +173,16 @@
       "binding": "CLAUDE_AGENT",
       "service": "todo-mdx",
       "entrypoint": "ClaudeAgentSdkAgentRPC"
+    },
+    {
+      "binding": "CLAUDE_CODE_AGENT",
+      "service": "todo-mdx",
+      "entrypoint": "ClaudeCodeAgentRPC"
+    },
+    {
+      "binding": "OPENAI_AGENT",
+      "service": "todo-mdx",
+      "entrypoint": "OpenAiAgentRPC"
     }
   ],
 
