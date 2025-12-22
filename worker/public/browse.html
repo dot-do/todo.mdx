@@ -210,10 +210,33 @@
 
     let pollInterval = null;
 
+    // Get CSRF token from cookie
+    function getCsrfToken() {
+      const cookies = document.cookie.split(';').map(c => c.trim());
+      const csrfCookie = cookies.find(c => c.startsWith('__Host-CSRF-TOKEN='));
+      return csrfCookie ? csrfCookie.substring('__Host-CSRF-TOKEN='.length) : null;
+    }
+
+    // Helper to make authenticated fetch requests with CSRF token
+    function authFetch(url, options = {}) {
+      const csrfToken = getCsrfToken();
+      const headers = new Headers(options.headers || {});
+
+      if (csrfToken) {
+        headers.set('X-CSRF-Token', csrfToken);
+      }
+
+      return fetch(url, {
+        ...options,
+        credentials: 'include',
+        headers,
+      });
+    }
+
     // Check authentication
     async function checkAuth() {
       try {
-        const response = await fetch('/api/auth/me', { credentials: 'include' });
+        const response = await authFetch('/api/auth/me');
         return response.ok ? await response.json() : null;
       } catch (e) {
         return null;
@@ -238,7 +261,7 @@
       }
 
       try {
-        const response = await fetch(url, { credentials: 'include' });
+        const response = await authFetch(url);
         if (response.ok) {
           return await response.json();
         }

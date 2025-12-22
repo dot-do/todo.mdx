@@ -105,8 +105,8 @@ export class BrowserbaseProvider implements BrowserProvider {
         expiresAt: now + timeout,
       }
 
-      // Store mapping in KV for later retrieval
-      await this.storeSessionMapping(sessionId, bbSession.id, session)
+      // Store mapping in KV for later retrieval (include userId for ownership)
+      await this.storeSessionMapping(sessionId, bbSession.id, session, options.userId)
 
       return session
     } catch (error) {
@@ -211,7 +211,8 @@ export class BrowserbaseProvider implements BrowserProvider {
   private async storeSessionMapping(
     sessionId: string,
     providerSessionId: string,
-    session: BrowserSession
+    session: BrowserSession,
+    userId?: string
   ): Promise<void> {
     if (!this.env.OAUTH_KV) return
 
@@ -224,6 +225,7 @@ export class BrowserbaseProvider implements BrowserProvider {
       debuggerUrl: session.debuggerUrl,
       createdAt: session.createdAt,
       expiresAt: session.expiresAt,
+      userId,
     }
 
     await this.env.OAUTH_KV.put(sessionId, JSON.stringify(stored), {

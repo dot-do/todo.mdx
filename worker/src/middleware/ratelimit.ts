@@ -48,6 +48,12 @@ export const RATE_LIMITS = {
     limit: 10,
     windowSeconds: 60, // 10 requests per minute
   },
+
+  // Browser session endpoints - strict limits to prevent session abuse
+  browser: {
+    limit: 10,
+    windowSeconds: 60, // 10 sessions per minute
+  },
 } as const
 
 export type RateLimitScope = keyof typeof RATE_LIMITS

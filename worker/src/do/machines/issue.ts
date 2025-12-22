@@ -18,6 +18,15 @@ import { setup, assign } from 'xstate'
 // =============================================================================
 
 /**
+ * Pending action types for DO to handle
+ */
+export type PendingAction =
+  | { type: 'scheduleAlarm'; delay: number }
+  | { type: 'checkTools'; issueId: string; agent: string; requiredTools: string[] }
+  | { type: 'executeTask'; issueId: string; agent: string; pat: string; repo: string; installationId: number; prompt: string }
+  | { type: 'verifyResults'; issueId: string; prNumber: number | null; testResults: any; commits: any[] }
+
+/**
  * Issue execution context
  */
 export interface IssueContext {
@@ -59,6 +68,9 @@ export interface IssueContext {
   // Verification
   verificationAttempts: number
   verificationErrors: string[]
+
+  // Pending actions queue (replaces unsafe globalThis pattern)
+  pendingActions: PendingAction[]
 }
 
 /**
@@ -180,44 +192,68 @@ const actions = {
     lastError: null,
   }),
 
-  scheduleRetry: ({ context }: { context: IssueContext }) => {
+  scheduleRetry: assign(({ context }: { context: IssueContext }) => {
     // Calculate exponential backoff: 1s, 2s, 4s, 8s
     const delay = Math.pow(2, context.errorCount) * 1000
-    // This is a marker action - actual alarm scheduling happens in IssueDO via scheduleAlarm()
-    // The IssueDO class will intercept this action and schedule the alarm
-    ;(globalThis as any).__scheduleAlarmDelay = delay
-  },
-
-  dispatchExecution: ({ context }: { context: IssueContext }) => {
-    // Set global flag for IssueDO to intercept and dispatch sandbox session
-    ;(globalThis as any).__executeTask = {
-      issueId: context.issueId,
-      agent: context.assignedAgent,
-      pat: context.agentPAT,
-      repo: context.repoFullName,
-      installationId: context.installationId,
-      prompt: buildExecutionPrompt(context),
+    // Queue action for IssueDO to handle (safe alternative to globalThis)
+    return {
+      pendingActions: [...context.pendingActions, { type: 'scheduleAlarm' as const, delay }],
     }
-  },
+  }),
 
-  checkTools: ({ context }: { context: IssueContext }) => {
-    // Set global flag for IssueDO to intercept and check tool availability
-    ;(globalThis as any).__checkTools = {
-      issueId: context.issueId,
-      agent: context.assignedAgent,
-      requiredTools: context.requiredTools,
+  dispatchExecution: assign(({ context }: { context: IssueContext }) => {
+    // Queue execution task for IssueDO to handle
+    return {
+      pendingActions: [
+        ...context.pendingActions,
+        {
+          type: 'executeTask' as const,
+          issueId: context.issueId,
+          agent: context.assignedAgent!,
+          pat: context.agentPAT!,
+          repo: context.repoFullName,
+          installationId: context.installationId,
+          prompt: buildExecutionPrompt(context),
+        },
+      ],
     }
-  },
+  }),
 
-  verifyResults: ({ context }: { context: IssueContext }) => {
-    // Set global flag for IssueDO to intercept and verify results
-    ;(globalThis as any).__verifyResults = {
-      issueId: context.issueId,
-      prNumber: context.prNumber,
-      testResults: context.testResults,
-      commits: context.commits,
+  checkTools: assign(({ context }: { context: IssueContext }) => {
+    // Queue tool check for IssueDO to handle
+    return {
+      pendingActions: [
+        ...context.pendingActions,
+        {
+          type: 'checkTools' as const,
+          issueId: context.issueId,
+          agent: context.assignedAgent!,
+          requiredTools: context.requiredTools,
+        },
+      ],
     }
-  },
+  }),
+
+  verifyResults: assign(({ context }: { context: IssueContext }) => {
+    // Queue verification for IssueDO to handle
+    return {
+      pendingActions: [
+        ...context.pendingActions,
+        {
+          type: 'verifyResults' as const,
+          issueId: context.issueId,
+          prNumber: context.prNumber,
+          testResults: context.testResults,
+          commits: context.commits,
+        },
+      ],
+    }
+  }),
+
+  // Clear pending actions after they've been processed
+  clearPendingActions: assign({
+    pendingActions: [],
+  }),
 }
 
 // =============================================================================
@@ -315,6 +351,7 @@ export const issueMachine = setup({
     maxRetries: 3,
     verificationAttempts: 0,
     verificationErrors: [],
+    pendingActions: [],
   },
 
   states: {

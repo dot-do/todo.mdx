@@ -25,6 +25,7 @@ export interface CreateSessionOptions {
   provider?: ProviderType         // Override provider selection
   contextId?: string              // Issue ID for scoping (e.g., "org/repo#123")
   userMetadata?: Record<string, string>
+  userId?: string                 // User who created the session (for ownership verification)
 }
 
 export interface BrowserProvider {

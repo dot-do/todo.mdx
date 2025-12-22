@@ -4,6 +4,7 @@
 
 import { Hono } from 'hono'
 import { authMiddleware } from '../auth/index.js'
+import { rateLimitMiddleware } from '../middleware/ratelimit.js'
 import { repos } from './repos.js'
 import { widget } from './widget.js'
 import { search } from './search.js'
@@ -25,6 +26,9 @@ api.route('/search', search)
 api.route('/models', models)
 api.route('/code', code)
 api.route('/terminal', terminal)
+
+// Browser routes with strict rate limiting to prevent session abuse
+api.use('/browser/*', rateLimitMiddleware('browser'))
 api.route('/browser', browser)
 
 export { api }

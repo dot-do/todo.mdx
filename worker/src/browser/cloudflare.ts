@@ -2,7 +2,7 @@
  * Cloudflare Browser Rendering Provider
  *
  * Free browser automation using Cloudflare's Browser Rendering API.
- * Ephemeral sessions only - no persistence or recording.
+ * Sessions are stored in KV for persistence across worker instances.
  *
  * @see https://developers.cloudflare.com/browser-rendering/
  */
@@ -13,12 +13,21 @@ import type {
   BrowserSession,
   CreateSessionOptions,
   RrwebEvent,
+  SessionStatus,
 } from '../types/browser'
+
+interface StoredSession {
+  sessionId: string
+  provider: 'cloudflare'
+  status: SessionStatus
+  createdAt: number
+  expiresAt?: number
+  userId?: string
+}
 
 export class CloudflareBrowserProvider implements BrowserProvider {
   readonly name = 'cloudflare'
   private env: Env
-  private sessions: Map<string, BrowserSession> = new Map()
 
   constructor(env: Env) {
     this.env = env
@@ -40,8 +49,8 @@ export class CloudflareBrowserProvider implements BrowserProvider {
       expiresAt: now + timeout,
     }
 
-    // Store in memory (ephemeral)
-    this.sessions.set(sessionId, session)
+    // Store in KV for persistence across worker instances (include userId for ownership)
+    await this.storeSessionMapping(sessionId, session, options.userId)
 
     // Note: Actual Cloudflare Browser Rendering integration would happen here
     // using the BROWSER binding from env
@@ -51,28 +60,72 @@ export class CloudflareBrowserProvider implements BrowserProvider {
   }
 
   async getSession(sessionId: string): Promise<BrowserSession | null> {
-    const session = this.sessions.get(sessionId)
-    if (!session) return null
+    // Get session from KV
+    const stored = await this.getSessionMapping(sessionId)
+    if (!stored) return null
 
     // Check if expired
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      session.status = 'timed_out'
+    let status = stored.status
+    if (stored.expiresAt && Date.now() > stored.expiresAt) {
+      status = 'timed_out'
     }
 
-    return session
+    return {
+      id: sessionId,
+      provider: 'cloudflare',
+      status,
+      createdAt: stored.createdAt,
+      expiresAt: stored.expiresAt,
+    }
   }
 
   async releaseSession(sessionId: string): Promise<void> {
-    const session = this.sessions.get(sessionId)
-    if (session) {
-      session.status = 'completed'
-      // Clean up after a delay to allow final status checks
-      setTimeout(() => this.sessions.delete(sessionId), 5000)
+    const stored = await this.getSessionMapping(sessionId)
+    if (stored) {
+      // Update KV with completed status (preserve userId)
+      const updatedSession: BrowserSession = {
+        id: sessionId,
+        provider: 'cloudflare',
+        status: 'completed',
+        createdAt: stored.createdAt,
+        expiresAt: stored.expiresAt,
+      }
+      await this.storeSessionMapping(sessionId, updatedSession, stored.userId)
     }
   }
 
-  async getRecording(sessionId: string): Promise<RrwebEvent[] | null> {
+  async getRecording(_sessionId: string): Promise<RrwebEvent[] | null> {
     // Cloudflare Browser Rendering does not support recording
     return null
+  }
+
+  private async storeSessionMapping(
+    sessionId: string,
+    session: BrowserSession,
+    userId?: string
+  ): Promise<void> {
+    if (!this.env.OAUTH_KV) return
+
+    const stored: StoredSession = {
+      sessionId,
+      provider: 'cloudflare',
+      status: session.status,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt,
+      userId,
+    }
+
+    await this.env.OAUTH_KV.put(sessionId, JSON.stringify(stored), {
+      expirationTtl: 86400, // 24 hours
+    })
+  }
+
+  private async getSessionMapping(sessionId: string): Promise<StoredSession | null> {
+    if (!this.env.OAUTH_KV) return null
+
+    const data = await this.env.OAUTH_KV.get(sessionId)
+    if (!data) return null
+
+    return JSON.parse(data)
   }
 }
