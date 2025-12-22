@@ -251,4 +251,203 @@ describe('AiSdkAgent', () => {
       expect(secondCallMessages).toBeGreaterThan(firstCallMessages)
     })
   })
+
+  describe('resolveModel()', () => {
+    it('should return a LanguageModel instance for model preference "best"', async () => {
+      const { generateText } = await import('ai')
+      vi.mocked(generateText).mockResolvedValue({
+        text: 'Response',
+        finishReason: 'stop',
+        usage: { promptTokens: 10, completionTokens: 5 },
+      } as any)
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        model: 'best',
+      })
+      await agent.do('Task', { stream: false })
+
+      const call = vi.mocked(generateText).mock.calls[0]?.[0]
+      // The model should be a LanguageModel instance, not undefined
+      expect(call.model).toBeDefined()
+      expect(call.model).not.toBe(undefined)
+      // It should have required LanguageModel properties
+      expect(typeof call.model).toBe('object')
+    })
+
+    it('should return a LanguageModel instance for model preference "fast"', async () => {
+      const { generateText } = await import('ai')
+      vi.mocked(generateText).mockResolvedValue({
+        text: 'Response',
+        finishReason: 'stop',
+        usage: { promptTokens: 10, completionTokens: 5 },
+      } as any)
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        model: 'fast',
+      })
+      await agent.do('Task', { stream: false })
+
+      const call = vi.mocked(generateText).mock.calls[0]?.[0]
+      expect(call.model).toBeDefined()
+      expect(call.model).not.toBe(undefined)
+    })
+
+    it('should return a LanguageModel for explicit model ID like "anthropic/claude-3-5-haiku-20241022"', async () => {
+      const { generateText } = await import('ai')
+      vi.mocked(generateText).mockResolvedValue({
+        text: 'Response',
+        finishReason: 'stop',
+        usage: { promptTokens: 10, completionTokens: 5 },
+      } as any)
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        model: 'anthropic/claude-3-5-haiku-20241022',
+      })
+      await agent.do('Task', { stream: false })
+
+      const call = vi.mocked(generateText).mock.calls[0]?.[0]
+      expect(call.model).toBeDefined()
+      expect(call.model).not.toBe(undefined)
+    })
+  })
+
+  describe('Tool Resolution', () => {
+    it('should resolve tools from def.tools and pass to generateText', async () => {
+      const { generateText } = await import('ai')
+      vi.mocked(generateText).mockResolvedValue({
+        text: 'Response',
+        finishReason: 'stop',
+        usage: { promptTokens: 10, completionTokens: 5 },
+      } as any)
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        tools: ['github.createPullRequest', 'github.addComment'],
+      })
+      await agent.do('Create a PR', { stream: false })
+
+      const call = vi.mocked(generateText).mock.calls[0]?.[0]
+      // Tools should be resolved and passed to generateText
+      expect(call.tools).toBeDefined()
+      expect(Object.keys(call.tools).length).toBeGreaterThan(0)
+    })
+
+    it('should convert tool schema from Zod to AI SDK format', async () => {
+      const { generateText } = await import('ai')
+      vi.mocked(generateText).mockResolvedValue({
+        text: 'Response',
+        finishReason: 'stop',
+        usage: { promptTokens: 10, completionTokens: 5 },
+      } as any)
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        tools: ['github.createPullRequest'],
+      })
+      await agent.do('Create a PR', { stream: false })
+
+      const call = vi.mocked(generateText).mock.calls[0]?.[0]
+      // Each tool should have the AI SDK format (description, inputSchema, execute)
+      const toolNames = Object.keys(call.tools || {})
+      expect(toolNames.length).toBeGreaterThan(0)
+
+      const firstTool = call.tools[toolNames[0]]
+      expect(firstTool).toHaveProperty('inputSchema')
+      expect(firstTool).toHaveProperty('execute')
+    })
+  })
+
+  describe('Tool Execution', () => {
+    it('should emit tool_result events when tools are executed', async () => {
+      const { generateText } = await import('ai')
+
+      // Simulate a tool call in the response
+      vi.mocked(generateText).mockImplementation(async (options: any) => {
+        // Simulate the AI SDK calling onStepFinish with tool results
+        if (options.onStepFinish) {
+          options.onStepFinish({
+            toolCalls: [{
+              toolName: 'github.createPullRequest',
+              toolCallId: 'call-123',
+              args: { title: 'Test PR', body: 'Test body' },
+            }],
+            toolResults: [{
+              toolName: 'github.createPullRequest',
+              toolCallId: 'call-123',
+              result: { url: 'https://github.com/test/pr/1' },
+            }],
+          })
+        }
+        return {
+          text: 'Done',
+          finishReason: 'stop',
+          usage: { promptTokens: 10, completionTokens: 5 },
+        }
+      })
+
+      const events: AgentEvent[] = []
+      const onEvent = vi.fn((e: AgentEvent) => {
+        events.push(e)
+      })
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        tools: ['github.createPullRequest'],
+      })
+      await agent.do('Create a PR', { stream: false, onEvent })
+
+      // Should have tool_result events
+      const toolResultEvents = events.filter(e => e.type === 'tool_result')
+      expect(toolResultEvents.length).toBeGreaterThan(0)
+      expect(toolResultEvents[0]).toMatchObject({
+        type: 'tool_result',
+        tool: 'github.createPullRequest',
+        id: 'call-123',
+      })
+    })
+
+    it('should emit tool_call events when tools are called', async () => {
+      const { generateText } = await import('ai')
+
+      vi.mocked(generateText).mockImplementation(async (options: any) => {
+        if (options.onStepFinish) {
+          options.onStepFinish({
+            toolCalls: [{
+              toolName: 'github.addComment',
+              toolCallId: 'call-456',
+              args: { issueNumber: 1, body: 'Test comment' },
+            }],
+            toolResults: [],
+          })
+        }
+        return {
+          text: 'Done',
+          finishReason: 'stop',
+          usage: { promptTokens: 10, completionTokens: 5 },
+        }
+      })
+
+      const events: AgentEvent[] = []
+      const onEvent = vi.fn((e: AgentEvent) => {
+        events.push(e)
+      })
+
+      const agent = new AiSdkAgent({
+        ...testDef,
+        tools: ['github.addComment'],
+      })
+      await agent.do('Add comment', { stream: false, onEvent })
+
+      const toolCallEvents = events.filter(e => e.type === 'tool_call')
+      expect(toolCallEvents.length).toBeGreaterThan(0)
+      expect(toolCallEvents[0]).toMatchObject({
+        type: 'tool_call',
+        tool: 'github.addComment',
+        id: 'call-456',
+      })
+    })
+  })
 })
