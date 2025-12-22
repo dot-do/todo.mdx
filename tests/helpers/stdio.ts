@@ -59,7 +59,11 @@ export interface ErrorMessage {
   message: string
 }
 
-export type ControlMessage = ResizeMessage | SignalMessage | ExitMessage | ErrorMessage
+export interface EofMessage {
+  type: 'eof'
+}
+
+export type ControlMessage = ResizeMessage | SignalMessage | ExitMessage | ErrorMessage | EofMessage
 
 export function isControlMessage(data: unknown): data is ControlMessage {
   return typeof data === 'object' && data !== null && 'type' in data
@@ -161,6 +165,63 @@ export interface SessionOutput {
   stderr: string
   exitCode: number | null
   error: string | null
+}
+
+/**
+ * Control functions available during command execution
+ */
+export interface CommandControls {
+  /**
+   * Send a signal to the process (e.g., 'SIGINT', 'SIGTERM')
+   */
+  sendSignal: (signal: string) => void
+  /**
+   * Send EOF to close stdin, signaling end of input to the process
+   */
+  sendEof: () => void
+  /**
+   * Send stdin data to the process
+   */
+  sendStdin: (data: string) => void
+}
+
+/**
+ * Options for running a command with signal support
+ */
+export interface RunCommandWithSignalOptions {
+  stdin?: string
+  timeout?: number
+  token?: string
+  env?: Record<string, string>
+  /**
+   * Callback to receive the sendSignal function.
+   * Called once WebSocket is connected and before command completes.
+   * @deprecated Use onConnected with controls.sendSignal instead
+   */
+  onConnected?: (sendSignal: (signal: string) => void) => void
+  /**
+   * Delay in ms before sending the signal (for onConnected)
+   */
+  signalDelay?: number
+}
+
+/**
+ * Options for running a command with full control (stdin, signals, EOF)
+ */
+export interface RunCommandWithControlsOptions {
+  stdin?: string
+  timeout?: number
+  token?: string
+  env?: Record<string, string>
+  /**
+   * Callback to receive control functions.
+   * Called once WebSocket is connected and before command completes.
+   */
+  onConnected?: (controls: CommandControls) => void
+  /**
+   * Delay in ms before invoking onConnected callback
+   */
+  connectDelay?: number
 }
 
 /**
@@ -328,10 +389,345 @@ export async function runCommand(
 }
 
 /**
+ * Run command with ability to send signals during execution.
+ * Similar to runCommand but provides a sendSignal callback.
+ *
+ * @param sandboxId - The sandbox session ID
+ * @param cmd - Command to run
+ * @param args - Command arguments
+ * @param options - Additional options including signal callback
+ * @returns Session output (stdout, stderr, exitCode)
+ */
+export async function runCommandWithSignal(
+  sandboxId: string,
+  cmd: string,
+  args: string[] = [],
+  options: RunCommandWithSignalOptions = {}
+): Promise<SessionOutput> {
+  const token = options?.token || getAuthToken()
+  if (!token) {
+    throw new Error('Authentication required - set TEST_API_KEY')
+  }
+  const timeout = options?.timeout || 30000
+
+  // Build WebSocket URL
+  const wsProtocol = getWorkerBaseUrl().startsWith('https') ? 'wss' : 'ws'
+  const wsHost = getWorkerBaseUrl().replace(/^https?:\/\//, '')
+  const wsUrl = new URL(`${wsProtocol}://${wsHost}/api/stdio/${sandboxId}`)
+  wsUrl.searchParams.set('cmd', cmd)
+  wsUrl.searchParams.set('token', token!)
+  for (const arg of args) {
+    wsUrl.searchParams.append('arg', arg)
+  }
+  // Pass environment variables as env_NAME=value query params
+  if (options?.env) {
+    for (const [key, value] of Object.entries(options.env)) {
+      wsUrl.searchParams.set(`env_${key}`, value)
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const output: SessionOutput = {
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      error: null,
+    }
+
+    const timeoutId = setTimeout(() => {
+      ws.close()
+      reject(new Error(`Command timed out after ${timeout}ms`))
+    }, timeout)
+
+    const ws = new WebSocket(wsUrl.toString())
+    ws.binaryType = 'arraybuffer'
+
+    // Signal sending function
+    const sendSignal = (signal: string) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        const msg: SignalMessage = { type: 'signal', signal }
+        ws.send(JSON.stringify(msg))
+      }
+    }
+
+    ws.onopen = () => {
+      // Send stdin if provided
+      if (options?.stdin) {
+        const encoder = new TextEncoder()
+        ws.send(encoder.encode(options.stdin))
+      }
+
+      // Invoke callback with signal function after optional delay
+      if (options?.onConnected) {
+        const delay = options.signalDelay ?? 0
+        if (delay > 0) {
+          setTimeout(() => options.onConnected!(sendSignal), delay)
+        } else {
+          options.onConnected(sendSignal)
+        }
+      }
+    }
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        // JSON control message
+        try {
+          const msg = JSON.parse(event.data) as ControlMessage
+          if (msg.type === 'exit') {
+            output.exitCode = (msg as ExitMessage).code
+            clearTimeout(timeoutId)
+            ws.close()
+            resolve(output)
+          } else if (msg.type === 'error') {
+            output.error = (msg as ErrorMessage).message
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      } else {
+        // Binary output
+        const bytes = new Uint8Array(event.data)
+        const { streamId, payload } = unpack(bytes)
+        const text = new TextDecoder().decode(payload)
+
+        if (streamId === STREAM_STDOUT) {
+          output.stdout += text
+        } else if (streamId === STREAM_STDERR) {
+          output.stderr += text
+        }
+      }
+    }
+
+    ws.onerror = (event: Event) => {
+      clearTimeout(timeoutId)
+      const errorEvent = event as ErrorEvent
+      const message = errorEvent.message || errorEvent.error?.message || 'Unknown WebSocket error'
+      reject(new Error(`WebSocket error: ${message} (type: ${event.type})`))
+    }
+
+    ws.onclose = (event: CloseEvent) => {
+      clearTimeout(timeoutId)
+      if (output.exitCode === null && output.error === null) {
+        // Check if close was abnormal
+        if (event.code !== 1000 && event.code !== 1005) {
+          output.error = `WebSocket closed: code=${event.code}, reason=${event.reason || 'none'}`
+        }
+        output.exitCode = 0 // Assume success if no exit message received
+      }
+      resolve(output)
+    }
+  })
+}
+
+/**
  * Check if sandbox credentials are available
  */
 export function hasSandboxCredentials(): boolean {
   return !!process.env.TEST_API_KEY
+}
+
+/**
+ * Run command with full control over stdin, signals, and EOF.
+ * Provides a controls object with sendSignal, sendEof, and sendStdin functions.
+ *
+ * @param sandboxId - The sandbox session ID
+ * @param cmd - Command to run
+ * @param args - Command arguments
+ * @param options - Additional options including control callback
+ * @returns Session output (stdout, stderr, exitCode)
+ */
+export async function runCommandWithControls(
+  sandboxId: string,
+  cmd: string,
+  args: string[] = [],
+  options: RunCommandWithControlsOptions = {}
+): Promise<SessionOutput> {
+  const token = options?.token || getAuthToken()
+  if (!token) {
+    throw new Error('Authentication required - set TEST_API_KEY')
+  }
+  const timeout = options?.timeout || 30000
+
+  // Build WebSocket URL
+  const wsProtocol = getWorkerBaseUrl().startsWith('https') ? 'wss' : 'ws'
+  const wsHost = getWorkerBaseUrl().replace(/^https?:\/\//, '')
+  const wsUrl = new URL(`${wsProtocol}://${wsHost}/api/stdio/${sandboxId}`)
+  wsUrl.searchParams.set('cmd', cmd)
+  wsUrl.searchParams.set('token', token!)
+  for (const arg of args) {
+    wsUrl.searchParams.append('arg', arg)
+  }
+  // Pass environment variables as env_NAME=value query params
+  if (options?.env) {
+    for (const [key, value] of Object.entries(options.env)) {
+      wsUrl.searchParams.set(`env_${key}`, value)
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    const output: SessionOutput = {
+      stdout: '',
+      stderr: '',
+      exitCode: null,
+      error: null,
+    }
+
+    const timeoutId = setTimeout(() => {
+      ws.close()
+      reject(new Error(`Command timed out after ${timeout}ms`))
+    }, timeout)
+
+    const ws = new WebSocket(wsUrl.toString())
+    ws.binaryType = 'arraybuffer'
+    const encoder = new TextEncoder()
+
+    // Control functions
+    const controls: CommandControls = {
+      sendSignal: (signal: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          const msg: SignalMessage = { type: 'signal', signal }
+          ws.send(JSON.stringify(msg))
+        }
+      },
+      sendEof: () => {
+        if (ws.readyState === WebSocket.OPEN) {
+          const msg: EofMessage = { type: 'eof' }
+          ws.send(JSON.stringify(msg))
+        }
+      },
+      sendStdin: (data: string) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(encoder.encode(data))
+        }
+      },
+    }
+
+    ws.onopen = () => {
+      // Send initial stdin if provided
+      if (options?.stdin) {
+        ws.send(encoder.encode(options.stdin))
+      }
+
+      // Invoke callback with control functions after optional delay
+      if (options?.onConnected) {
+        const delay = options.connectDelay ?? 0
+        if (delay > 0) {
+          setTimeout(() => options.onConnected!(controls), delay)
+        } else {
+          options.onConnected(controls)
+        }
+      }
+    }
+
+    ws.onmessage = (event) => {
+      if (typeof event.data === 'string') {
+        // JSON control message
+        try {
+          const msg = JSON.parse(event.data) as ControlMessage
+          if (msg.type === 'exit') {
+            output.exitCode = (msg as ExitMessage).code
+            clearTimeout(timeoutId)
+            ws.close()
+            resolve(output)
+          } else if (msg.type === 'error') {
+            output.error = (msg as ErrorMessage).message
+          }
+        } catch {
+          // Ignore parse errors
+        }
+      } else {
+        // Binary output
+        const bytes = new Uint8Array(event.data)
+        const { streamId, payload } = unpack(bytes)
+        const text = new TextDecoder().decode(payload)
+
+        if (streamId === STREAM_STDOUT) {
+          output.stdout += text
+        } else if (streamId === STREAM_STDERR) {
+          output.stderr += text
+        }
+      }
+    }
+
+    ws.onerror = (event: Event) => {
+      clearTimeout(timeoutId)
+      const errorEvent = event as ErrorEvent
+      const message = errorEvent.message || errorEvent.error?.message || 'Unknown WebSocket error'
+      reject(new Error(`WebSocket error: ${message} (type: ${event.type})`))
+    }
+
+    ws.onclose = (event: CloseEvent) => {
+      clearTimeout(timeoutId)
+      if (output.exitCode === null && output.error === null) {
+        // Check if close was abnormal
+        if (event.code !== 1000 && event.code !== 1005) {
+          output.error = `WebSocket closed: code=${event.code}, reason=${event.reason || 'none'}`
+        }
+        output.exitCode = 0 // Assume success if no exit message received
+      }
+      resolve(output)
+    }
+  })
+}
+
+/**
+ * Create a session with retry logic and exponential backoff for rate limits.
+ * Useful for tests that create multiple sessions which may hit rate limits.
+ *
+ * @param options - Session creation options
+ * @param retryOptions - Retry configuration
+ * @returns Session info or throws after max retries
+ */
+export async function createSessionWithRetry(
+  options?: {
+    sandboxId?: string
+    repo?: string
+    installationId?: number
+  },
+  retryOptions?: {
+    maxRetries?: number
+    initialDelayMs?: number
+    maxDelayMs?: number
+  }
+): Promise<{
+  sandboxId: string
+  wsUrl: string
+  expiresIn: number
+}> {
+  const maxRetries = retryOptions?.maxRetries ?? 3
+  const initialDelayMs = retryOptions?.initialDelayMs ?? 1000
+  const maxDelayMs = retryOptions?.maxDelayMs ?? 10000
+
+  let lastError: Error | null = null
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await createSession(options)
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error))
+
+      // Check if it's a rate limit error (429) or server error (5xx)
+      const isRetryable =
+        lastError.message.includes('429') ||
+        lastError.message.includes('rate limit') ||
+        lastError.message.includes('503') ||
+        lastError.message.includes('502')
+
+      if (!isRetryable || attempt === maxRetries) {
+        throw lastError
+      }
+
+      // Exponential backoff with jitter
+      const baseDelay = Math.min(initialDelayMs * Math.pow(2, attempt), maxDelayMs)
+      const jitter = Math.random() * 0.3 * baseDelay // 0-30% jitter
+      const delay = baseDelay + jitter
+
+      console.log(`Session creation failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${Math.round(delay)}ms...`)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError || new Error('Failed to create session after retries')
 }
 
 // Export getWorkerBaseUrl for test output

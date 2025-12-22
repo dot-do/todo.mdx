@@ -8,6 +8,7 @@
  *   { type: 'resize', cols: number, rows: number }
  *   { type: 'signal', signal: string }
  *   { type: 'exit', code: number }
+ *   { type: 'eof' }
  */
 
 // Stream IDs for binary multiplexing
@@ -31,9 +32,13 @@ export interface ExitMessage {
   code: number;
 }
 
-export type ControlMessage = ResizeMessage | SignalMessage | ExitMessage;
+export interface EofMessage {
+  type: 'eof';
+}
 
-export type ClientMessage = ResizeMessage | SignalMessage;
+export type ControlMessage = ResizeMessage | SignalMessage | ExitMessage | EofMessage;
+
+export type ClientMessage = ResizeMessage | SignalMessage | EofMessage;
 export type ServerMessage = ExitMessage;
 
 /**
@@ -70,7 +75,8 @@ export function isControlMessage(data: unknown): data is ControlMessage {
   return (
     msg.type === 'resize' ||
     msg.type === 'signal' ||
-    msg.type === 'exit'
+    msg.type === 'exit' ||
+    msg.type === 'eof'
   );
 }
 
@@ -112,6 +118,17 @@ export function isExitMessage(data: unknown): data is ExitMessage {
 }
 
 /**
+ * Type guard for EOF message
+ */
+export function isEofMessage(data: unknown): data is EofMessage {
+  if (typeof data !== 'object' || data === null) {
+    return false;
+  }
+  const msg = data as Record<string, unknown>;
+  return msg.type === 'eof';
+}
+
+/**
  * Create a resize message
  */
 export function createResizeMessage(cols: number, rows: number): ResizeMessage {
@@ -130,6 +147,13 @@ export function createSignalMessage(signal: string): SignalMessage {
  */
 export function createExitMessage(code: number): ExitMessage {
   return { type: 'exit', code };
+}
+
+/**
+ * Create an EOF message to signal end of stdin
+ */
+export function createEofMessage(): EofMessage {
+  return { type: 'eof' };
 }
 
 /**

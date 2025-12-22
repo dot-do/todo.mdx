@@ -19,9 +19,11 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import {
   createSession,
+  createSessionWithRetry,
   getSessionStatus,
   deleteSession,
   runCommand,
+  runCommandWithControls,
   hasSandboxCredentials,
   getWorkerBaseUrl,
   STREAM_STDOUT,
@@ -197,9 +199,6 @@ describe('stdin handling', () => {
     if (!hasCredentials || !sharedSessionReady) ctx.skip()
   })
 
-  // Note: Direct stdin to cat/tr requires EOF signaling which isn't implemented yet.
-  // Use head -n1 or timeout to work around missing EOF signal.
-
   test('can send stdin to command', async () => {
     // Use head -n1 to only read one line and exit (doesn't wait for EOF)
     const output = await runCommand(SHARED_SANDBOX_ID, 'head', ['-n1'], {
@@ -219,6 +218,139 @@ describe('stdin handling', () => {
     })
 
     expect(output.stdout).toContain('LOWERCASE')
+  })
+})
+
+describe('EOF signaling', () => {
+  beforeEach((ctx) => {
+    if (!hasCredentials || !sharedSessionReady) ctx.skip()
+  })
+
+  test('EOF closes stdin and allows cat to complete', async () => {
+    // cat without args reads from stdin until EOF
+    // Without EOF signaling, this would hang forever
+    const output = await runCommandWithControls(SHARED_SANDBOX_ID, 'cat', [], {
+      timeout: 10000,
+      onConnected: (controls) => {
+        // Send some input
+        controls.sendStdin('line 1\n')
+        controls.sendStdin('line 2\n')
+        // Signal EOF to let cat complete
+        controls.sendEof()
+      },
+    })
+
+    expect(output.stdout).toContain('line 1')
+    expect(output.stdout).toContain('line 2')
+    expect(output.exitCode).toBe(0)
+  })
+
+  test('EOF works with tr command (pipe without head workaround)', async () => {
+    // tr reads stdin until EOF, transforms, then outputs
+    // This previously required head -n1 workaround
+    const output = await runCommandWithControls(SHARED_SANDBOX_ID, 'tr', ['a-z', 'A-Z'], {
+      timeout: 10000,
+      onConnected: (controls) => {
+        controls.sendStdin('hello world\n')
+        controls.sendEof()
+      },
+    })
+
+    expect(output.stdout).toContain('HELLO WORLD')
+    expect(output.exitCode).toBe(0)
+  })
+
+  test('EOF with wc command counts lines correctly', async () => {
+    // wc -l counts lines in stdin until EOF
+    const output = await runCommandWithControls(SHARED_SANDBOX_ID, 'wc', ['-l'], {
+      timeout: 10000,
+      onConnected: (controls) => {
+        controls.sendStdin('line 1\n')
+        controls.sendStdin('line 2\n')
+        controls.sendStdin('line 3\n')
+        controls.sendEof()
+      },
+    })
+
+    // wc -l should output "3" (may have leading spaces)
+    expect(output.stdout.trim()).toBe('3')
+    expect(output.exitCode).toBe(0)
+  })
+
+  test('EOF allows piping through multiple commands', async () => {
+    // Pipe: cat | sort | uniq - requires EOF for each stage
+    const output = await runCommandWithControls(
+      SHARED_SANDBOX_ID,
+      'bash',
+      ['-c', 'cat | sort | uniq'],
+      {
+        timeout: 10000,
+        onConnected: (controls) => {
+          controls.sendStdin('banana\n')
+          controls.sendStdin('apple\n')
+          controls.sendStdin('apple\n')
+          controls.sendStdin('cherry\n')
+          controls.sendEof()
+        },
+      }
+    )
+
+    // Should have sorted unique lines
+    const lines = output.stdout.trim().split('\n')
+    expect(lines).toEqual(['apple', 'banana', 'cherry'])
+    expect(output.exitCode).toBe(0)
+  })
+
+  test('EOF with delayed stdin input', async () => {
+    // Test that EOF works even with delayed stdin writes
+    const output = await runCommandWithControls(SHARED_SANDBOX_ID, 'cat', [], {
+      timeout: 10000,
+      onConnected: (controls) => {
+        controls.sendStdin('first\n')
+        // Simulate async input with small delay
+        setTimeout(() => {
+          controls.sendStdin('second\n')
+          controls.sendEof()
+        }, 100)
+      },
+    })
+
+    expect(output.stdout).toContain('first')
+    expect(output.stdout).toContain('second')
+    expect(output.exitCode).toBe(0)
+  })
+
+  test('empty stdin with immediate EOF', async () => {
+    // cat with empty input should exit immediately with EOF
+    const output = await runCommandWithControls(SHARED_SANDBOX_ID, 'cat', [], {
+      timeout: 5000,
+      onConnected: (controls) => {
+        // Send EOF immediately without any stdin
+        controls.sendEof()
+      },
+    })
+
+    expect(output.stdout).toBe('')
+    expect(output.exitCode).toBe(0)
+  })
+
+  test('EOF with read command in bash', async () => {
+    // bash read command waits for newline, but exits on EOF
+    const output = await runCommandWithControls(
+      SHARED_SANDBOX_ID,
+      'bash',
+      ['-c', 'read line && echo "Got: $line" || echo "EOF received"'],
+      {
+        timeout: 5000,
+        onConnected: (controls) => {
+          controls.sendStdin('hello\n')
+          controls.sendEof()
+        },
+      }
+    )
+
+    expect(output.stdout).toContain('Got: hello')
+    expect(output.exitCode).toBe(0)
   })
 })
 
@@ -383,26 +515,174 @@ describe('multi-session isolation', () => {
     if (!hasCredentials) ctx.skip()
   })
 
-  // Note: Creating multiple concurrent sessions can hit rate limits.
-  // These tests verify session isolation but may need retry logic in CI.
+  // These tests verify session isolation using retry logic with exponential backoff
+  // to handle rate limits when creating multiple containers.
 
-  test.skip('sessions are isolated (requires multiple containers)', async () => {
-    // This test requires creating multiple containers which can hit rate limits.
-    // Skipped for now - isolation is verified by the container architecture.
+  test('file system is isolated between sessions', async () => {
+    // Create two isolated sessions with unique IDs
+    // Use createSessionWithRetry to handle rate limits with exponential backoff
     const ts = Date.now()
-    const session1 = await createSession({ sandboxId: `e2e-isolated-1-${ts}` })
-    const session2 = await createSession({ sandboxId: `e2e-isolated-2-${ts}` })
-    createdSessions.push(session1.sandboxId, session2.sandboxId)
+    const session1Id = `e2e-fs-isolated-1-${ts}`
+    const session2Id = `e2e-fs-isolated-2-${ts}`
+
+    // Create sessions sequentially with delay to avoid rate limits
+    const session1 = await createSessionWithRetry(
+      { sandboxId: session1Id },
+      { maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 15000 }
+    )
+    createdSessions.push(session1.sandboxId)
+
+    // Add delay between session creations to avoid rate limits
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    const session2 = await createSessionWithRetry(
+      { sandboxId: session2Id },
+      { maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 15000 }
+    )
+    createdSessions.push(session2.sandboxId)
+
+    // Wait for containers to be fully ready
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    // Write a file in session 1
+    const secretContent = `secret-${ts}`
+    const writeOutput = await runCommand(
+      session1.sandboxId,
+      'bash',
+      ['-c', `echo "${secretContent}" > /tmp/isolation-test.txt && cat /tmp/isolation-test.txt`],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(writeOutput.exitCode).toBe(0)
+    expect(writeOutput.stdout).toContain(secretContent)
+
+    // Verify session 2 cannot see the file (file system isolation)
+    const readOutput = await runCommand(
+      session2.sandboxId,
+      'bash',
+      ['-c', 'cat /tmp/isolation-test.txt 2>&1 || echo "FILE_NOT_FOUND"'],
+      { retries: 2, timeout: 10000 }
+    )
+
+    // The file should not exist in session 2's container
+    expect(readOutput.stdout).toContain('FILE_NOT_FOUND')
+    expect(readOutput.stdout).not.toContain(secretContent)
+  }, 60000) // Long timeout for retries and container startup
+
+  test('process namespace is isolated between sessions', async () => {
+    // Create two isolated sessions with unique IDs
+    const ts = Date.now()
+    const session1Id = `e2e-pid-isolated-1-${ts}`
+    const session2Id = `e2e-pid-isolated-2-${ts}`
+
+    // Create sessions sequentially with delay to avoid rate limits
+    const session1 = await createSessionWithRetry(
+      { sandboxId: session1Id },
+      { maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 15000 }
+    )
+    createdSessions.push(session1.sandboxId)
 
     await new Promise(resolve => setTimeout(resolve, 2000))
 
-    await runCommand(session1.sandboxId, 'bash', ['-c', 'echo "secret" > /tmp/test.txt'], { retries: 2 })
+    const session2 = await createSessionWithRetry(
+      { sandboxId: session2Id },
+      { maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 15000 }
+    )
+    createdSessions.push(session2.sandboxId)
 
-    const output = await runCommand(session2.sandboxId, 'bash', [
-      '-c',
-      'cat /tmp/test.txt 2>&1 || echo "file not found"',
-    ], { retries: 2 })
+    // Wait for containers to be fully ready
+    await new Promise(resolve => setTimeout(resolve, 2000))
 
-    expect(output.stdout).toContain('file not found')
-  })
+    // Start a long-running process in session 1 and get its PID
+    // Use a unique marker to identify the process
+    const processMarker = `isolation-test-${ts}`
+    const startOutput = await runCommand(
+      session1.sandboxId,
+      'bash',
+      ['-c', `sleep 300 & echo $! > /tmp/${processMarker}.pid && cat /tmp/${processMarker}.pid`],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(startOutput.exitCode).toBe(0)
+    const pid = startOutput.stdout.trim()
+    expect(pid).toMatch(/^\d+$/)
+
+    // Verify the process is running in session 1
+    const checkSession1 = await runCommand(
+      session1.sandboxId,
+      'bash',
+      ['-c', `ps aux | grep "sleep 300" | grep -v grep && echo "PROCESS_FOUND" || echo "PROCESS_NOT_FOUND"`],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(checkSession1.stdout).toContain('PROCESS_FOUND')
+
+    // Verify session 2 cannot see session 1's process (PID namespace isolation)
+    const checkSession2 = await runCommand(
+      session2.sandboxId,
+      'bash',
+      ['-c', `ps aux | grep "sleep 300" | grep -v grep && echo "PROCESS_FOUND" || echo "PROCESS_NOT_FOUND"`],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(checkSession2.stdout).toContain('PROCESS_NOT_FOUND')
+
+    // Also verify session 2 cannot signal the process (even if it guesses the PID)
+    const signalOutput = await runCommand(
+      session2.sandboxId,
+      'bash',
+      ['-c', `kill -0 ${pid} 2>&1 && echo "SIGNAL_SUCCESS" || echo "SIGNAL_FAILED"`],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(signalOutput.stdout).toContain('SIGNAL_FAILED')
+
+    // Clean up: kill the background process in session 1
+    await runCommand(
+      session1.sandboxId,
+      'bash',
+      ['-c', `kill ${pid} 2>/dev/null || true`],
+      { retries: 1, timeout: 5000 }
+    )
+  }, 90000) // Long timeout for retries, container startup, and process operations
+
+  test('environment variables are isolated between sessions', async () => {
+    // Create two isolated sessions with unique IDs
+    const ts = Date.now()
+    const session1Id = `e2e-env-isolated-1-${ts}`
+    const session2Id = `e2e-env-isolated-2-${ts}`
+
+    // Create sessions sequentially with delay
+    const session1 = await createSessionWithRetry(
+      { sandboxId: session1Id },
+      { maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 15000 }
+    )
+    createdSessions.push(session1.sandboxId)
+
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    const session2 = await createSessionWithRetry(
+      { sandboxId: session2Id },
+      { maxRetries: 3, initialDelayMs: 2000, maxDelayMs: 15000 }
+    )
+    createdSessions.push(session2.sandboxId)
+
+    await new Promise(resolve => setTimeout(resolve, 2000))
+
+    // Set an environment variable in session 1 via a persistent file sourced by bash
+    const secretEnvValue = `secret-env-${ts}`
+    const setEnvOutput = await runCommand(
+      session1.sandboxId,
+      'bash',
+      ['-c', `echo "export SECRET_VAR=${secretEnvValue}" >> ~/.bashrc && export SECRET_VAR=${secretEnvValue} && echo $SECRET_VAR`],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(setEnvOutput.exitCode).toBe(0)
+    expect(setEnvOutput.stdout).toContain(secretEnvValue)
+
+    // Verify session 2 does not have this environment variable
+    const checkEnvOutput = await runCommand(
+      session2.sandboxId,
+      'bash',
+      ['-c', 'source ~/.bashrc 2>/dev/null; echo "SECRET_VAR=${SECRET_VAR:-NOT_SET}"'],
+      { retries: 2, timeout: 10000 }
+    )
+    expect(checkEnvOutput.stdout).toContain('SECRET_VAR=NOT_SET')
+    expect(checkEnvOutput.stdout).not.toContain(secretEnvValue)
+  }, 60000)
 })

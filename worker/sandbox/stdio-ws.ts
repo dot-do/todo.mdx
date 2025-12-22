@@ -24,7 +24,7 @@ function pack(streamId: number, chunk: Uint8Array): Uint8Array {
 
 // Control message types
 interface ControlMessage {
-  type: 'resize' | 'signal' | 'exit' | 'error'
+  type: 'resize' | 'signal' | 'exit' | 'error' | 'eof'
   cols?: number
   rows?: number
   signal?: string
@@ -162,6 +162,11 @@ Bun.serve<WsData>({
           if (isControlMessage(parsed)) {
             if (parsed.type === 'signal' && parsed.signal) {
               proc.kill(parsed.signal as NodeJS.Signals)
+            } else if (parsed.type === 'eof') {
+              // Close stdin to signal EOF to the child process
+              const stdin = proc.stdin as import('bun').FileSink
+              stdin.end()
+              console.log('[stdio-ws] EOF received, closing stdin')
             }
             // resize is ignored in pipe mode (requires PTY)
           }
