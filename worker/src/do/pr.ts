@@ -30,6 +30,23 @@ export interface Env {
 }
 
 /**
+ * Pending action types for PRDO to handle
+ * This replaces the unsafe globalThis pattern with a context-based queue
+ */
+export type PRPendingAction =
+  | { type: 'scheduleAlarm'; delay: number }
+  | {
+      type: 'sandboxSession'
+      agent: string
+      encryptedPat: string
+      task: 'review' | 'fix'
+      prompt: string
+      repo: string
+      pr: number
+      callback: string
+    }
+
+/**
  * Audit log action types
  */
 export type AuditAction =
@@ -132,6 +149,9 @@ export interface PRContext {
   humanApprover: string | null
   issueLabels: string[]
   filesChanged: string[]
+
+  // Pending actions queue (replaces unsafe globalThis pattern)
+  pendingActions: PRPendingAction[]
 }
 
 /**
@@ -338,50 +358,62 @@ const prMachine = setup({
     loadRepoConfig: assign({
       // Config loading is handled in PRDO.loadReviewerConfig() and passed via CONFIG_LOADED event
     }),
-    dispatchReviewSession: ({ context }) => {
+    dispatchReviewSession: assign(({ context }) => {
       // Get current reviewer config
       const reviewer = context.reviewers[context.currentReviewerIndex]
       if (!reviewer) {
         console.error('[PRDO] No reviewer found at index', context.currentReviewerIndex)
-        return
+        return {}
       }
 
       const callbackUrl = `https://api.todo.mdx.do/pr/${context.repoFullName}/${context.prNumber}/session`
 
-      // Set global flag for PRDO to intercept and dispatch sandbox session
+      // Queue sandbox session for PRDO to handle (safe alternative to globalThis)
       // PAT decryption happens in PRDO.dispatchSandboxSession() using env.ENCRYPTION_KEY
-      ;(globalThis as any).__sandboxSession = {
-        agent: reviewer.agent,
-        encryptedPat: reviewer.pat || '', // Will be decrypted by PRDO
-        task: 'review' as const,
-        prompt: buildReviewPrompt(reviewer, context),
-        repo: context.repoFullName,
-        pr: context.prNumber,
-        callback: callbackUrl,
+      return {
+        pendingActions: [
+          ...context.pendingActions,
+          {
+            type: 'sandboxSession' as const,
+            agent: reviewer.agent,
+            encryptedPat: reviewer.pat || '', // Will be decrypted by PRDO
+            task: 'review' as const,
+            prompt: buildReviewPrompt(reviewer, context),
+            repo: context.repoFullName,
+            pr: context.prNumber,
+            callback: callbackUrl,
+          },
+        ],
       }
-    },
-    dispatchFixSession: ({ context }) => {
+    }),
+    dispatchFixSession: assign(({ context }) => {
       // Get most recent review feedback
       const lastReview = context.reviewOutcomes.at(-1)
       if (!lastReview) {
         console.error('[PRDO] No review outcome found for fix session')
-        return
+        return {}
       }
 
       const callbackUrl = `https://api.todo.mdx.do/pr/${context.repoFullName}/${context.prNumber}/session`
 
-      // Set global flag for PRDO to intercept and dispatch sandbox session
+      // Queue sandbox session for PRDO to handle (safe alternative to globalThis)
       // PAT decryption happens in PRDO.dispatchSandboxSession() using env.ENCRYPTION_KEY
-      ;(globalThis as any).__sandboxSession = {
-        agent: context.authorAgent,
-        encryptedPat: context.authorPAT, // Will be decrypted by PRDO
-        task: 'fix' as const,
-        prompt: buildFixPrompt(lastReview, context),
-        repo: context.repoFullName,
-        pr: context.prNumber,
-        callback: callbackUrl,
+      return {
+        pendingActions: [
+          ...context.pendingActions,
+          {
+            type: 'sandboxSession' as const,
+            agent: context.authorAgent,
+            encryptedPat: context.authorPAT, // Will be decrypted by PRDO
+            task: 'fix' as const,
+            prompt: buildFixPrompt(lastReview, context),
+            repo: context.repoFullName,
+            pr: context.prNumber,
+            callback: callbackUrl,
+          },
+        ],
       }
-    },
+    }),
     recordOutcome: assign({
       reviewOutcomes: ({ context, event }) => {
         if (event.type !== 'REVIEW_COMPLETE') return context.reviewOutcomes
@@ -458,13 +490,17 @@ const prMachine = setup({
     recordSessionId: assign({
       currentSessionId: ({ event }) => (event.type === 'SESSION_STARTED' ? event.sessionId : null),
     }),
-    scheduleRetry: ({ context }) => {
+    scheduleRetry: assign(({ context }) => {
       // Calculate exponential backoff: 1s, 2s, 4s
       const delay = Math.pow(2, context.retryCount) * 1000
-      // This is a marker action - actual alarm scheduling happens in PRDO via scheduleAlarm()
-      // The PRDO class will intercept this action and schedule the alarm
-      ;(globalThis as any).__scheduleAlarmDelay = delay
-    },
+      // Queue alarm scheduling for PRDO to handle (safe alternative to globalThis)
+      return {
+        pendingActions: [
+          ...context.pendingActions,
+          { type: 'scheduleAlarm' as const, delay },
+        ],
+      }
+    }),
   },
 }).createMachine({
   id: 'prReview',
@@ -489,6 +525,8 @@ const prMachine = setup({
     humanApprover: null,
     issueLabels: [],
     filesChanged: [],
+    // Pending actions queue (replaces unsafe globalThis pattern)
+    pendingActions: [],
   },
 
   // Global transitions - any state can transition to merged/closed
@@ -683,6 +721,8 @@ export class PRDO extends DurableObject<Env> {
   private sql: SqlStorage
   private initialized = false
   private prActor: ReturnType<typeof createActor<typeof prMachine>> | null = null
+  // Track how many pending actions we've processed to avoid re-processing
+  private processedActionsCount = 0
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -1028,34 +1068,74 @@ export class PRDO extends DurableObject<Env> {
       snapshot: persistedState || undefined,
     })
 
-    // Persist state on every change and intercept scheduleRetry and sandbox actions
+    // If restoring from persisted state, mark all existing pending actions as processed
+    // to avoid re-processing them on restart
+    if (persistedState?.context?.pendingActions) {
+      this.processedActionsCount = persistedState.context.pendingActions.length
+    }
+
+    // Persist state on every change and process pending actions from context
     this.prActor.subscribe((state) => {
       this.ctx.storage.put('prState', state.toJSON())
 
-      // Check if we need to schedule a retry alarm
-      // The scheduleRetry action sets a global flag with the delay
-      const delay = (globalThis as any).__scheduleAlarmDelay
-      if (delay !== undefined) {
-        this.ctx.storage.setAlarm(Date.now() + delay)
-        ;(globalThis as any).__scheduleAlarmDelay = undefined
-      }
-
-      // Check if we need to dispatch a sandbox session
-      // The dispatchReviewSession/dispatchFixSession actions set this flag
-      const sandboxSession = (globalThis as any).__sandboxSession
-      if (sandboxSession !== undefined) {
-        if (this.env.Sandbox) {
-          this.env.Sandbox.run(sandboxSession).catch((error) => {
-            console.error('[PRDO] Failed to dispatch sandbox session:', error)
-          })
-        } else {
-          console.error('[PRDO] Sandbox binding not available')
-        }
-        ;(globalThis as any).__sandboxSession = undefined
-      }
+      // Process pending actions from the state machine context
+      // This is a safe alternative to the globalThis pattern that caused race conditions
+      this.processPendingActions(state.context.pendingActions)
     })
 
     this.prActor.start()
+  }
+
+  /**
+   * Process pending actions from the state machine context
+   * This replaces the unsafe globalThis pattern with a context-based queue
+   *
+   * We track how many actions have been processed to avoid re-processing
+   * the same actions on subsequent state transitions.
+   */
+  private processPendingActions(pendingActions: PRPendingAction[]): void {
+    if (!pendingActions || pendingActions.length === 0) return
+
+    // Only process new actions (actions we haven't seen before)
+    const newActions = pendingActions.slice(this.processedActionsCount)
+    if (newActions.length === 0) return
+
+    // Process each new pending action
+    for (const action of newActions) {
+      switch (action.type) {
+        case 'scheduleAlarm':
+          this.ctx.storage.setAlarm(Date.now() + action.delay)
+          break
+
+        case 'sandboxSession':
+          if (this.env.Sandbox) {
+            // Dispatch sandbox session asynchronously
+            this.dispatchSandboxSession({
+              agent: action.agent,
+              encryptedPat: action.encryptedPat,
+              task: action.task,
+              prompt: action.prompt,
+              repo: action.repo,
+              pr: action.pr,
+              installationId: this.prActor?.getSnapshot().context.installationId || 0,
+            })
+              .then((sessionId) => {
+                this.prActor?.send({ type: 'SESSION_STARTED', sessionId })
+              })
+              .catch((error) => {
+                console.error('[PRDO] Failed to dispatch sandbox session:', error)
+                this.prActor?.send({ type: 'SESSION_FAILED', error: String(error) })
+              })
+          } else {
+            console.error('[PRDO] Sandbox binding not available')
+            this.prActor?.send({ type: 'SESSION_FAILED', error: 'Sandbox binding not available' })
+          }
+          break
+      }
+    }
+
+    // Update the count of processed actions
+    this.processedActionsCount = pendingActions.length
   }
 
   /**
@@ -1202,23 +1282,10 @@ export class PRDO extends DurableObject<Env> {
     }
 
     // Get updated state
+    // Note: Pending actions (sandbox sessions, alarms) are now processed
+    // in processPendingActions() via the actor subscription, eliminating
+    // the globalThis-based approach that caused race conditions
     const state = this.prActor.getSnapshot()
-
-    // Check if we need to dispatch a sandbox session
-    const sandboxSession = (globalThis as any).__sandboxSession
-    if (sandboxSession !== undefined) {
-      try {
-        const sessionId = await this.dispatchSandboxSession({
-          ...sandboxSession,
-          installationId: state.context.installationId,
-        })
-        this.prActor.send({ type: 'SESSION_STARTED', sessionId })
-      } catch (error) {
-        console.error('[PRDO] Failed to dispatch sandbox session:', error)
-        this.prActor.send({ type: 'SESSION_FAILED', error: String(error) })
-      }
-      ;(globalThis as any).__sandboxSession = undefined
-    }
 
     return Response.json({
       ok: true,
