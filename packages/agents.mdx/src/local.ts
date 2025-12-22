@@ -35,6 +35,8 @@ import {
 } from 'beads-workflows'
 
 import { DAG } from './dag'
+import { matchAgent } from './matcher'
+import type { AgentConfig } from './types'
 
 // ============================================================================
 // Shell Execution (Bun)
@@ -584,12 +586,43 @@ async function dagUnblocks(issueId: string): Promise<Issue[]> {
 }
 
 // ============================================================================
+// Agents Implementation
+// ============================================================================
+
+// Cache for agent configurations
+let cachedAgents: AgentConfig[] | null = null
+
+/**
+ * Load agent configurations from AGENTS.mdx if available
+ * Falls back to empty array if not found
+ */
+async function loadAgents(): Promise<AgentConfig[]> {
+  if (cachedAgents) return cachedAgents
+
+  // TODO: Load from AGENTS.mdx when compiler is ready
+  // For now, return empty array - agents will be loaded from worker builtin roster
+  cachedAgents = []
+  return cachedAgents
+}
+
+async function agentsMatch(issue: Issue): Promise<{ agent: AgentConfig; confidence: number; reason: string } | null> {
+  const agents = await loadAgents()
+  return matchAgent(issue, agents)
+}
+
+async function agentsList(): Promise<AgentConfig[]> {
+  return loadAgents()
+}
+
+// ============================================================================
 // Local Transport Factory
 // ============================================================================
 
 export interface LocalTransportConfig {
   repo: Repo
   cwd?: string
+  /** Optional agent configurations to use instead of loading from AGENTS.mdx */
+  agents?: AgentConfig[]
 }
 
 /**
@@ -602,6 +635,13 @@ export function localTransport(config: LocalTransportConfig): Transport {
   // Set beads working directory and reset cache for new transport
   beadsCwd = config.cwd
   resetBeadsCache()
+
+  // Set agents if provided
+  if (config.agents) {
+    cachedAgents = config.agents
+  } else {
+    cachedAgents = null // Reset to load from AGENTS.mdx
+  }
 
   // Method dispatch table
   const handlers: Record<string, (...args: unknown[]) => Promise<unknown>> = {
@@ -655,6 +695,10 @@ export function localTransport(config: LocalTransportConfig): Transport {
     'dag.criticalPath': () => dagCriticalPath(),
     'dag.blockedBy': (issueId) => dagBlockedBy(issueId as string),
     'dag.unblocks': (issueId) => dagUnblocks(issueId as string),
+
+    // Agents
+    'agents.match': (issue) => agentsMatch(issue as Issue),
+    'agents.list': () => agentsList(),
   }
 
   return {

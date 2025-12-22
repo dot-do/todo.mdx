@@ -162,3 +162,14 @@ export {
 
 // MDX Components
 export { Agent, Capability, Trigger } from './components'
+
+// Priya - Product Planner Agent
+export {
+  assignReadyIssues,
+  priya,
+  priyaAssign,
+  priyaStatus,
+  priyaCriticalPath,
+  priyaInfo,
+} from './priya'
+export type { AssignmentResult } from './priya'
