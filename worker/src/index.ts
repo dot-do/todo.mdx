@@ -47,6 +47,7 @@ export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { BeadsSyncWorkflow } from './workflows/sync'
 export { ReconcileWorkflow } from './workflows/reconcile'
+export { AutonomousWorkflow } from './workflows/autonomous'
 export { TodoMCP }
 export { PersistenceRPC } from './rpc'
 export { AgentRPC, AiSdkAgentRPC, ClaudeAgentSdkAgentRPC, ClaudeCodeAgentRPC, OpenAiAgentRPC } from './agents'

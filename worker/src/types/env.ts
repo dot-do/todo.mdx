@@ -35,6 +35,7 @@ export interface Env {
   BULK_EMBED_WORKFLOW: WorkflowNamespace
   BEADS_SYNC_WORKFLOW: WorkflowNamespace
   RECONCILE_WORKFLOW: WorkflowNamespace
+  AUTONOMOUS_WORKFLOW: WorkflowNamespace
 
   // Worker RPC Services (PersistenceRPC entrypoint)
   // Service bindings use Fetcher + RPC methods

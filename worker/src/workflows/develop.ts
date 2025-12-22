@@ -22,6 +22,20 @@ import { WorkflowEntrypoint, WorkflowStep as CFWorkflowStep, WorkflowEvent } fro
 import { createRuntime } from 'agents.mdx'
 import { durableTransport, type WorkflowStep } from 'agents.mdx/cloudflare-workflows'
 import type { Issue, Repo } from 'agents.mdx'
+import { withRetry, isTransientError, createRetryableError, type RetryConfig } from './retry'
+
+// ============================================================================
+// Retry Configuration
+// ============================================================================
+
+/** Default retry configuration for sandbox operations */
+const SANDBOX_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelay: 1000,
+  maxDelay: 30000,
+  jitterFactor: 0.3,
+  logPrefix: '[DevelopWorkflow]',
+}
 
 // ============================================================================
 // Workflow Event Payload
@@ -96,14 +110,50 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
 
     // Step 2: Spawn Claude to implement the issue with push mode
     // This creates a branch and pushes the changes directly
+    // Wrapped with retry logic for transient sandbox failures
     const branch = `${issue.id}-${slugify(issue.title)}`
-    const result = await runtime.claude.do({
-      task: issue.title,
-      context: context || (await runtime.todo.render()),
-      push: true,
-      targetBranch: branch,
-      commitMessage: `feat(${issue.id}): ${issue.title}`,
-    })
+
+    const sandboxResult = await withRetry(
+      async () => {
+        const res = await runtime.claude.do({
+          task: issue.title,
+          context: context || (await runtime.todo.render()),
+          push: true,
+          targetBranch: branch,
+          commitMessage: `feat(${issue.id}): ${issue.title}`,
+        })
+        return res
+      },
+      {
+        ...SANDBOX_RETRY_CONFIG,
+        // Custom retry detection for sandbox-specific errors
+        isRetryable: (error) => {
+          // Check for transient errors first
+          const { retryable } = isTransientError(error)
+          if (retryable) return true
+
+          // Also retry on sandbox-specific transient failures
+          if (error instanceof Error) {
+            const message = error.message.toLowerCase()
+            // Sandbox container startup issues
+            if (message.includes('container') && message.includes('failed')) return true
+            // Sandbox resource exhaustion (temporary)
+            if (message.includes('resource') && message.includes('exhausted')) return true
+            // Sandbox connection issues
+            if (message.includes('sandbox') && message.includes('connection')) return true
+          }
+          return false
+        },
+      }
+    )
+
+    if (!sandboxResult.success) {
+      console.error(`[DevelopWorkflow] Sandbox execution failed after ${sandboxResult.attempts} attempts`)
+      throw sandboxResult.error
+    }
+
+    const result = sandboxResult.value!
+    console.log(`[DevelopWorkflow] Sandbox execution succeeded after ${sandboxResult.attempts} attempt(s)`)
 
     console.log(`[DevelopWorkflow] Claude completed implementation:`)
     console.log(`  Files changed: ${result.filesChanged.length}`)
@@ -127,10 +177,24 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
     console.log(`[DevelopWorkflow] Created PR #${pr.number}: ${pr.url}`)
 
     // Step 4: Request code review from Claude
-    const review = await runtime.claude.review({
-      pr,
-      focus: ['security', 'correctness', 'performance'],
-    })
+    // Wrapped with retry logic for transient sandbox failures
+    const reviewResult = await withRetry(
+      async () => {
+        return runtime.claude.review({
+          pr,
+          focus: ['security', 'correctness', 'performance'],
+        })
+      },
+      SANDBOX_RETRY_CONFIG
+    )
+
+    if (!reviewResult.success) {
+      console.error(`[DevelopWorkflow] Code review failed after ${reviewResult.attempts} attempts`)
+      throw reviewResult.error
+    }
+
+    const review = reviewResult.value!
+    console.log(`[DevelopWorkflow] Code review completed after ${reviewResult.attempts} attempt(s)`)
 
     if (!review.approved) {
       console.log(`[DevelopWorkflow] Review failed with ${review.comments.length} comments`)

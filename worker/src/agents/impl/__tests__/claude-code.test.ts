@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ClaudeCodeAgent, SandboxExecuteOptions } from '../claude-code'
+import { ClaudeCodeAgent, SandboxExecuteOptions, ClaudeCodeDoOptions } from '../claude-code'
 import { AgentDef } from '../../base'
 import type { Env } from '../../../types/env'
+import type { TestResult } from '../../../sandbox/claude'
 
 describe('ClaudeCodeAgent', () => {
   const testDef: AgentDef = {
@@ -294,6 +295,280 @@ describe('ClaudeCodeAgent', () => {
 
       const request = mockFetch.mock.calls[0][0] as Request
       expect(request.url).toContain('/execute')
+    })
+  })
+
+  describe('test runner integration', () => {
+    it('should call /test endpoint when runTests is true', async () => {
+      const testResult: TestResult = {
+        passed: 10,
+        failed: 0,
+        skipped: 2,
+        duration: 1234,
+        failedTests: [],
+      }
+
+      const mockFetch = vi.fn().mockImplementation(async (req: Request) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/execute') {
+          return Response.json({
+            diff: 'mock diff',
+            summary: 'Task completed',
+            filesChanged: ['src/test.ts'],
+            exitCode: 0,
+          })
+        }
+        if (url.pathname === '/test') {
+          return Response.json(testResult)
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const mockEnv = createMockEnv(mockFetch)
+      const agent = new ClaudeCodeAgent(testDef, mockEnv as Env, testSandboxOptions)
+      const result = await agent.do('implement feature', {
+        stream: false,
+        runTests: true,
+      } as ClaudeCodeDoOptions)
+
+      expect(result.success).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(2)
+
+      // Verify /test was called
+      const testRequest = mockFetch.mock.calls.find(
+        (call) => new URL((call[0] as Request).url).pathname === '/test'
+      )
+      expect(testRequest).toBeDefined()
+
+      // Verify test-results artifact was added
+      const testArtifact = result.artifacts?.find((a) => a.type === 'test-results')
+      expect(testArtifact).toBeDefined()
+      expect(testArtifact?.ref).toBe('10 passed')
+      expect(testArtifact?.data).toEqual(testResult)
+    })
+
+    it('should include test failure details in artifact', async () => {
+      const testResult: TestResult = {
+        passed: 8,
+        failed: 2,
+        skipped: 0,
+        duration: 2345,
+        failedTests: [
+          {
+            name: 'should handle errors',
+            file: 'src/handler.test.ts',
+            error: 'Expected 200 but got 500',
+            stack: 'at handler.test.ts:42',
+          },
+          {
+            name: 'should validate input',
+            file: 'src/validator.test.ts',
+            error: 'Validation failed',
+          },
+        ],
+      }
+
+      const mockFetch = vi.fn().mockImplementation(async (req: Request) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/execute') {
+          return Response.json({
+            diff: 'mock diff',
+            summary: 'Task completed',
+            filesChanged: ['src/handler.ts'],
+            exitCode: 0,
+          })
+        }
+        if (url.pathname === '/test') {
+          return Response.json(testResult)
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const mockEnv = createMockEnv(mockFetch)
+      const agent = new ClaudeCodeAgent(testDef, mockEnv as Env, testSandboxOptions)
+      const result = await agent.do('fix bug', {
+        stream: false,
+        runTests: true,
+      } as ClaudeCodeDoOptions)
+
+      // Tests failed, so overall success should be false
+      expect(result.success).toBe(false)
+
+      const testArtifact = result.artifacts?.find((a) => a.type === 'test-results')
+      expect(testArtifact).toBeDefined()
+      expect(testArtifact?.ref).toBe('2 failed, 8 passed')
+      expect((testArtifact?.data as TestResult).failedTests).toHaveLength(2)
+    })
+
+    it('should handle test execution errors gracefully', async () => {
+      const mockFetch = vi.fn().mockImplementation(async (req: Request) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/execute') {
+          return Response.json({
+            diff: 'mock diff',
+            summary: 'Task completed',
+            filesChanged: ['src/test.ts'],
+            exitCode: 0,
+          })
+        }
+        if (url.pathname === '/test') {
+          return Response.json({ error: 'pnpm not found' }, { status: 500 })
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const mockEnv = createMockEnv(mockFetch)
+      const agent = new ClaudeCodeAgent(testDef, mockEnv as Env, testSandboxOptions)
+      const events: any[] = []
+
+      const result = await agent.do('implement feature', {
+        stream: false,
+        runTests: true,
+        onEvent: (e) => events.push(e),
+      } as ClaudeCodeDoOptions)
+
+      // When tests are requested but error, overall success is false
+      // (we couldn't verify tests passed)
+      expect(result.success).toBe(false)
+
+      // Should have error event for test failure
+      const errorEvents = events.filter((e) => e.type === 'error')
+      expect(errorEvents.length).toBeGreaterThan(0)
+      expect(errorEvents[0].error).toContain('Test execution failed')
+
+      // Should have test-results artifact with error
+      const testArtifact = result.artifacts?.find((a) => a.type === 'test-results')
+      expect(testArtifact).toBeDefined()
+      expect(testArtifact?.ref).toBe('error')
+      expect((testArtifact?.data as { error: string }).error).toContain('pnpm not found')
+    })
+
+    it('should not run tests when runTests is false', async () => {
+      const mockFetch = vi.fn().mockResolvedValue(
+        Response.json({
+          diff: 'mock diff',
+          summary: 'Task completed',
+          filesChanged: ['src/test.ts'],
+          exitCode: 0,
+        })
+      )
+
+      const mockEnv = createMockEnv(mockFetch)
+      const agent = new ClaudeCodeAgent(testDef, mockEnv as Env, testSandboxOptions)
+      const result = await agent.do('implement feature', {
+        stream: false,
+        runTests: false,
+      } as ClaudeCodeDoOptions)
+
+      expect(result.success).toBe(true)
+      expect(mockFetch).toHaveBeenCalledTimes(1)
+
+      // Verify no test-results artifact
+      const testArtifact = result.artifacts?.find((a) => a.type === 'test-results')
+      expect(testArtifact).toBeUndefined()
+    })
+
+    it('should pass testOptions to /test endpoint', async () => {
+      const testResult: TestResult = {
+        passed: 5,
+        failed: 0,
+        skipped: 0,
+        duration: 500,
+        failedTests: [],
+      }
+
+      let capturedTestBody: any
+
+      const mockFetch = vi.fn().mockImplementation(async (req: Request) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/execute') {
+          return Response.json({
+            diff: 'mock diff',
+            summary: 'Task completed',
+            filesChanged: [],
+            exitCode: 0,
+          })
+        }
+        if (url.pathname === '/test') {
+          capturedTestBody = await req.json()
+          return Response.json(testResult)
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const mockEnv = createMockEnv(mockFetch)
+      const agent = new ClaudeCodeAgent(testDef, mockEnv as Env, testSandboxOptions)
+
+      await agent.do('implement feature', {
+        stream: false,
+        runTests: true,
+        testOptions: {
+          filter: 'integration',
+          timeout: 60000,
+          cwd: '/workspace/packages/core',
+        },
+      } as ClaudeCodeDoOptions)
+
+      expect(capturedTestBody).toEqual({
+        filter: 'integration',
+        timeout: 60000,
+        cwd: '/workspace/packages/core',
+      })
+    })
+
+    it('should emit test-related events', async () => {
+      const testResult: TestResult = {
+        passed: 10,
+        failed: 1,
+        skipped: 3,
+        duration: 4567,
+        failedTests: [
+          {
+            name: 'test case',
+            file: 'test.ts',
+            error: 'failed',
+          },
+        ],
+      }
+
+      const mockFetch = vi.fn().mockImplementation(async (req: Request) => {
+        const url = new URL(req.url)
+        if (url.pathname === '/execute') {
+          return Response.json({
+            diff: 'mock diff',
+            summary: 'Done',
+            filesChanged: [],
+            exitCode: 0,
+          })
+        }
+        if (url.pathname === '/test') {
+          return Response.json(testResult)
+        }
+        return new Response('Not found', { status: 404 })
+      })
+
+      const mockEnv = createMockEnv(mockFetch)
+      const agent = new ClaudeCodeAgent(testDef, mockEnv as Env, testSandboxOptions)
+      const events: any[] = []
+
+      await agent.do('fix bug', {
+        stream: false,
+        runTests: true,
+        onEvent: (e) => events.push(e),
+      } as ClaudeCodeDoOptions)
+
+      // Should have 'Running tests...' thinking event
+      const thinkingEvents = events.filter((e) => e.type === 'thinking')
+      const testThinkingEvent = thinkingEvents.find((e) => e.content.includes('Running tests'))
+      expect(testThinkingEvent).toBeDefined()
+
+      // Should have test result message event
+      const messageEvents = events.filter((e) => e.type === 'message')
+      const testResultEvent = messageEvents.find((e) => e.content.includes('10 passed'))
+      expect(testResultEvent).toBeDefined()
+      expect(testResultEvent.content).toContain('1 failed')
+      expect(testResultEvent.content).toContain('3 skipped')
+      expect(testResultEvent.content).toContain('4567ms')
     })
   })
 })

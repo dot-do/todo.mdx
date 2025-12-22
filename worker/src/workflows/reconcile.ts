@@ -16,6 +16,55 @@ import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:work
 import { eq, and, isNotNull } from 'drizzle-orm'
 import { createDrizzle, repos, issues as issuesTable, installations } from '../db/drizzle'
 import type { Issue as IssueRow, Repo as RepoRow } from '../db/schema'
+import {
+  withRetry,
+  fetchWithRetry,
+  isTransientError,
+  createRetryableError,
+  type RetryConfig,
+} from './retry'
+
+// ============================================================================
+// Retry Configuration
+// ============================================================================
+
+/** Default retry configuration for RepoDO fetch operations */
+const REPO_DO_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelay: 1000,
+  maxDelay: 30000,
+  jitterFactor: 0.3,
+  logPrefix: '[ReconcileWorkflow:RepoDO]',
+}
+
+/** Default retry configuration for D1 database operations */
+const D1_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 3,
+  baseDelay: 500,
+  maxDelay: 10000,
+  jitterFactor: 0.2,
+  logPrefix: '[ReconcileWorkflow:D1]',
+  // Custom retry detection for D1-specific errors
+  isRetryable: (error) => {
+    // Check for standard transient errors first
+    const { retryable } = isTransientError(error)
+    if (retryable) return true
+
+    // D1-specific transient failures
+    if (error instanceof Error) {
+      const message = error.message.toLowerCase()
+      // D1 connection issues
+      if (message.includes('d1') && message.includes('connection')) return true
+      // Database locked (temporary)
+      if (message.includes('database') && message.includes('locked')) return true
+      // Busy/overloaded
+      if (message.includes('busy') || message.includes('overloaded')) return true
+      // SQL constraint failures are NOT retryable
+      if (message.includes('constraint') || message.includes('unique')) return false
+    }
+    return false
+  },
+}
 
 // ============================================================================
 // Workflow Payload
@@ -194,140 +243,205 @@ export class ReconcileWorkflow extends WorkflowEntrypoint<WorkflowEnv, Reconcile
       const doId = this.env.REPO.idFromName(repo.fullName)
       const stub = this.env.REPO.get(doId)
 
-      // Fetch all issues from RepoDO
-      const response = await stub.fetch(new Request('http://do/issues'))
+      // Fetch all issues from RepoDO with retry logic
+      const fetchResult = await withRetry(
+        async () => {
+          const response = await stub.fetch(new Request('http://do/issues'))
 
-      if (!response.ok) {
-        const error = await response.text()
-        console.error(`[ReconcileWorkflow] Failed to fetch issues from ${repo.fullName}: ${response.status} ${error}`)
+          if (!response.ok) {
+            const errorText = await response.text()
+            // Treat 5xx and 429 as retryable
+            if (response.status >= 500 || response.status === 429) {
+              throw createRetryableError(
+                `RepoDO fetch failed: ${response.status} ${errorText}`,
+                response.status === 429 ? 'rate_limit' : 'server_error',
+                { statusCode: response.status }
+              )
+            }
+            // 4xx errors (except 429) are not retryable
+            throw new Error(`RepoDO fetch failed: ${response.status} ${errorText}`)
+          }
+
+          return response.json() as Promise<RepoDOIssue[]>
+        },
+        {
+          ...REPO_DO_RETRY_CONFIG,
+          logPrefix: `[ReconcileWorkflow:RepoDO:${repo.fullName}]`,
+        }
+      )
+
+      if (!fetchResult.success) {
+        console.error(`[ReconcileWorkflow] Failed to fetch issues from ${repo.fullName} after ${fetchResult.attempts} attempts`)
         return {
           created: 0,
           updated: 0,
           conflicts: [],
-          error: `Failed to fetch: ${response.status}`,
+          error: fetchResult.error?.message || 'Failed to fetch from RepoDO',
         }
       }
 
-      const doIssues = await response.json() as RepoDOIssue[]
-
-      console.log(`[ReconcileWorkflow] Fetched ${doIssues.length} issues from ${repo.fullName}`)
+      const doIssues = fetchResult.value!
+      console.log(`[ReconcileWorkflow] Fetched ${doIssues.length} issues from ${repo.fullName} (${fetchResult.attempts} attempt(s))`)
 
       let created = 0
       let updated = 0
       const conflicts: SyncConflict[] = []
       const now = new Date().toISOString()
 
-      // Process each issue
+      // Process each issue with retry logic for D1 operations
       for (const doIssue of doIssues) {
-        try {
-          // Check if issue exists in D1 by beadsId (localId) or githubNumber
-          const existing = await db
-            .select()
-            .from(issuesTable)
-            .where(
-              and(
-                eq(issuesTable.repoId, repo.id),
-                eq(issuesTable.localId, doIssue.id)
+        const issueResult = await withRetry(
+          async () => {
+            // Check if issue exists in D1 by beadsId (localId) or githubNumber
+            const existing = await db
+              .select()
+              .from(issuesTable)
+              .where(
+                and(
+                  eq(issuesTable.repoId, repo.id),
+                  eq(issuesTable.localId, doIssue.id)
+                )
               )
-            )
-            .limit(1)
+              .limit(1)
 
-          if (existing.length > 0) {
-            const existingIssue = existing[0]
+            if (existing.length > 0) {
+              const existingIssue = existing[0]
 
-            // Conflict detection: check if both sides changed since last sync
-            const existingUpdatedAt = new Date(existingIssue.updatedAt).getTime()
-            const doUpdatedAt = new Date(doIssue.updated_at).getTime()
-            const lastSyncAt = doIssue.last_sync_at
-              ? new Date(doIssue.last_sync_at).getTime()
-              : 0
+              // Conflict detection: check if both sides changed since last sync
+              const existingUpdatedAt = new Date(existingIssue.updatedAt).getTime()
+              const doUpdatedAt = new Date(doIssue.updated_at).getTime()
+              const lastSyncAt = doIssue.last_sync_at
+                ? new Date(doIssue.last_sync_at).getTime()
+                : 0
 
-            // If both changed after last sync, we have a conflict
-            if (lastSyncAt > 0 && existingUpdatedAt > lastSyncAt && doUpdatedAt > lastSyncAt) {
-              conflicts.push({
-                issueId: String(existingIssue.id),
-                beadsId: doIssue.id,
-                repoFullName: repo.fullName,
-                reason: 'Both D1 and RepoDO modified since last sync',
-                repoDOUpdatedAt: doIssue.updated_at,
-                d1UpdatedAt: existingIssue.updatedAt,
-              })
-              // Skip update on conflict - requires manual resolution
-              continue
+              // If both changed after last sync, we have a conflict
+              if (lastSyncAt > 0 && existingUpdatedAt > lastSyncAt && doUpdatedAt > lastSyncAt) {
+                return {
+                  action: 'conflict' as const,
+                  conflict: {
+                    issueId: String(existingIssue.id),
+                    beadsId: doIssue.id,
+                    repoFullName: repo.fullName,
+                    reason: 'Both D1 and RepoDO modified since last sync',
+                    repoDOUpdatedAt: doIssue.updated_at,
+                    d1UpdatedAt: existingIssue.updatedAt,
+                  },
+                }
+              }
+
+              // Update existing issue (RepoDO is source of truth for beads data)
+              await db
+                .update(issuesTable)
+                .set({
+                  title: doIssue.title,
+                  body: doIssue.description || null,
+                  status: doIssue.status,
+                  priority: doIssue.priority,
+                  type: doIssue.issue_type,
+                  labels: doIssue.labels ? JSON.stringify(doIssue.labels) : null,
+                  closedAt: doIssue.closed_at || null,
+                  closeReason: doIssue.close_reason || null,
+                  githubNumber: doIssue.github_number || null,
+                  githubId: doIssue.github_id || null,
+                  updatedAt: now,
+                })
+                .where(eq(issuesTable.id, existingIssue.id))
+
+              return { action: 'updated' as const }
+            } else {
+              // Create new issue
+              await db
+                .insert(issuesTable)
+                .values({
+                  localId: doIssue.id,
+                  title: doIssue.title,
+                  body: doIssue.description || null,
+                  state: doIssue.status === 'closed' ? 'closed' : 'open',
+                  status: doIssue.status,
+                  priority: doIssue.priority,
+                  type: doIssue.issue_type,
+                  labels: doIssue.labels ? JSON.stringify(doIssue.labels) : null,
+                  repoId: repo.id,
+                  githubNumber: doIssue.github_number || null,
+                  githubId: doIssue.github_id || null,
+                  closedAt: doIssue.closed_at || null,
+                  closeReason: doIssue.close_reason || null,
+                  createdAt: doIssue.created_at,
+                  updatedAt: now,
+                })
+
+              return { action: 'created' as const }
             }
-
-            // Update existing issue (RepoDO is source of truth for beads data)
-            await db
-              .update(issuesTable)
-              .set({
-                title: doIssue.title,
-                body: doIssue.description || null,
-                status: doIssue.status,
-                priority: doIssue.priority,
-                type: doIssue.issue_type,
-                labels: doIssue.labels ? JSON.stringify(doIssue.labels) : null,
-                closedAt: doIssue.closed_at || null,
-                closeReason: doIssue.close_reason || null,
-                githubNumber: doIssue.github_number || null,
-                githubId: doIssue.github_id || null,
-                updatedAt: now,
-              })
-              .where(eq(issuesTable.id, existingIssue.id))
-
-            updated++
-          } else {
-            // Create new issue
-            await db
-              .insert(issuesTable)
-              .values({
-                localId: doIssue.id,
-                title: doIssue.title,
-                body: doIssue.description || null,
-                state: doIssue.status === 'closed' ? 'closed' : 'open',
-                status: doIssue.status,
-                priority: doIssue.priority,
-                type: doIssue.issue_type,
-                labels: doIssue.labels ? JSON.stringify(doIssue.labels) : null,
-                repoId: repo.id,
-                githubNumber: doIssue.github_number || null,
-                githubId: doIssue.github_id || null,
-                closedAt: doIssue.closed_at || null,
-                closeReason: doIssue.close_reason || null,
-                createdAt: doIssue.created_at,
-                updatedAt: now,
-              })
-
-            created++
+          },
+          {
+            ...D1_RETRY_CONFIG,
+            logPrefix: `[ReconcileWorkflow:D1:${doIssue.id}]`,
           }
-        } catch (issueError) {
-          console.error(`[ReconcileWorkflow] Error processing issue ${doIssue.id}:`, issueError)
+        )
+
+        if (issueResult.success && issueResult.value) {
+          const { action } = issueResult.value
+          if (action === 'created') {
+            created++
+          } else if (action === 'updated') {
+            updated++
+          } else if (action === 'conflict' && issueResult.value.conflict) {
+            conflicts.push(issueResult.value.conflict)
+          }
+        } else {
+          console.error(`[ReconcileWorkflow] Error processing issue ${doIssue.id} after ${issueResult.attempts} attempts:`, issueResult.error)
         }
       }
 
-      // Update repo lastSyncAt
-      await db
-        .update(repos)
-        .set({
-          lastSyncAt: now,
-          syncStatus: 'idle',
-          syncError: null,
-          updatedAt: now,
-        })
-        .where(eq(repos.id, repo.id))
+      // Update repo lastSyncAt with retry logic
+      const updateResult = await withRetry(
+        async () => {
+          await db
+            .update(repos)
+            .set({
+              lastSyncAt: now,
+              syncStatus: 'idle',
+              syncError: null,
+              updatedAt: now,
+            })
+            .where(eq(repos.id, repo.id))
+        },
+        {
+          ...D1_RETRY_CONFIG,
+          logPrefix: `[ReconcileWorkflow:D1:repo-update:${repo.fullName}]`,
+        }
+      )
+
+      if (!updateResult.success) {
+        console.error(`[ReconcileWorkflow] Failed to update repo sync status for ${repo.fullName}:`, updateResult.error)
+      }
 
       return { created, updated, conflicts }
     } catch (error) {
       console.error(`[ReconcileWorkflow] Error syncing repo ${repo.fullName}:`, error)
 
-      // Update repo with error status
-      await db
-        .update(repos)
-        .set({
-          syncStatus: 'error',
-          syncError: String(error),
-          updatedAt: new Date().toISOString(),
-        })
-        .where(eq(repos.id, repo.id))
+      // Update repo with error status (with retry)
+      const errorUpdateResult = await withRetry(
+        async () => {
+          await db
+            .update(repos)
+            .set({
+              syncStatus: 'error',
+              syncError: String(error),
+              updatedAt: new Date().toISOString(),
+            })
+            .where(eq(repos.id, repo.id))
+        },
+        {
+          ...D1_RETRY_CONFIG,
+          maxRetries: 1, // Fewer retries for error status update
+          logPrefix: `[ReconcileWorkflow:D1:repo-error:${repo.fullName}]`,
+        }
+      )
+
+      if (!errorUpdateResult.success) {
+        console.error(`[ReconcileWorkflow] Failed to update repo error status for ${repo.fullName}:`, errorUpdateResult.error)
+      }
 
       return {
         created: 0,

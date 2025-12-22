@@ -1208,6 +1208,84 @@ export class RepoDO extends DurableObject<Env> {
     this.logSync('github', 'close', { githubNumber })
   }
 
+  /**
+   * Create a comment on a GitHub issue
+   * Returns the created comment's ID and details
+   */
+  async createGitHubComment(
+    issueId: string,
+    body: string
+  ): Promise<{ id: number; github_id: number; html_url: string }> {
+    await this.initRepoContext()
+    if (!this.repoFullName || !this.installationId) {
+      throw new Error('Repo context not initialized')
+    }
+
+    const issue = this.getIssue(issueId)
+    if (!issue) {
+      throw new Error(`Issue not found: ${issueId}`)
+    }
+    if (!issue.github_number) {
+      throw new Error(`Issue ${issueId} has no GitHub number - cannot create comment`)
+    }
+
+    const token = await this.getInstallationToken(this.installationId)
+
+    const response = await fetch(
+      `https://api.github.com/repos/${this.repoFullName}/issues/${issue.github_number}/comments`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'todo.mdx-worker',
+        },
+        body: JSON.stringify({ body }),
+      }
+    )
+
+    if (!response.ok) {
+      const error = await response.text()
+      throw new Error(`Failed to create GitHub comment: ${response.status} ${error}`)
+    }
+
+    const ghComment = (await response.json()) as {
+      id: number
+      html_url: string
+      user: { login: string } | null
+      created_at: string
+    }
+
+    // Store comment in local SQLite for tracking
+    const now = new Date().toISOString()
+    this.sql.exec(
+      `INSERT INTO comments (issue_id, author, text, created_at)
+       VALUES (?, ?, ?, ?)`,
+      issueId,
+      ghComment.user?.login || 'todo.mdx-app',
+      body,
+      ghComment.created_at || now
+    )
+
+    // Get the inserted comment's local ID
+    const lastInsert = this.sql
+      .exec('SELECT last_insert_rowid() as id')
+      .toArray()[0] as { id: number }
+
+    this.logSync('github', 'comment_create', {
+      issueId,
+      githubNumber: issue.github_number,
+      githubCommentId: ghComment.id,
+    })
+
+    return {
+      id: lastInsert.id,
+      github_id: ghComment.id,
+      html_url: ghComment.html_url,
+    }
+  }
+
   // ===========================================================================
   // Query endpoints for MCP tools
   // ===========================================================================
@@ -1754,6 +1832,61 @@ export class RepoDO extends DurableObject<Env> {
         }
 
         return Response.json({ ok: true, id })
+      }
+
+      // Create comment on issue: POST /issues/:id/comments
+      const commentsMatch = path.match(/^\/issues\/([^/]+)\/comments$/)
+      if (commentsMatch && request.method === 'POST') {
+        const issueId = commentsMatch[1]
+        const existing = this.getIssue(issueId)
+        if (!existing) {
+          return new Response(JSON.stringify({ error: 'Issue not found' }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          })
+        }
+
+        if (!existing.github_number) {
+          return new Response(
+            JSON.stringify({
+              error: 'Issue has no GitHub number - cannot create comment',
+              issueId,
+            }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+
+        const body = (await request.json()) as { body: string }
+        if (!body.body || typeof body.body !== 'string') {
+          return new Response(
+            JSON.stringify({ error: 'Missing or invalid "body" field' }),
+            {
+              status: 400,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
+
+        try {
+          const result = await this.createGitHubComment(issueId, body.body)
+          return Response.json({
+            ok: true,
+            issueId,
+            github_number: existing.github_number,
+            comment: result,
+          })
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: String(error) }),
+            {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        }
       }
 
       // Add dependency

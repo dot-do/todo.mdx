@@ -550,27 +550,47 @@ async function handleCommentCreate(
 
   // If issue has a GitHub number, sync the comment there
   if (existingIssue.github_number) {
-    // For now, log that we would sync to GitHub
-    // TODO: Implement GitHub comment sync via RepoDO
     console.log(
-      `[Linear Webhook] Would sync comment to GitHub issue #${existingIssue.github_number}`
+      `[Linear Webhook] Syncing comment to GitHub issue #${existingIssue.github_number}`
     )
 
     // Format the comment with Linear attribution
     const commentBody = `**Comment from Linear by ${comment.user?.name || 'Unknown'}:**\n\n${comment.body}\n\n---\n*[View in Linear](${comment.url})*`
 
-    // TODO: Add endpoint to RepoDO for creating GitHub comments
-    // await stub.fetch(new Request(`http://do/issues/${existingIssue.id}/comments`, {
-    //   method: 'POST',
-    //   body: JSON.stringify({ body: commentBody }),
-    // }))
+    // Create comment on GitHub via RepoDO
+    const commentResponse = await stub.fetch(
+      new Request(`http://do/issues/${existingIssue.id}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: commentBody }),
+      })
+    )
+
+    if (!commentResponse.ok) {
+      const errorText = await commentResponse.text()
+      console.error(`[Linear Webhook] Failed to create GitHub comment: ${errorText}`)
+      return c.json({
+        status: 'error',
+        action: 'comment_create',
+        error: errorText,
+        linearIssueId,
+        githubNumber: existingIssue.github_number,
+      }, 500)
+    }
+
+    const commentResult = await commentResponse.json() as {
+      ok: boolean
+      comment: { id: number; github_id: number; html_url: string }
+    }
 
     return c.json({
       status: 'synced',
       action: 'comment_create',
       linearIssueId,
       githubNumber: existingIssue.github_number,
-      commentId: comment.id,
+      linearCommentId: comment.id,
+      githubCommentId: commentResult.comment.github_id,
+      githubCommentUrl: commentResult.comment.html_url,
     })
   }
 

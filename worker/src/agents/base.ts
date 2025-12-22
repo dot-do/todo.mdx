@@ -44,9 +44,11 @@ export interface AskResult {
 
 // Artifacts and Sources
 export interface Artifact {
-  type: 'pr' | 'commit' | 'file' | 'branch'
+  type: 'pr' | 'commit' | 'file' | 'branch' | 'test-results'
   ref: string
   url?: string
+  /** Additional data for complex artifacts (e.g., test results) */
+  data?: unknown
 }
 
 export interface Source {

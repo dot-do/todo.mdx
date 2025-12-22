@@ -9,7 +9,17 @@ import {
   Artifact,
 } from '../base'
 import type { Env } from '../../types/env'
-import type { ExecuteResult, ExecuteOptions, StreamEvent } from '../../sandbox/claude'
+import type { ExecuteResult, ExecuteOptions, StreamEvent, TestResult, TestOptions } from '../../sandbox/claude'
+
+/**
+ * Extended DoOptions for ClaudeCodeAgent with test runner support
+ */
+export interface ClaudeCodeDoOptions extends DoOptions {
+  /** Run tests after execution completes */
+  runTests?: boolean
+  /** Options for test execution */
+  testOptions?: TestOptions
+}
 
 /**
  * Options for sandbox execution
@@ -92,13 +102,14 @@ export class ClaudeCodeAgent extends Agent {
    * - Clones repository into sandbox
    * - Runs Claude Code CLI with full file system access
    * - Streams events back to caller
-   * - Returns artifacts (commits, PRs, files changed)
+   * - Optionally runs tests after execution
+   * - Returns artifacts (commits, PRs, files changed, test results)
    *
    * @param task - The development task (YAML-formatted context recommended)
-   * @param options - Execution options (streaming, callbacks, timeouts)
+   * @param options - Execution options (streaming, callbacks, timeouts, runTests)
    * @returns DoResult with artifacts and event history
    */
-  async do(task: string, options?: DoOptions): Promise<DoResult> {
+  async do(task: string, options?: ClaudeCodeDoOptions): Promise<DoResult> {
     const events: AgentEvent[] = []
     const artifacts: Artifact[] = []
     const onEvent = options?.onEvent
@@ -200,7 +211,59 @@ export class ClaudeCodeAgent extends Agent {
         })
       }
 
-      const success = result.exitCode === 0
+      // Run tests if requested
+      let testResult: TestResult | undefined
+      if (options?.runTests) {
+        const testEvent: AgentEvent = {
+          type: 'thinking',
+          content: 'Running tests...',
+        }
+        events.push(testEvent)
+        onEvent?.(testEvent)
+
+        try {
+          testResult = await this.runTests(sandbox, options.testOptions)
+
+          // Add test results artifact
+          const testSummary = testResult.failed > 0
+            ? `${testResult.failed} failed, ${testResult.passed} passed`
+            : `${testResult.passed} passed`
+
+          artifacts.push({
+            type: 'test-results',
+            ref: testSummary,
+            data: testResult,
+          })
+
+          // Emit test result event
+          const testResultEvent: AgentEvent = {
+            type: 'message',
+            content: `Tests: ${testResult.passed} passed, ${testResult.failed} failed, ${testResult.skipped} skipped (${testResult.duration}ms)`,
+          }
+          events.push(testResultEvent)
+          onEvent?.(testResultEvent)
+        } catch (testError) {
+          const testErrorMessage = testError instanceof Error ? testError.message : String(testError)
+          const testErrorEvent: AgentEvent = {
+            type: 'error',
+            error: `Test execution failed: ${testErrorMessage}`,
+          }
+          events.push(testErrorEvent)
+          onEvent?.(testErrorEvent)
+
+          // Add failed test artifact with error info
+          artifacts.push({
+            type: 'test-results',
+            ref: 'error',
+            data: { error: testErrorMessage },
+          })
+        }
+      }
+
+      // Determine overall success: execution succeeded and (no tests OR tests passed)
+      const executionSuccess = result.exitCode === 0
+      const testsPass = !options?.runTests || (testResult !== undefined && testResult.failed === 0)
+      const success = executionSuccess && testsPass
 
       const doResult: DoResult = {
         success,
@@ -387,6 +450,41 @@ export class ClaudeCodeAgent extends Agent {
     }
 
     return finalResult
+  }
+
+  /**
+   * Run tests in the sandbox environment
+   *
+   * Calls the sandbox's /test endpoint which executes vitest and returns
+   * structured test results including passed/failed/skipped counts and
+   * detailed failure information.
+   *
+   * @param sandbox - The sandbox Durable Object stub
+   * @param options - Optional test configuration (filter, timeout, cwd)
+   * @returns TestResult with pass/fail counts and failure details
+   */
+  private async runTests(
+    sandbox: DurableObjectStub,
+    options?: TestOptions
+  ): Promise<TestResult> {
+    const response = await sandbox.fetch(new Request('http://sandbox/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(options ?? {}),
+    }))
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(`Test execution failed: ${response.status} - ${errorBody}`)
+    }
+
+    const result = await response.json() as TestResult | { error: string }
+
+    if ('error' in result) {
+      throw new Error(result.error)
+    }
+
+    return result
   }
 
   /**
