@@ -27,28 +27,31 @@
  * const result = await runtime.claude.do({ task: 'fix the bug' })
  */
 
-// Types
+// Types - re-exported from beads-workflows (canonical)
 export type {
-  // Domain types
-  Repo,
   Issue,
-  PR,
-  IssueFilter,
   IssueStatus,
   IssueType,
   Priority,
-
-  // Re-exports from beads-workflows (prefixed to avoid conflicts)
-  BeadsIssue,
-  BeadsIssueStatus,
-  BeadsIssueType,
-  BeadsPriority,
-  BeadsEpic,
-  BeadsChanges,
-  BeadsIssueEvent,
+  Epic,
+  Changes,
+  IssueEvent,
   BeadsConfig,
+} from './types'
 
-  // Claude types
+export {
+  isValidStatus,
+  isValidType,
+  isValidPriority,
+  isIssue,
+  isEpic,
+} from './types'
+
+// Types - agents.mdx specific
+export type {
+  Repo,
+  PR,
+  IssueFilter,
   DoOpts,
   DoResult,
   ResearchOpts,
@@ -58,29 +61,16 @@ export type {
   AskOpts,
   ClaudeMethod,
   Claude,
-
-  // Namespace types
   PRNamespace,
   IssuesNamespace,
   EpicsNamespace,
   GitNamespace,
   TodoNamespace,
-
-  // Runtime types
   WorkflowRuntime,
   RuntimeConfig,
   Transport,
   TransportFactory,
   CreateRuntime,
-} from './types'
-
-// Type guards from beads-workflows
-export {
-  isValidStatus,
-  isValidType,
-  isValidPriority,
-  isBeadsIssue,
-  isBeadsEpic,
 } from './types'
 
 // Runtime factory

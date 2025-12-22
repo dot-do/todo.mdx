@@ -30,7 +30,6 @@ import {
   findBeadsDir,
   type IssuesApi,
   type EpicsApi,
-  type Issue as SdkIssue,
   type CreateOptions,
   type UpdateOptions,
 } from 'beads-workflows'
@@ -285,24 +284,7 @@ export function resetBeadsCache(): void {
   cachedBeadsDir = null
 }
 
-/**
- * Convert SDK Issue to transport Issue type
- */
-function convertIssue(sdkIssue: SdkIssue): Issue {
-  return {
-    id: sdkIssue.id,
-    title: sdkIssue.title,
-    description: sdkIssue.description || '',
-    status: sdkIssue.status === 'in_progress' ? 'in_progress' : sdkIssue.status,
-    priority: sdkIssue.priority,
-    type: sdkIssue.type,
-    assignee: sdkIssue.assignee,
-    labels: sdkIssue.labels || [],
-    createdAt: sdkIssue.created.toISOString(),
-    updatedAt: sdkIssue.updated.toISOString(),
-    closedAt: sdkIssue.closed?.toISOString(),
-  }
-}
+// No conversion needed - Issue type is now from beads-workflows
 
 // Current working directory for beads operations
 let beadsCwd: string | undefined
@@ -316,20 +298,17 @@ async function beadsIssuesList(filter?: IssueFilter): Promise<Issue[]> {
     assignee: filter.assignee,
   } : undefined
 
-  const issues = await api.list(sdkFilter)
-  return issues.map(convertIssue)
+  return api.list(sdkFilter)
 }
 
 async function beadsIssuesReady(): Promise<Issue[]> {
   const api = await getIssuesApi(beadsCwd)
-  const issues = await api.ready()
-  return issues.map(convertIssue)
+  return api.ready()
 }
 
 async function beadsIssuesBlocked(): Promise<Issue[]> {
   const api = await getIssuesApi(beadsCwd)
-  const issues = await api.blocked()
-  return issues.map(convertIssue)
+  return api.blocked()
 }
 
 async function beadsIssuesCreate(opts: { title: string; description?: string; type?: string; priority?: number }): Promise<Issue> {
@@ -345,15 +324,15 @@ async function beadsIssuesCreate(opts: { title: string; description?: string; ty
   if (!issue) {
     throw new Error(`Failed to create issue: ${opts.title}`)
   }
-  return convertIssue(issue)
+  return issue
 }
 
 async function beadsIssuesUpdate(id: string, fields: Partial<Issue>): Promise<Issue> {
   const api = await getIssuesApi(beadsCwd)
   const updateOpts: UpdateOptions = {}
 
-  if (fields.status) updateOpts.status = fields.status as 'open' | 'in_progress' | 'closed'
-  if (fields.priority !== undefined) updateOpts.priority = fields.priority as 0 | 1 | 2 | 3 | 4
+  if (fields.status) updateOpts.status = fields.status
+  if (fields.priority !== undefined) updateOpts.priority = fields.priority
   if (fields.assignee) updateOpts.assignee = fields.assignee
   if (fields.title) updateOpts.title = fields.title
   if (fields.description) updateOpts.description = fields.description
@@ -362,7 +341,7 @@ async function beadsIssuesUpdate(id: string, fields: Partial<Issue>): Promise<Is
   if (!issue) {
     throw new Error(`Failed to update issue: ${id}`)
   }
-  return convertIssue(issue)
+  return issue
 }
 
 async function beadsIssuesClose(id: string, reason?: string): Promise<void> {
@@ -379,13 +358,12 @@ async function beadsIssuesShow(id: string): Promise<Issue> {
   if (!issue) {
     throw new Error(`Issue not found: ${id}`)
   }
-  return convertIssue(issue)
+  return issue
 }
 
 async function beadsEpicsList(): Promise<Issue[]> {
   const api = await getEpicsApi(beadsCwd)
-  const epics = await api.list()
-  return epics.map(convertIssue)
+  return api.list()
 }
 
 async function beadsEpicsProgress(id: string): Promise<{ total: number; completed: number; percentage: number }> {
@@ -411,7 +389,7 @@ async function beadsEpicsCreate(opts: { title: string; description?: string }): 
   if (!issue) {
     throw new Error(`Failed to create epic: ${opts.title}`)
   }
-  return convertIssue(issue)
+  return issue
 }
 
 // ============================================================================

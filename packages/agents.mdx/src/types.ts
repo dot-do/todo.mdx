@@ -8,30 +8,35 @@
  */
 
 // ============================================================================
-// Re-exports from beads-workflows
+// Re-exports from beads-workflows (canonical types)
 // ============================================================================
 
-// Re-export core types from beads-workflows with Beads prefix to avoid conflicts
-// beads-workflows uses Date objects, while agents.mdx uses ISO strings for serialization
-export type {
+// Import for local use
+import type {
   Issue as BeadsIssue,
-  IssueStatus as BeadsIssueStatus,
-  IssueType as BeadsIssueType,
-  Priority as BeadsPriority,
-  Epic as BeadsEpic,
-  Changes as BeadsChanges,
-  IssueEvent as BeadsIssueEvent,
+  IssueStatus,
+  IssueType,
+  Priority,
+  Epic,
+  Changes,
+  IssueEvent,
   BeadsConfig,
 } from 'beads-workflows'
 
-// Re-export type guards from beads-workflows
+// Re-export everything
+export type { IssueStatus, IssueType, Priority, Epic, Changes, IssueEvent, BeadsConfig }
+export type { BeadsIssue as Issue }
+
 export {
   isValidStatus,
   isValidType,
   isValidPriority,
-  isIssue as isBeadsIssue,
-  isEpic as isBeadsEpic,
+  isIssue,
+  isEpic,
 } from 'beads-workflows'
+
+// Local alias for use in this file
+type Issue = BeadsIssue
 
 // ============================================================================
 // Core Domain Types
@@ -42,47 +47,6 @@ export interface Repo {
   name: string
   defaultBranch: string
   url: string
-}
-
-// ============================================================================
-// agents.mdx-specific Issue Types
-// These extend beads-workflows types with additional values for workflow use
-// ============================================================================
-
-/**
- * Issue status for agents.mdx workflows
- * Extends BeadsIssueStatus with 'blocked' for workflow state tracking
- */
-export type IssueStatus = 'open' | 'in_progress' | 'blocked' | 'closed'
-
-/**
- * Issue type for agents.mdx workflows
- * Extends BeadsIssueType with 'chore' for maintenance tasks
- */
-export type IssueType = 'bug' | 'feature' | 'task' | 'epic' | 'chore'
-
-/**
- * Priority for agents.mdx workflows
- * More flexible than BeadsPriority (0-4), allows any number
- */
-export type Priority = number
-
-/**
- * Runtime Issue interface for workflow execution
- * Uses string dates for JSON serialization (vs Date objects in beads-workflows)
- */
-export interface Issue {
-  id: string
-  title: string
-  description: string
-  status: IssueStatus
-  priority: Priority
-  type: IssueType
-  assignee?: string
-  labels: string[]
-  createdAt: string
-  updatedAt: string
-  closedAt?: string
 }
 
 export interface PR {

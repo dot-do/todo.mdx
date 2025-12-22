@@ -318,9 +318,10 @@ export class WorkflowDaemon {
       return
     }
 
-    // Special handling for 'ready' event (when issue becomes unblocked)
+    // Special handling for 'ready' event (when issue was in_progress or had blockers, now open)
+    // Note: beads-workflows doesn't have 'blocked' status - blocked state is tracked via dependencies
     const isReady = type === 'updated' &&
-                    previousIssue?.status === 'blocked' &&
+                    previousIssue?.status !== 'open' &&
                     issue.status === 'open'
 
     // Execute matching handlers from all workflows
