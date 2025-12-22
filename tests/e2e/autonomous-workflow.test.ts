@@ -339,7 +339,6 @@ describeWithCredentials('AutonomousWorkflow E2E', () => {
     console.log('='.repeat(60))
     console.log(`Worker URL: ${WORKER_BASE_URL}`)
     console.log(`Test Repo: ${TEST_REPO}`)
-    console.log(`Installation ID: ${GITHUB_INSTALLATION_ID}`)
     console.log('='.repeat(60))
 
     // Check if sandbox is available
@@ -451,7 +450,6 @@ describeWithCredentials('AutonomousWorkflow E2E', () => {
         const payload: AutonomousPayload = {
           issueId,
           repoFullName: TEST_REPO,
-          installationId: parseInt(GITHUB_INSTALLATION_ID!),
           task: `Create a simple greeting utility:
 1. Create file "e2e-tests/${issueId}/greet.ts" with a function that takes a name and returns "Hello, {name}!"
 2. Create file "e2e-tests/${issueId}/greet.test.ts" with tests for the greeting function
@@ -560,7 +558,6 @@ describeWithCredentials('AutonomousWorkflow E2E', () => {
         const payload: AutonomousPayload = {
           issueId,
           repoFullName: TEST_REPO,
-          installationId: parseInt(GITHUB_INSTALLATION_ID!),
           task: `Create a file "e2e-tests/${issueId}/broken.ts" that exports a function
 returning incorrect values, and a test file "e2e-tests/${issueId}/broken.test.ts"
 that will fail (test should expect 42 but function returns 0).
@@ -616,7 +613,6 @@ The tests SHOULD fail - this is intentional.`,
       const payload: AutonomousPayload = {
         issueId,
         repoFullName: TEST_REPO,
-        installationId: parseInt(GITHUB_INSTALLATION_ID!),
         task: `Create a file "e2e-tests/${issueId}/README.md" with content explaining this is an E2E test file.`,
         branch,
       }
