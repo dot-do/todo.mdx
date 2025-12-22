@@ -270,4 +270,64 @@ agents.post('/repos/:owner/:repo/sync', async (c) => {
   }
 })
 
+/**
+ * Seed built-in agents to the database
+ * POST /api/agents/seed
+ * Query params:
+ * - force: if true, update existing agents (default: false)
+ */
+agents.post('/seed', async (c) => {
+  const payload = await getPayloadClient(c.env)
+  const force = c.req.query('force') === 'true'
+
+  try {
+    const { seedBuiltinAgents } = await import('../agents/seed')
+    const result = await seedBuiltinAgents(payload, force)
+
+    return c.json({
+      status: 'success',
+      ...result,
+    })
+  } catch (error) {
+    const err = error as Error
+    return c.json({
+      status: 'error',
+      message: err.message,
+    }, 500)
+  }
+})
+
+/**
+ * Check seed status
+ * GET /api/agents/seed/status
+ */
+agents.get('/seed/status', async (c) => {
+  const payload = await getPayloadClient(c.env)
+
+  try {
+    const { isSeeded, getGlobalAgents } = await import('../agents/seed')
+    const { builtinAgents } = await import('../agents/builtin')
+
+    const seeded = await isSeeded(payload)
+    const globalAgents = await getGlobalAgents(payload)
+
+    return c.json({
+      seeded,
+      globalAgentsCount: globalAgents.length,
+      builtinAgentsCount: builtinAgents.length,
+      agents: globalAgents.map((a: any) => ({
+        id: a.agentId,
+        name: a.name,
+        tier: a.tier,
+      })),
+    })
+  } catch (error) {
+    const err = error as Error
+    return c.json({
+      status: 'error',
+      message: err.message,
+    }, 500)
+  }
+})
+
 export { agents }
