@@ -875,6 +875,307 @@ Example:
 			},
 		);
 
+		// Create branch
+		this.server.tool(
+			"create_branch",
+			`Create a new Git branch in a repository.
+
+Returns: { ref, sha, url }
+
+Examples:
+  create_branch({ repo: "owner/repo", branch: "feature/my-feature" })
+  create_branch({ repo: "owner/repo", branch: "fix/bug-123", base_sha: "abc1234" })`,
+			{
+				repo: z.string().describe("Repository (owner/name)"),
+				branch: z.string().describe("Branch name to create"),
+				base_sha: z.string().optional().describe("Base commit SHA (defaults to default branch HEAD)"),
+			},
+			{ destructiveHint: true },
+			async ({ repo, branch, base_sha }) => {
+				try {
+					const env = this.env as Env;
+					const workosUserId = this.props?.user?.id;
+
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
+
+					const userRepos = await this.getUserRepos(env, workosUserId);
+					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
+
+					if (!repoDoc) {
+						return {
+							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
+							isError: true,
+						};
+					}
+
+					// Get installation ID
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
+						collection: "installations",
+						id: repoDoc.installation,
+						overrideAccess: true,
+					});
+					const installationId = (installationResult as any)?.installationId;
+
+					if (!installationId) {
+						return {
+							content: [{ type: "text", text: "No GitHub installation found for this repository" }],
+							isError: true,
+						};
+					}
+
+					// Import Octokit and create authenticated instance
+					const { Octokit } = await import("@octokit/rest");
+					const { createAppAuth } = await import("@octokit/auth-app");
+
+					const auth = createAppAuth({
+						appId: env.GITHUB_APP_ID,
+						privateKey: env.GITHUB_PRIVATE_KEY,
+						installationId,
+					});
+
+					const { token } = await auth({ type: "installation" });
+					const octokit = new Octokit({ auth: token });
+
+					const [owner, repoName] = repo.split("/");
+
+					let sha = base_sha;
+
+					// If no sha provided, get default branch HEAD
+					if (!sha) {
+						const { data: repoData } = await octokit.repos.get({ owner, repo: repoName });
+						const defaultBranch = repoData.default_branch;
+						const { data: branchData } = await octokit.repos.getBranch({
+							owner,
+							repo: repoName,
+							branch: defaultBranch,
+						});
+						sha = branchData.commit.sha;
+					}
+
+					// Create the ref
+					const { data } = await octokit.git.createRef({
+						owner,
+						repo: repoName,
+						ref: `refs/heads/${branch}`,
+						sha,
+					});
+
+					return {
+						content: [{ type: "text", text: JSON.stringify({
+							ref: data.ref,
+							sha: data.object.sha,
+							url: data.url,
+						}, null, 2) }],
+					};
+				} catch (error: any) {
+					return {
+						content: [{ type: "text", text: `Error: ${error.message}` }],
+						isError: true,
+					};
+				}
+			},
+		);
+
+		// Create pull request
+		this.server.tool(
+			"create_pull_request",
+			`Create a new pull request in a repository.
+
+Returns: { number, url, state, title }
+
+Examples:
+  create_pull_request({ repo: "owner/repo", title: "Add feature", head: "feature/my-feature", base: "main" })
+  create_pull_request({ repo: "owner/repo", title: "Fix bug", head: "fix/bug-123", base: "main", body: "This PR fixes issue #123" })`,
+			{
+				repo: z.string().describe("Repository (owner/name)"),
+				title: z.string().describe("Pull request title"),
+				head: z.string().describe("Branch to merge from"),
+				base: z.string().describe("Branch to merge into"),
+				body: z.string().optional().describe("Pull request description"),
+			},
+			{ destructiveHint: true },
+			async ({ repo, title, head, base, body }) => {
+				try {
+					const env = this.env as Env;
+					const workosUserId = this.props?.user?.id;
+
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
+
+					const userRepos = await this.getUserRepos(env, workosUserId);
+					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
+
+					if (!repoDoc) {
+						return {
+							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
+							isError: true,
+						};
+					}
+
+					// Get installation ID
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
+						collection: "installations",
+						id: repoDoc.installation,
+						overrideAccess: true,
+					});
+					const installationId = (installationResult as any)?.installationId;
+
+					if (!installationId) {
+						return {
+							content: [{ type: "text", text: "No GitHub installation found for this repository" }],
+							isError: true,
+						};
+					}
+
+					// Import Octokit and create authenticated instance
+					const { Octokit } = await import("@octokit/rest");
+					const { createAppAuth } = await import("@octokit/auth-app");
+
+					const auth = createAppAuth({
+						appId: env.GITHUB_APP_ID,
+						privateKey: env.GITHUB_PRIVATE_KEY,
+						installationId,
+					});
+
+					const { token } = await auth({ type: "installation" });
+					const octokit = new Octokit({ auth: token });
+
+					const [owner, repoName] = repo.split("/");
+
+					const { data } = await octokit.pulls.create({
+						owner,
+						repo: repoName,
+						title,
+						head,
+						base,
+						body,
+					});
+
+					return {
+						content: [{ type: "text", text: JSON.stringify({
+							number: data.number,
+							url: data.html_url,
+							state: data.state,
+							title: data.title,
+						}, null, 2) }],
+					};
+				} catch (error: any) {
+					return {
+						content: [{ type: "text", text: `Error: ${error.message}` }],
+						isError: true,
+					};
+				}
+			},
+		);
+
+		// Merge pull request
+		this.server.tool(
+			"merge_pull_request",
+			`Merge a pull request in a repository.
+
+Returns: { merged, sha, message }
+
+Examples:
+  merge_pull_request({ repo: "owner/repo", pull_number: 42 })
+  merge_pull_request({ repo: "owner/repo", pull_number: 42, merge_method: "squash" })
+  merge_pull_request({ repo: "owner/repo", pull_number: 42, merge_method: "rebase", commit_title: "feat: Add feature (#42)" })`,
+			{
+				repo: z.string().describe("Repository (owner/name)"),
+				pull_number: z.number().describe("Pull request number"),
+				merge_method: z.enum(["merge", "squash", "rebase"]).optional().describe("Merge method (default: merge)"),
+				commit_title: z.string().optional().describe("Custom commit title (for squash/merge)"),
+				commit_message: z.string().optional().describe("Custom commit message (for squash/merge)"),
+			},
+			{ destructiveHint: true },
+			async ({ repo, pull_number, merge_method, commit_title, commit_message }) => {
+				try {
+					const env = this.env as Env;
+					const workosUserId = this.props?.user?.id;
+
+					if (!workosUserId) {
+						return {
+							content: [{ type: "text", text: "Error: Not authenticated" }],
+							isError: true,
+						};
+					}
+
+					const userRepos = await this.getUserRepos(env, workosUserId);
+					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
+
+					if (!repoDoc) {
+						return {
+							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
+							isError: true,
+						};
+					}
+
+					// Get installation ID
+					const payload = await getPayloadClient(env);
+					const installationResult = await payload.findByID({
+						collection: "installations",
+						id: repoDoc.installation,
+						overrideAccess: true,
+					});
+					const installationId = (installationResult as any)?.installationId;
+
+					if (!installationId) {
+						return {
+							content: [{ type: "text", text: "No GitHub installation found for this repository" }],
+							isError: true,
+						};
+					}
+
+					// Import Octokit and create authenticated instance
+					const { Octokit } = await import("@octokit/rest");
+					const { createAppAuth } = await import("@octokit/auth-app");
+
+					const auth = createAppAuth({
+						appId: env.GITHUB_APP_ID,
+						privateKey: env.GITHUB_PRIVATE_KEY,
+						installationId,
+					});
+
+					const { token } = await auth({ type: "installation" });
+					const octokit = new Octokit({ auth: token });
+
+					const [owner, repoName] = repo.split("/");
+
+					const { data } = await octokit.pulls.merge({
+						owner,
+						repo: repoName,
+						pull_number,
+						merge_method,
+						commit_title,
+						commit_message,
+					});
+
+					return {
+						content: [{ type: "text", text: JSON.stringify({
+							merged: data.merged,
+							sha: data.sha,
+							message: data.message,
+						}, null, 2) }],
+					};
+				} catch (error: any) {
+					return {
+						content: [{ type: "text", text: `Error: ${error.message}` }],
+						isError: true,
+					};
+				}
+			},
+		);
+
 		// Do: execute dynamic code with full API access
 		this.server.tool(
 			"do",

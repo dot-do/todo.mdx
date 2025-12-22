@@ -11,6 +11,7 @@ import { Users } from './collections/Users'
 import { Media } from './collections/Media'
 import { Installations } from './collections/Installations'
 import { Repos } from './collections/Repos'
+import { Issues } from './collections/Issues'
 import { SyncEvents } from './collections/SyncEvents'
 import { LinearIntegrations } from './collections/LinearIntegrations'
 import { Agents } from './collections/Agents'
@@ -44,7 +45,7 @@ export default buildConfig({
       baseDir: path.resolve(dirname),
     },
   },
-  collections: [Users, Media, Installations, Repos, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions, Models, ModelDefaults, AuditLogs],
+  collections: [Users, Media, Installations, Repos, Issues, SyncEvents, LinearIntegrations, Agents, DurableObjects, Connections, ToolExecutions, Models, ModelDefaults, AuditLogs],
   editor: lexicalEditor(),
   secret,
   typescript: {

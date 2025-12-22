@@ -9,7 +9,7 @@ import {
   Artifact,
 } from '../base'
 import type { Env } from '../../types/env'
-import type { ExecuteResult } from '../../sandbox/claude'
+import type { ExecuteResult, ExecuteOptions, StreamEvent } from '../../sandbox/claude'
 
 /**
  * Options for sandbox execution
@@ -69,8 +69,9 @@ export class ClaudeCodeAgent extends Agent {
    * Execute task in Claude Code sandbox
    *
    * For complex multi-file development tasks:
-   * - Spawns a sandboxed environment (container/VM)
-   * - Runs Claude Code with full file system access
+   * - Spawns a sandboxed environment (Cloudflare Sandbox container)
+   * - Clones repository into sandbox
+   * - Runs Claude Code CLI with full file system access
    * - Streams events back to caller
    * - Returns artifacts (commits, PRs, files changed)
    *
@@ -82,89 +83,110 @@ export class ClaudeCodeAgent extends Agent {
     const events: AgentEvent[] = []
     const artifacts: Artifact[] = []
     const onEvent = options?.onEvent
+    const stream = options?.stream ?? true
+
+    // Validate environment binding is available
+    if (!this.env) {
+      const errorEvent: AgentEvent = {
+        type: 'error',
+        error: 'Environment bindings not provided to ClaudeCodeAgent',
+      }
+      events.push(errorEvent)
+      onEvent?.(errorEvent)
+      return {
+        success: false,
+        output: 'Environment bindings not provided to ClaudeCodeAgent',
+        artifacts: [],
+        events,
+      }
+    }
+
+    // Validate required sandbox options
+    if (!this.sandboxOptions?.repo) {
+      const errorEvent: AgentEvent = {
+        type: 'error',
+        error: 'Repository not specified in sandbox options',
+      }
+      events.push(errorEvent)
+      onEvent?.(errorEvent)
+      return {
+        success: false,
+        output: 'Repository not specified. Provide sandboxOptions.repo when creating the agent.',
+        artifacts: [],
+        events,
+      }
+    }
 
     // Emit thinking event
     const thinkingEvent: AgentEvent = {
       type: 'thinking',
-      content: 'Preparing sandbox environment for development task...',
+      content: `Preparing sandbox environment for ${this.sandboxOptions.repo}...`,
     }
     events.push(thinkingEvent)
     onEvent?.(thinkingEvent)
 
     try {
-      // TODO: Implement sandbox execution
-      //
-      // The sandbox should:
-      // 1. Create isolated environment (container/VM)
-      // 2. Clone the relevant repository
-      // 3. Set up development environment (install deps, etc)
-      // 4. Run Claude Code CLI in the sandbox with the task
-      // 5. Stream events back via WebSocket or polling
-      // 6. Capture artifacts (git commits, file changes, branches)
-      // 7. Create PRs when complete
-      // 8. Clean up sandbox resources
-      //
-      // Sandbox execution strategies:
-      //
-      // Option 1: Cloudflare Code Mode (when available)
-      // - Native Cloudflare sandboxing for code execution
-      // - https://blog.cloudflare.com/code-mode/
-      //
-      // Option 2: Container services
-      // - fly.io machines API: fast container spin-up
-      // - modal.com: serverless containers with GPU support
-      // - Kubernetes-based solutions
-      //
-      // Option 3: Custom infrastructure
-      // - Dedicated VM pool with snapshot-based provisioning
-      // - Firecracker microVMs for lightweight isolation
-      //
-      // Event streaming:
-      // - WebSocket connection for real-time updates
-      // - Polling endpoint for event retrieval
-      // - SSE (Server-Sent Events) for one-way streaming
-      //
-      // Artifact collection:
-      // - Git operations: commits, branches, tags
-      // - PR creation via GitHub API
-      // - File diffs and change summaries
-      // - Build artifacts and test results
+      // Generate a unique session ID for this execution
+      const sessionId = crypto.randomUUID()
 
-      // For now, return a placeholder implementation
-      const messageEvent: AgentEvent = {
-        type: 'message',
-        content:
-          'Claude Code sandbox execution is not yet implemented. This agent is designed for complex multi-file development tasks that require a full development environment.',
+      // Get the Sandbox Durable Object stub
+      const doId = this.env.Sandbox.idFromName(sessionId)
+      const sandbox = this.env.Sandbox.get(doId)
+
+      // Build execution options for the sandbox
+      const executeOpts: ExecuteOptions = {
+        repo: this.sandboxOptions.repo,
+        task,
+        context: this.sandboxOptions.context,
+        installationId: this.sandboxOptions.installationId,
+        branch: this.sandboxOptions.branch ?? 'main',
+        push: this.sandboxOptions.push,
+        targetBranch: this.sandboxOptions.targetBranch,
+        commitMessage: this.sandboxOptions.commitMessage,
       }
-      events.push(messageEvent)
-      onEvent?.(messageEvent)
 
-      const placeholderMessage = `
-Claude Code Sandbox Agent (Placeholder)
+      let result: ExecuteResult
 
-Task received: ${task.substring(0, 100)}${task.length > 100 ? '...' : ''}
+      if (stream && onEvent) {
+        // Use streaming endpoint for real-time updates
+        result = await this.executeWithStreaming(sandbox, executeOpts, events, onEvent)
+      } else {
+        // Use headless endpoint for simple execution
+        result = await this.executeHeadless(sandbox, executeOpts, events, onEvent)
+      }
 
-This agent is designed for sandbox-tier execution with:
-- Full development environment
-- Multi-file refactoring capabilities
-- Deep codebase understanding
-- Complex feature implementation
+      // Build artifacts from the result
+      if (result.filesChanged.length > 0) {
+        for (const file of result.filesChanged) {
+          artifacts.push({
+            type: 'file',
+            ref: file,
+          })
+        }
+      }
 
-Implementation pending:
-- Sandbox provisioning (Cloudflare Code Mode / containers)
-- Repository cloning and setup
-- Claude Code CLI integration
-- Event streaming infrastructure
-- Artifact collection and PR creation
+      if (result.pushedToBranch) {
+        artifacts.push({
+          type: 'branch',
+          ref: result.pushedToBranch,
+          url: `https://github.com/${this.sandboxOptions.repo}/tree/${result.pushedToBranch}`,
+        })
+      }
 
-For simple tasks, consider using a lighter-tier agent (Developer Dana).
-For complex development work, this agent will provide full sandbox capabilities once implemented.
-      `.trim()
+      if (result.commitSha) {
+        artifacts.push({
+          type: 'commit',
+          ref: result.commitSha,
+          url: `https://github.com/${this.sandboxOptions.repo}/commit/${result.commitSha}`,
+        })
+      }
+
+      const success = result.exitCode === 0
 
       const doResult: DoResult = {
-        success: false,
-        output: placeholderMessage,
-        artifacts: [],
+        success,
+        output: result.summary || result.diff || 'No output from Claude Code',
+        artifacts,
         events,
       }
 
@@ -177,20 +199,175 @@ For complex development work, this agent will provide full sandbox capabilities 
 
       return doResult
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
       const errorEvent: AgentEvent = {
         type: 'error',
-        error: error instanceof Error ? error.message : String(error),
+        error: errorMessage,
       }
       events.push(errorEvent)
       onEvent?.(errorEvent)
 
       return {
         success: false,
-        output: error instanceof Error ? error.message : String(error),
+        output: errorMessage,
         artifacts,
         events,
       }
     }
+  }
+
+  /**
+   * Execute headlessly without streaming (simpler, faster for non-interactive use)
+   */
+  private async executeHeadless(
+    sandbox: DurableObjectStub,
+    opts: ExecuteOptions,
+    events: AgentEvent[],
+    onEvent?: (e: AgentEvent) => void
+  ): Promise<ExecuteResult> {
+    const messageEvent: AgentEvent = {
+      type: 'message',
+      content: `Executing Claude Code in sandbox for repo: ${opts.repo}`,
+    }
+    events.push(messageEvent)
+    onEvent?.(messageEvent)
+
+    const response = await sandbox.fetch(new Request('http://sandbox/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    }))
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(`Sandbox execution failed: ${response.status} - ${errorBody}`)
+    }
+
+    const result = await response.json() as ExecuteResult | { error: string }
+
+    if ('error' in result) {
+      throw new Error(result.error)
+    }
+
+    return result
+  }
+
+  /**
+   * Execute with SSE streaming for real-time updates
+   */
+  private async executeWithStreaming(
+    sandbox: DurableObjectStub,
+    opts: ExecuteOptions,
+    events: AgentEvent[],
+    onEvent: (e: AgentEvent) => void
+  ): Promise<ExecuteResult> {
+    const messageEvent: AgentEvent = {
+      type: 'message',
+      content: `Starting streaming execution for repo: ${opts.repo}`,
+    }
+    events.push(messageEvent)
+    onEvent(messageEvent)
+
+    const response = await sandbox.fetch(new Request('http://sandbox/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    }))
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(`Sandbox stream failed: ${response.status} - ${errorBody}`)
+    }
+
+    if (!response.body) {
+      throw new Error('No response body from sandbox stream')
+    }
+
+    // Parse SSE stream
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let finalResult: ExecuteResult | null = null
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+
+      // Parse SSE events from buffer
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || '' // Keep incomplete line in buffer
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          // Event type line - we'll get data on next line
+          continue
+        }
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6)
+          if (!data) continue
+
+          try {
+            // Try to parse as StreamEvent
+            const streamEvent = JSON.parse(data) as StreamEvent | { diff: string; filesChanged: string[] }
+
+            if ('type' in streamEvent) {
+              if (streamEvent.type === 'stdout') {
+                const event: AgentEvent = {
+                  type: 'message',
+                  content: streamEvent.data || '',
+                }
+                events.push(event)
+                onEvent(event)
+              } else if (streamEvent.type === 'stderr') {
+                const event: AgentEvent = {
+                  type: 'message',
+                  content: `[stderr] ${streamEvent.data || ''}`,
+                }
+                events.push(event)
+                onEvent(event)
+              } else if (streamEvent.type === 'complete') {
+                // Complete event has embedded result data
+                if (streamEvent.data) {
+                  const completionData = JSON.parse(streamEvent.data) as { diff: string; filesChanged: string[] }
+                  finalResult = {
+                    diff: completionData.diff,
+                    summary: '',
+                    filesChanged: completionData.filesChanged,
+                    exitCode: streamEvent.exitCode ?? 0,
+                  }
+                }
+              } else if (streamEvent.type === 'error') {
+                throw new Error(streamEvent.error || 'Unknown stream error')
+              }
+            } else if ('diff' in streamEvent) {
+              // Direct completion data format
+              finalResult = {
+                diff: streamEvent.diff,
+                summary: '',
+                filesChanged: streamEvent.filesChanged,
+                exitCode: 0,
+              }
+            }
+          } catch (parseError) {
+            // Non-JSON data, treat as raw output
+            const event: AgentEvent = {
+              type: 'message',
+              content: data,
+            }
+            events.push(event)
+            onEvent(event)
+          }
+        }
+      }
+    }
+
+    if (!finalResult) {
+      throw new Error('Stream completed without final result')
+    }
+
+    return finalResult
   }
 
   /**

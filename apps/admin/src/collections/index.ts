@@ -3,6 +3,7 @@ export { Users } from './Users'
 export { Media } from './Media'
 export { Installations } from './Installations'
 export { Repos } from './Repos'
+export { Issues } from './Issues'
 export { SyncEvents } from './SyncEvents'
 export { LinearIntegrations } from './LinearIntegrations'
 export { Agents } from './Agents'
@@ -19,6 +20,7 @@ export const collections = [
   'media',
   'installations',
   'repos',
+  'issues',
   'syncEvents',
   'linearIntegrations',
   'agents',
