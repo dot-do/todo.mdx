@@ -11,6 +11,7 @@
 
 import { DurableObject } from 'cloudflare:workers'
 import { createActor, setup, assign } from 'xstate'
+import { decryptPAT } from '../auth/encryption'
 
 export interface Env {
   DB: D1Database
@@ -21,6 +22,8 @@ export interface Env {
   GITHUB_APP_ID: string
   GITHUB_PRIVATE_KEY: string
   ANTHROPIC_API_KEY: string
+  // For PAT encryption/decryption
+  ENCRYPTION_KEY?: string
   // For audit logging
   PAYLOAD?: Fetcher
 }
@@ -272,7 +275,10 @@ The review cycle will automatically continue once you push your changes.`
 
 
 // =============================================================================
-// XState Machine (placeholder - full implementation in future issue)
+// XState Machine
+//
+// Config loading (loadReviewerConfig) is implemented in the PRDO class.
+// PAT decryption uses env.ENCRYPTION_KEY via ../auth/encryption.ts
 // =============================================================================
 
 /**
@@ -329,7 +335,7 @@ const prMachine = setup({
   },
   actions: {
     loadRepoConfig: assign({
-      // Placeholder: will fetch config from Payload CMS
+      // Config loading is handled in PRDO.loadReviewerConfig() and passed via CONFIG_LOADED event
     }),
     dispatchReviewSession: ({ context }) => {
       // Get current reviewer config
@@ -342,9 +348,10 @@ const prMachine = setup({
       const callbackUrl = `https://api.todo.mdx.do/pr/${context.repoFullName}/${context.prNumber}/session`
 
       // Set global flag for PRDO to intercept and dispatch sandbox session
+      // PAT decryption happens in PRDO.dispatchSandboxSession() using env.ENCRYPTION_KEY
       ;(globalThis as any).__sandboxSession = {
         agent: reviewer.agent,
-        pat: reviewer.pat || '', // TODO: decrypt with env.ENCRYPTION_KEY
+        encryptedPat: reviewer.pat || '', // Will be decrypted by PRDO
         task: 'review' as const,
         prompt: buildReviewPrompt(reviewer, context),
         repo: context.repoFullName,
@@ -363,9 +370,10 @@ const prMachine = setup({
       const callbackUrl = `https://api.todo.mdx.do/pr/${context.repoFullName}/${context.prNumber}/session`
 
       // Set global flag for PRDO to intercept and dispatch sandbox session
+      // PAT decryption happens in PRDO.dispatchSandboxSession() using env.ENCRYPTION_KEY
       ;(globalThis as any).__sandboxSession = {
         agent: context.authorAgent,
-        pat: context.authorPAT, // TODO: decrypt with env.ENCRYPTION_KEY
+        encryptedPat: context.authorPAT, // Will be decrypted by PRDO
         task: 'fix' as const,
         prompt: buildFixPrompt(lastReview, context),
         repo: context.repoFullName,
@@ -501,7 +509,7 @@ const prMachine = setup({
 
   states: {
     pending: {
-      // Placeholder: will load config from Payload CMS
+      // Awaiting CONFIG_LOADED event (sent by PRDO after calling loadReviewerConfig)
       on: {
         CONFIG_LOADED: {
           target: 'reviewing',
@@ -511,7 +519,7 @@ const prMachine = setup({
     },
 
     reviewing: {
-      // Placeholder: waiting for review from current reviewer
+      // Waiting for review from current reviewer (sandbox session dispatched)
       on: {
         SESSION_STARTED: { actions: ['recordSessionId'] },
         SESSION_FAILED: [
@@ -560,7 +568,7 @@ const prMachine = setup({
     },
 
     fixing: {
-      // Placeholder: author agent fixing issues
+      // Author agent fixing review feedback (sandbox session dispatched on entry)
       entry: ['dispatchFixSession'],
       on: {
         SESSION_STARTED: { actions: ['recordSessionId'] },
@@ -908,13 +916,26 @@ export class PRDO extends DurableObject<Env> {
    */
   private async dispatchSandboxSession(config: {
     agent: string
-    pat: string
+    encryptedPat: string
     task: 'review' | 'fix'
     prompt: string
     repo: string
     pr: number
     installationId: number
   }): Promise<string> {
+    // Decrypt the PAT using ENCRYPTION_KEY
+    let pat = ''
+    if (config.encryptedPat && this.env.ENCRYPTION_KEY) {
+      try {
+        pat = await decryptPAT(config.encryptedPat, this.env.ENCRYPTION_KEY)
+      } catch (error) {
+        console.error('[PRDO] Failed to decrypt PAT:', error)
+        // Continue without PAT - the sandbox will use installation token instead
+      }
+    } else if (config.encryptedPat) {
+      console.warn('[PRDO] ENCRYPTION_KEY not set, cannot decrypt PAT')
+    }
+
     // Create a unique sandbox instance
     const sandboxId = `prdo-${config.task}-${config.repo}-${config.pr}-${Date.now()}`
     const doId = this.env.Sandbox.idFromName(sandboxId)
@@ -931,6 +952,8 @@ export class PRDO extends DurableObject<Env> {
         // For reviews, we don't push - Claude submits via GitHub API
         // For fixes, we push to the PR branch
         push: config.task === 'fix',
+        // Pass decrypted PAT for authenticated operations
+        pat: pat || undefined,
       }),
     }))
 
