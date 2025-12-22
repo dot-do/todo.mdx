@@ -36,6 +36,10 @@ export const priyaConfig: AgentConfig = {
   autonomy: 'full',
   triggers: [
     {
+      event: 'issue.created',
+      handler: 'onIssueCreated',
+    },
+    {
       event: 'issue.closed',
       handler: 'onIssueClosed',
     },
@@ -56,3 +60,4 @@ export const priyaConfig: AgentConfig = {
 
 // Export trigger handlers
 export { onIssueClosed, onEpicCompleted, onIssueBlocked, onPRMerged } from './triggers'
+export { onIssueCreated, reviewDependencies } from './dependency-review'

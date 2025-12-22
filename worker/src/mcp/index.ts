@@ -14,6 +14,7 @@ import type { Props } from "./props";
 import type { Env } from "../types";
 import { executeSandboxedWorkflow } from "../sandbox";
 import { getPayloadClient } from "../payload";
+import { registerPriyaTools } from "./tools/priya";
 
 /** MCP tool result type */
 type ToolResult = {
@@ -1109,6 +1110,9 @@ export async function run() {
 				}
 			},
 		);
+
+		// Register Priya tools
+		registerPriyaTools(this.server, this.withRepoAccess.bind(this));
 	}
 }
 

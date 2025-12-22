@@ -171,5 +171,14 @@ export {
   priyaStatus,
   priyaCriticalPath,
   priyaInfo,
+  priyaReviewRoadmap,
+  priyaPlanSprint,
+  priyaTriageBacklog,
 } from './priya'
-export type { AssignmentResult } from './priya'
+export type {
+  AssignmentResult,
+  ReviewRoadmapResult,
+  PlanSprintOptions,
+  PlanSprintResult,
+  TriageBacklogResult,
+} from './priya'

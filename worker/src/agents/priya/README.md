@@ -44,7 +44,31 @@ When an issue becomes blocked, Priya:
 
 **Implementation**: `onIssueBlocked()`
 
-#### 4. `pr.merged`
+#### 4. `issue.created` (Layer 2 Dependency Integrity)
+When a new issue is created, Priya:
+1. Analyzes description for issue references (#issue-id, "depends on issue-id")
+2. Extracts file paths and finds related open issues
+3. Suggests missing dependencies (auto-add or suggest-only mode)
+4. Prevents circular dependencies
+
+**Implementation**: `onIssueCreated()`, `reviewDependencies()`
+
+**Configuration**:
+- `mode: 'auto-add'` - Automatically add high-confidence dependencies
+- `mode: 'suggest-only'` - Return suggestions for human review
+- `minConfidence: 0.6` - Minimum confidence threshold for auto-add
+
+**Example**:
+```typescript
+// Auto-add mode
+await onIssueCreated(runtime, issue, { mode: 'auto-add', minConfidence: 0.7 })
+
+// Suggest-only mode
+const result = await onIssueCreated(runtime, issue, { mode: 'suggest-only' })
+console.log(`Found ${result.suggestions.length} dependency suggestions`)
+```
+
+#### 5. `pr.merged`
 When a PR is merged, Priya:
 1. Extracts issue reference from PR body (e.g., "Closes #test-123")
 2. Verifies the linked issue is closed
@@ -60,12 +84,16 @@ To wire Priya's triggers to the beads-workflows hooks system:
 
 ```typescript
 import { createHooks } from 'beads-workflows'
-import { onIssueClosed, onEpicCompleted, onIssueBlocked, onPRMerged } from './agents/priya'
+import { onIssueClosed, onEpicCompleted, onIssueBlocked, onIssueCreated, onPRMerged } from './agents/priya'
 
 // Create hooks instance
 const hooks = createHooks()
 
 // Register Priya's triggers
+hooks.on.issue.created(async (issue) => {
+  await onIssueCreated(runtime, issue, { mode: 'auto-add' })
+})
+
 hooks.on.issue.closed(async (issue) => {
   await onIssueClosed(runtime, issue)
 })
@@ -117,7 +145,12 @@ if (payload.action === 'closed' && payload.pull_request.merged) {
 All trigger handlers have comprehensive unit tests:
 
 ```bash
+# Run all Priya tests
+pnpm --filter @todo.mdx/worker test -- src/agents/priya/
+
+# Run specific test suites
 pnpm --filter @todo.mdx/worker test -- src/agents/priya/triggers.test.ts
+pnpm --filter @todo.mdx/worker test -- src/agents/priya/dependency-review.test.ts
 ```
 
 Test coverage includes:
@@ -125,6 +158,7 @@ Test coverage includes:
 - Edge cases (no matches, still blocked, etc.)
 - Error handling (graceful degradation)
 - Agent reassignment logic
+- Dependency review (issue references, file paths, circular detection)
 
 ## Dependencies
 
@@ -145,6 +179,7 @@ Priya's triggers depend on:
   - "Priya, plan next sprint"
 
 - **Advanced Features**:
-  - Suggest missing dependencies on `issue.created`
   - Critical path optimization
   - Capacity planning and forecasting
+  - ML-based dependency prediction using historical data
+  - Context-aware dependency suggestions (use Claude to analyze codebase)
