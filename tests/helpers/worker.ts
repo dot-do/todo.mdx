@@ -489,6 +489,29 @@ export const workflows = {
     })
     return response.json()
   },
+
+  async triggerAssignment(
+    issue: { id: string; assignee: string },
+    repo: { owner: string; name: string; fullName: string }
+  ): Promise<{
+    ok: boolean
+    triggered: boolean
+    workflowId?: string
+    reason?: string
+  }> {
+    const response = await workerFetch('/api/workflows/assignment', {
+      method: 'POST',
+      body: JSON.stringify({ issue, repo }),
+    })
+    return response.json()
+  },
+
+  async cancelWorkflow(workflowId: string): Promise<{ ok: boolean }> {
+    const response = await workerFetch(`/api/workflows/${workflowId}/cancel`, {
+      method: 'POST',
+    })
+    return response.json()
+  },
 }
 
 // Sandbox API

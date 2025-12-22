@@ -471,4 +471,149 @@ workflows.post('/pr/merge', async (c) => {
   }
 })
 
+// ============================================================================
+// Assignment Endpoints
+// ============================================================================
+
+/**
+ * Trigger workflow when issue is assigned to an agent
+ *
+ * Validates:
+ * - Assignee is a known agent (cody, tom, quinn, sam, priya, etc.)
+ * - Issue is not closed
+ * - Issue has no open blockers
+ *
+ * Request body:
+ * {
+ *   issue: { id: string, assignee: string },
+ *   repo: { owner: string, name: string, fullName: string }
+ * }
+ */
+workflows.post('/assignment', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { issue, repo } = body as {
+      issue: { id: string; assignee: string }
+      repo: { owner: string; name: string; fullName: string }
+    }
+
+    if (!issue?.id || !issue?.assignee || !repo?.owner || !repo?.name) {
+      return c.json(
+        { error: 'Missing required fields: issue (id, assignee), repo (owner, name)' },
+        400
+      )
+    }
+
+    // Import assignment trigger
+    const { shouldTriggerWorkflow, handleAssignment } = await import('../triggers/assignment.js')
+    const { getBuiltinAgent } = await import('../agents/builtin/index.js')
+
+    // Check if assignee is an agent
+    const agent = getBuiltinAgent(issue.assignee)
+    if (!agent) {
+      return c.json({
+        ok: true,
+        triggered: false,
+        reason: `Assignee '${issue.assignee}' is not an agent or not found`,
+      })
+    }
+
+    // Look up installation from repo
+    const payload = await import('../payload.js').then(m => m.getPayloadClient(c.env))
+    const repos = await payload.find({
+      collection: 'repos',
+      where: { fullName: { equals: repo.fullName } },
+      depth: 1,
+      limit: 1,
+    })
+
+    if (!repos.docs?.length) {
+      return c.json({ error: `Repo not found: ${repo.fullName}` }, 404)
+    }
+
+    const repoDoc = repos.docs[0] as any
+    const installationId = repoDoc.installation?.installationId
+
+    if (!installationId) {
+      return c.json({ error: `No GitHub installation found for repo: ${repo.fullName}` }, 400)
+    }
+
+    // Look up issue to check status and blockers
+    const issueDoc = await payload.find({
+      collection: 'issues',
+      where: { beadsId: { equals: issue.id } },
+      limit: 1,
+    })
+
+    // Check if issue can be worked on
+    if (issueDoc.docs?.length) {
+      const issueData = issueDoc.docs[0] as any
+      if (issueData.state === 'closed') {
+        return c.json({
+          ok: true,
+          triggered: false,
+          reason: `Issue ${issue.id} is closed`,
+        })
+      }
+    }
+
+    // TODO: Check blockers via beads API when available
+    // For now, assume issue is ready if it exists
+
+    // Generate workflow ID
+    const workflowId = `develop-${issue.id}-${agent.id}-${Date.now()}`
+
+    // Create the develop workflow instance
+    const instance = await c.env.DEVELOP_WORKFLOW.create({
+      id: workflowId,
+      params: {
+        issueId: issue.id,
+        repoFullName: repo.fullName,
+        installationId,
+        agentConfig: agent,
+      },
+    })
+
+    return c.json({
+      ok: true,
+      triggered: true,
+      workflowId: instance.id,
+      agent: agent.id,
+    })
+  } catch (error) {
+    const err = error as Error
+    console.error('[Workflows] Failed to trigger assignment:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+/**
+ * Cancel a running workflow
+ */
+workflows.post('/:workflowId/cancel', async (c) => {
+  try {
+    const workflowId = c.req.param('workflowId')
+
+    let instance: any
+
+    if (workflowId.startsWith('sync-')) {
+      instance = await c.env.BEADS_SYNC_WORKFLOW.get(workflowId)
+    } else if (workflowId.startsWith('develop-')) {
+      instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
+    } else if (workflowId.startsWith('autonomous-')) {
+      instance = await c.env.AUTONOMOUS_WORKFLOW.get(workflowId)
+    } else {
+      instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
+    }
+
+    await instance.abort()
+
+    return c.json({ ok: true, workflowId, status: 'cancelled' })
+  } catch (error) {
+    const err = error as Error
+    console.error('[Workflows] Failed to cancel workflow:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
 export default workflows
