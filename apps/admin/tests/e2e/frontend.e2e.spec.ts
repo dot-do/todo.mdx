@@ -1,20 +1,27 @@
-import { test, expect, Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
 
-test.describe('Frontend', () => {
-  let page: Page
+/**
+ * TDD E2E Tests for TODO.mdx Admin
+ *
+ * These tests define the DESIRED behavior (RED phase).
+ * We then implement the features to make them pass (GREEN phase).
+ */
+test.describe('TODO.mdx Admin', () => {
+  test('homepage displays TODO.mdx branding', async ({ page }) => {
+    await page.goto('/')
 
-  test.beforeAll(async ({ browser }, testInfo) => {
-    const context = await browser.newContext()
-    page = await context.newPage()
+    // Title should be TODO.mdx, not "Payload Blank Template"
+    await expect(page).toHaveTitle(/TODO\.mdx/)
+
+    // Should have proper welcome heading
+    const heading = page.locator('h1').first()
+    await expect(heading).toHaveText('TODO.mdx Admin')
   })
 
-  test('can go on homepage', async ({ page }) => {
-    await page.goto('http://localhost:3000')
+  test('redirects to login when not authenticated', async ({ page }) => {
+    await page.goto('/admin')
 
-    await expect(page).toHaveTitle(/Payload Blank Template/)
-
-    const headging = page.locator('h1').first()
-
-    await expect(headging).toHaveText('Welcome to your new project.')
+    // Should redirect to login page
+    await expect(page).toHaveURL(/\/admin\/login/)
   })
 })

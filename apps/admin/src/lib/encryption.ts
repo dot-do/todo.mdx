@@ -10,14 +10,31 @@ const IV_LENGTH = 16
 const AUTH_TAG_LENGTH = 16
 
 /**
+ * Check if a string is valid hexadecimal
+ */
+function isHexString(str: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(str)
+}
+
+/**
  * Encrypt a string value using AES-256-GCM
  * @param plainText - The plain text to encrypt
- * @param secret - The secret key (will be hashed to 32 bytes)
+ * @param secret - The secret key (must be 64 hex chars / 32 bytes for AES-256)
  * @returns Encrypted string in format: iv:authTag:encryptedData (all hex encoded)
+ * @throws Error if plainText is empty or secret is invalid
  */
 export async function encrypt(plainText: string, secret: string): Promise<string> {
-  // Derive a 32-byte key from the secret
-  const key = crypto.createHash('sha256').update(secret).digest()
+  // Validate inputs
+  if (!plainText || plainText.length === 0) {
+    throw new Error('Cannot encrypt empty value')
+  }
+
+  if (!secret || secret.length !== 64 || !isHexString(secret)) {
+    throw new Error('Secret must be a 64-character hex string (32 bytes)')
+  }
+
+  // Use the secret directly as key (must be 32 bytes / 64 hex chars)
+  const key = Buffer.from(secret, 'hex')
 
   // Generate a random IV
   const iv = crypto.randomBytes(IV_LENGTH)
@@ -39,13 +56,18 @@ export async function encrypt(plainText: string, secret: string): Promise<string
 /**
  * Decrypt a string value encrypted with AES-256-GCM
  * @param encryptedText - The encrypted text in format: iv:authTag:encryptedData
- * @param secret - The secret key (will be hashed to 32 bytes)
+ * @param secret - The secret key (must be 64 hex chars / 32 bytes for AES-256)
  * @returns Decrypted plain text
  * @throws Error if decryption fails (wrong key, tampered data, etc.)
  */
 export async function decrypt(encryptedText: string, secret: string): Promise<string> {
-  // Derive a 32-byte key from the secret
-  const key = crypto.createHash('sha256').update(secret).digest()
+  // Validate secret format
+  if (!secret || secret.length !== 64 || !isHexString(secret)) {
+    throw new Error('Secret must be a 64-character hex string (32 bytes)')
+  }
+
+  // Use the secret directly as key
+  const key = Buffer.from(secret, 'hex')
 
   // Split the encrypted text
   const parts = encryptedText.split(':')
@@ -73,13 +95,6 @@ export async function decrypt(encryptedText: string, secret: string): Promise<st
   decrypted += decipher.final('utf8')
 
   return decrypted
-}
-
-/**
- * Check if a string is valid hexadecimal
- */
-function isHexString(str: string): boolean {
-  return /^[0-9a-fA-F]+$/.test(str)
 }
 
 /**
