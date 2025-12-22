@@ -11,6 +11,7 @@ import { authMiddleware } from '../auth/index.js'
 import { handleIssueReady, handlePRApproval } from '../workflows/webhook-handlers.js'
 import type { Env } from '../types.js'
 import type { Issue, Repo, PR } from 'agents.mdx'
+import type { AutonomousPayload } from '../workflows/autonomous.js'
 
 const workflows = new Hono<{ Bindings: Env }>()
 
@@ -58,6 +59,64 @@ workflows.post('/issue/ready', async (c) => {
   } catch (error) {
     const err = error as Error
     console.error('[Workflows] Failed to start workflow:', err)
+    return c.json({ error: err.message }, 500)
+  }
+})
+
+/**
+ * Trigger AutonomousWorkflow for a task
+ *
+ * Called by:
+ * - E2E tests for full pipeline verification
+ * - Manual API call to trigger autonomous development
+ *
+ * Request body:
+ * {
+ *   issueId: string,
+ *   repoFullName: string,
+ *   installationId: number,
+ *   task: string,
+ *   branch?: string,
+ *   autoMerge?: boolean
+ * }
+ */
+workflows.post('/autonomous', async (c) => {
+  try {
+    const body = await c.req.json()
+    const { issueId, repoFullName, installationId, task, branch, autoMerge } = body as AutonomousPayload
+
+    if (!issueId || !repoFullName || !installationId || !task) {
+      return c.json(
+        { error: 'Missing required fields: issueId, repoFullName, installationId, task' },
+        400
+      )
+    }
+
+    // Generate workflow ID
+    const workflowId = `autonomous-${issueId}-${Date.now()}`
+
+    // Create the autonomous workflow instance
+    const instance = await c.env.AUTONOMOUS_WORKFLOW.create({
+      id: workflowId,
+      params: {
+        issueId,
+        repoFullName,
+        installationId,
+        task,
+        branch,
+        autoMerge,
+      },
+    })
+
+    return c.json({
+      workflowId: instance.id,
+      status: 'running',
+      issueId,
+      repo: repoFullName,
+    })
+  } catch (error) {
+    const err = error as Error
+    console.error('[Workflows] Failed to start autonomous workflow:', err)
     return c.json({ error: err.message }, 500)
   }
 })
@@ -129,6 +188,8 @@ async function getWorkflowStatus(c: any) {
       instance = await c.env.BEADS_SYNC_WORKFLOW.get(workflowId)
     } else if (workflowId.startsWith('develop-')) {
       instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
+    } else if (workflowId.startsWith('autonomous-')) {
+      instance = await c.env.AUTONOMOUS_WORKFLOW.get(workflowId)
     } else {
       // Default to DEVELOP_WORKFLOW for backwards compatibility
       instance = await c.env.DEVELOP_WORKFLOW.get(workflowId)
