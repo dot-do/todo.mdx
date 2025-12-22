@@ -1745,6 +1745,14 @@ export class RepoDO extends DurableObject<Env> {
           }
         }
 
+        // Notify dependent repos that this issue has been closed
+        // This is done asynchronously and errors are logged but don't fail the close operation
+        try {
+          await this.notifyDependentRepos(id)
+        } catch (e) {
+          console.error('[RepoDO] Failed to notify dependent repos:', e)
+        }
+
         return Response.json({ ok: true, id })
       }
 
@@ -1847,6 +1855,13 @@ export class RepoDO extends DurableObject<Env> {
             payload.issueId
           )
           console.log(`[RepoDO] Closed issue ${payload.issueId} after PR merge`)
+
+          // Notify dependent repos that this issue has been closed
+          try {
+            await this.notifyDependentRepos(payload.issueId)
+          } catch (e) {
+            console.error('[RepoDO] Failed to notify dependent repos after PR merge:', e)
+          }
 
           // Check for newly ready issues and trigger workflows
           await this.triggerWorkflowsForReadyIssues(readyBefore, this.repoFullName, payload.installationId)

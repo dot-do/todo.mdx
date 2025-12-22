@@ -188,17 +188,104 @@ export class IssueDO extends StatefulDO {
 
   /**
    * Handle tool availability check
+   *
+   * Checks if required tools are available based on:
+   * 1. Agent's declared tool patterns (e.g., 'github.*', '*')
+   * 2. User's active connections for external integrations
+   *
+   * Tool pattern matching:
+   * - '*' matches all tools (full access agents like fiona)
+   * - 'app.*' matches all tools for that app (e.g., 'github.*')
+   * - 'app.tool' matches a specific tool (e.g., 'github.createPullRequest')
    */
   private async handleCheckTools(params: {
     issueId: string
     agent: string
     requiredTools: string[]
   }): Promise<void> {
-    // TODO: Implement actual tool checking via agent sandbox
-    // For now, simulate tool check
-    const availableTools = params.requiredTools // Assume all tools available for now
+    const availableTools: string[] = []
     const missingTools: string[] = []
 
+    try {
+      // Get agent definition to access its tool patterns
+      const agentDef = this.agentSession?.def
+      const agentToolPatterns = agentDef?.tools ?? []
+
+      console.log(
+        `[IssueDO] Checking tools for agent ${params.agent}:`,
+        `patterns=${JSON.stringify(agentToolPatterns)},`,
+        `required=${JSON.stringify(params.requiredTools)}`
+      )
+
+      // Check if agent has full access pattern (e.g., sandbox agents like fiona)
+      const hasFullAccess = agentToolPatterns.includes('*')
+
+      // Get context from the actor state
+      const context = this.issueActor?.getSnapshot().context
+
+      // Get user connections for external tool validation
+      // We need connections to verify tools that require external integrations
+      let userConnections: Array<{ app: string; status: string }> = []
+      if (!hasFullAccess && params.requiredTools.length > 0) {
+        try {
+          // Extract apps from required tools (e.g., 'github.createPullRequest' -> 'GitHub')
+          const requiredApps = new Set<string>()
+          for (const tool of params.requiredTools) {
+            const app = this.extractAppFromTool(tool)
+            if (app) {
+              requiredApps.add(app)
+            }
+          }
+
+          // Fetch user connections if we have required apps
+          if (requiredApps.size > 0) {
+            // Note: userId would come from context/PAT - for now use installation-based auth
+            // In practice, the PAT or installation grants access
+            userConnections = await this.env.WORKER.getConnections(
+              context?.agentPAT ?? '',
+              Array.from(requiredApps)
+            )
+          }
+        } catch (error) {
+          console.warn('[IssueDO] Failed to fetch connections, assuming tools available via PAT:', error)
+        }
+      }
+
+      // Build set of connected apps for quick lookup
+      const connectedApps = new Set(
+        userConnections
+          .filter((c) => c.status === 'active')
+          .map((c) => c.app)
+      )
+
+      // Check each required tool against agent patterns and connections
+      for (const requiredTool of params.requiredTools) {
+        const isAvailable = this.isToolAvailable(
+          requiredTool,
+          agentToolPatterns,
+          hasFullAccess,
+          connectedApps
+        )
+
+        if (isAvailable) {
+          availableTools.push(requiredTool)
+        } else {
+          missingTools.push(requiredTool)
+        }
+      }
+
+      console.log(
+        `[IssueDO] Tool check complete:`,
+        `available=${JSON.stringify(availableTools)},`,
+        `missing=${JSON.stringify(missingTools)}`
+      )
+    } catch (error) {
+      console.error('[IssueDO] Tool check failed:', error)
+      // On error, mark all tools as missing to prevent execution with incomplete tooling
+      missingTools.push(...params.requiredTools)
+    }
+
+    // Log the tool check to SQL storage for audit trail
     const now = new Date().toISOString()
     this.sql.exec(
       `INSERT INTO tool_checks (agent, required_tools, available_tools, missing_tools, checked_at)
@@ -210,11 +297,100 @@ export class IssueDO extends StatefulDO {
       now
     )
 
+    // Send appropriate event to state machine
     if (missingTools.length > 0) {
       this.issueActor?.send({ type: 'TOOLS_MISSING', missing: missingTools })
     } else {
       this.issueActor?.send({ type: 'TOOLS_READY', tools: availableTools })
     }
+  }
+
+  /**
+   * Check if a specific tool is available based on agent patterns and connections
+   */
+  private isToolAvailable(
+    tool: string,
+    agentPatterns: string[],
+    hasFullAccess: boolean,
+    connectedApps: Set<string>
+  ): boolean {
+    // Full access agents can use any tool
+    if (hasFullAccess) {
+      return true
+    }
+
+    // Extract app from tool name (e.g., 'github.createPullRequest' -> 'github')
+    const dotIndex = tool.indexOf('.')
+    const toolApp = dotIndex > 0 ? tool.substring(0, dotIndex) : null
+
+    // Check if any pattern matches this tool
+    for (const pattern of agentPatterns) {
+      // Wildcard for specific app (e.g., 'github.*')
+      if (pattern.endsWith('.*')) {
+        const patternApp = pattern.slice(0, -2) // Remove '.*'
+        if (toolApp && toolApp.toLowerCase() === patternApp.toLowerCase()) {
+          // Pattern matches the app, now check if we have a connection for it
+          const appStorageName = this.toStorageName(toolApp)
+          // If connections weren't fetched or app is connected, tool is available
+          // Built-in tools (file.*, code.*, search.*) don't require connections
+          if (this.isBuiltinTool(toolApp) || connectedApps.has(appStorageName)) {
+            return true
+          }
+        }
+      }
+      // Exact tool match (e.g., 'github.createPullRequest')
+      else if (pattern.toLowerCase() === tool.toLowerCase()) {
+        const appStorageName = toolApp ? this.toStorageName(toolApp) : null
+        if (!appStorageName || this.isBuiltinTool(toolApp!) || connectedApps.has(appStorageName)) {
+          return true
+        }
+      }
+    }
+
+    return false
+  }
+
+  /**
+   * Extract app name from a tool name (e.g., 'github.createPullRequest' -> 'GitHub')
+   */
+  private extractAppFromTool(tool: string): string | null {
+    const dotIndex = tool.indexOf('.')
+    if (dotIndex <= 0) {
+      return null
+    }
+    return this.toStorageName(tool.substring(0, dotIndex))
+  }
+
+  /**
+   * Convert app name to storage format (PascalCase)
+   */
+  private toStorageName(app: string): string {
+    const casing: Record<string, string> = {
+      github: 'GitHub',
+      linear: 'Linear',
+      slack: 'Slack',
+      googledrive: 'GoogleDrive',
+      microsoftteams: 'MicrosoftTeams',
+    }
+
+    const lower = app.toLowerCase()
+    return casing[lower] ?? app.charAt(0).toUpperCase() + app.slice(1)
+  }
+
+  /**
+   * Check if a tool app is a built-in tool that doesn't require external connections
+   */
+  private isBuiltinTool(appName: string): boolean {
+    const builtinApps = new Set([
+      'file',
+      'code',
+      'search',
+      'browser',
+      'stagehand',
+      'browserbase',
+      'todo.mdx',
+    ])
+    return builtinApps.has(appName.toLowerCase())
   }
 
   /**

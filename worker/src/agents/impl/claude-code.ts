@@ -66,6 +66,25 @@ export class ClaudeCodeAgent extends Agent {
   }
 
   /**
+   * Set sandbox execution options after construction
+   *
+   * Use this to configure the agent with repo, branch, and other options
+   * when they're not known at construction time (e.g., when creating via RPC).
+   *
+   * @param options - Sandbox execution options
+   */
+  setSandboxOptions(options: SandboxExecuteOptions): void {
+    this.sandboxOptions = options
+  }
+
+  /**
+   * Get current sandbox options
+   */
+  getSandboxOptions(): SandboxExecuteOptions | undefined {
+    return this.sandboxOptions
+  }
+
+  /**
    * Execute task in Claude Code sandbox
    *
    * For complex multi-file development tasks:

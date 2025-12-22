@@ -153,8 +153,20 @@
       "binding": "BEADS_SYNC_WORKFLOW",
       "name": "beads-sync-workflow",
       "class_name": "BeadsSyncWorkflow"
+    },
+    {
+      "binding": "RECONCILE_WORKFLOW",
+      "name": "reconcile-workflow",
+      "class_name": "ReconcileWorkflow"
     }
   ],
+
+  // Cron triggers for scheduled workflows
+  "triggers": {
+    "crons": [
+      "*/5 * * * *"
+    ]
+  },
 
   // KV namespace for MCP OAuth state (sessions moved to SessionDO)
   "kv_namespaces": [

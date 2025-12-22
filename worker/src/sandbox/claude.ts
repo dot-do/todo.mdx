@@ -65,6 +65,28 @@ export interface Session {
   completedAt?: string
 }
 
+export interface TestResult {
+  passed: number
+  failed: number
+  skipped: number
+  duration: number
+  failedTests: Array<{
+    name: string
+    file: string
+    error: string
+    stack?: string
+  }>
+}
+
+export interface TestOptions {
+  /** Working directory (default: /workspace) */
+  cwd?: string
+  /** Test filter pattern (passed to vitest) */
+  filter?: string
+  /** Timeout in milliseconds (default: 300000 = 5 minutes) */
+  timeout?: number
+}
+
 // ============================================================================
 // ClaudeSandbox Durable Object
 // ============================================================================
@@ -93,6 +115,10 @@ export class ClaudeSandbox extends Sandbox<Env> {
 
     if (path === '/stream' && request.method === 'POST') {
       return handleStream(request, this.env, this)
+    }
+
+    if (path === '/test' && request.method === 'POST') {
+      return handleTest(request, this)
     }
 
     // Delegate to parent Sandbox class for default routes
@@ -158,6 +184,24 @@ async function handleStream(
       'Connection': 'keep-alive',
     },
   })
+}
+
+/**
+ * Run tests and return structured results
+ */
+async function handleTest(
+  request: Request,
+  sandbox: ClaudeSandbox
+): Promise<Response> {
+  try {
+    const opts = (await request.json()) as TestOptions
+    const result = await runTests(sandbox, opts)
+    return Response.json(result)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || 'Unknown error')
+    console.error('[ClaudeSandbox] Test error:', error)
+    return Response.json({ error: message }, { status: 500 })
+  }
 }
 
 /**
@@ -559,6 +603,161 @@ async function runInteractiveSession(
     const message = error instanceof Error ? error.message : 'Unknown error'
     ws.send(JSON.stringify({ type: 'error', error: message }))
     ws.close(1011, message)
+  }
+}
+
+// ============================================================================
+// Test Runner
+// ============================================================================
+
+/**
+ * Vitest JSON reporter output format (Jest-compatible)
+ */
+interface VitestJsonOutput {
+  numTotalTestSuites: number
+  numPassedTestSuites: number
+  numFailedTestSuites: number
+  numPendingTestSuites: number
+  numTotalTests: number
+  numPassedTests: number
+  numFailedTests: number
+  numPendingTests: number
+  numTodoTests: number
+  startTime: number
+  success: boolean
+  testResults: Array<{
+    name: string
+    status: 'failed' | 'passed' | 'pending'
+    startTime: number
+    endTime: number
+    message: string
+    assertionResults: Array<{
+      title: string
+      fullName: string
+      status: 'passed' | 'failed' | 'pending' | 'todo'
+      duration: number
+      ancestorTitles: string[]
+      failureMessages: string[]
+      location?: { line: number; column: number }
+    }>
+  }>
+}
+
+/**
+ * Run tests in the sandbox and parse results
+ */
+async function runTests(
+  sandbox: ClaudeSandbox,
+  opts: TestOptions = {}
+): Promise<TestResult> {
+  const { cwd = '/workspace', filter, timeout = 300000 } = opts
+
+  // Validate sandbox is available
+  if (!sandbox) {
+    throw new Error('Cloudflare Sandbox SDK is not available')
+  }
+
+  // Check if pnpm is available
+  const pnpmCheck = await sandbox.exec('which pnpm')
+  if (!pnpmCheck.success) {
+    throw new Error('pnpm is not available in the sandbox environment')
+  }
+
+  // Build the test command
+  let testCommand = `cd ${escapeShell(cwd)} && pnpm test --reporter=json`
+  if (filter) {
+    testCommand += ` -- ${escapeShell(filter)}`
+  }
+
+  console.log(`[ClaudeSandbox] Running tests: ${testCommand}`)
+
+  let testResult
+  try {
+    testResult = await sandbox.exec(testCommand, { timeout })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Sandbox execution failed'
+    if (message.includes('timeout') || message.includes('Timeout')) {
+      throw new Error(`Test execution timed out after ${timeout}ms`)
+    }
+    throw new Error(`Failed to execute tests: ${message}`)
+  }
+
+  // Vitest outputs JSON to stdout even on test failures
+  // The exit code indicates if tests failed, but we still get output
+  const output = testResult.stdout || ''
+  const stderr = testResult.stderr || ''
+
+  // Check for common errors
+  if (stderr.includes('command not found') || stderr.includes('ENOENT')) {
+    throw new Error('Test command not found. Ensure pnpm and vitest are installed.')
+  }
+
+  if (!output.trim()) {
+    // No output - check if vitest/package.json exists
+    const packageCheck = await sandbox.exec(`cat ${escapeShell(cwd)}/package.json`)
+    if (!packageCheck.success) {
+      throw new Error(`No package.json found in ${cwd}`)
+    }
+    throw new Error('No test output received. Check if vitest is configured correctly.')
+  }
+
+  // Parse JSON output
+  let jsonOutput: VitestJsonOutput
+  try {
+    // Vitest may output other lines before JSON, find the JSON block
+    const jsonMatch = output.match(/\{[\s\S]*"testResults"[\s\S]*\}/)
+    if (!jsonMatch) {
+      throw new Error('No valid JSON found in test output')
+    }
+    jsonOutput = JSON.parse(jsonMatch[0])
+  } catch (parseError) {
+    const message = parseError instanceof Error ? parseError.message : 'Unknown parse error'
+    console.error('[ClaudeSandbox] Failed to parse test output:', output.slice(0, 500))
+    throw new Error(`Failed to parse test results: ${message}`)
+  }
+
+  // Extract failed tests with details
+  const failedTests: TestResult['failedTests'] = []
+
+  for (const suite of jsonOutput.testResults) {
+    for (const test of suite.assertionResults) {
+      if (test.status === 'failed') {
+        // Combine failure messages, extracting stack trace if present
+        const errorMessages = test.failureMessages.join('\n')
+
+        // Try to separate error message from stack trace
+        const stackMatch = errorMessages.match(/\n\s+at\s+/)
+        let error = errorMessages
+        let stack: string | undefined
+
+        if (stackMatch && stackMatch.index !== undefined) {
+          error = errorMessages.slice(0, stackMatch.index).trim()
+          stack = errorMessages.slice(stackMatch.index).trim()
+        }
+
+        failedTests.push({
+          name: test.fullName || test.title,
+          file: suite.name,
+          error,
+          stack,
+        })
+      }
+    }
+  }
+
+  // Calculate duration from start/end times of all suites
+  const startTime = jsonOutput.startTime
+  const endTime = Math.max(
+    ...jsonOutput.testResults.map((s) => s.endTime || Date.now())
+  )
+  const duration = endTime - startTime
+
+  return {
+    passed: jsonOutput.numPassedTests,
+    failed: jsonOutput.numFailedTests,
+    skipped: jsonOutput.numPendingTests + jsonOutput.numTodoTests,
+    duration,
+    failedTests,
   }
 }
 

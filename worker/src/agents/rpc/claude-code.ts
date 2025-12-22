@@ -8,7 +8,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers'
 import type { Env } from '../../types/env'
 import type { Agent, AgentDef } from '../base'
-import { ClaudeCodeAgent } from '../impl/claude-code'
+import { ClaudeCodeAgent, type SandboxExecuteOptions } from '../impl/claude-code'
 
 export class ClaudeCodeAgentRPC extends WorkerEntrypoint<Env> {
   /**
@@ -25,14 +25,16 @@ export class ClaudeCodeAgentRPC extends WorkerEntrypoint<Env> {
    * - Tasks requiring full development environment
    *
    * @param def - The agent definition
+   * @param sandboxOptions - Optional sandbox execution options (repo, branch, etc.)
    * @returns ClaudeCodeAgent instance (RPC stub)
    * @throws Error if framework is not 'claude-code'
    */
-  create(def: AgentDef): Agent {
+  create(def: AgentDef, sandboxOptions?: SandboxExecuteOptions): Agent {
     if (def.framework !== 'claude-code') {
       throw new Error(`Invalid framework for ClaudeCodeAgentRPC: ${def.framework}`)
     }
 
-    return new ClaudeCodeAgent(def)
+    // Pass env for Sandbox DO access
+    return new ClaudeCodeAgent(def, this.env, sandboxOptions)
   }
 }

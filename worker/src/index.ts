@@ -21,6 +21,7 @@ import { getSessionFromRequest } from './auth/session'
 import { validateSignedState } from './auth/state'
 import { getPayloadClient } from './payload'
 import { handlePRApproval } from './workflows/webhook-handlers'
+import { handleLinearWebhook } from './webhooks/linear'
 import { rateLimitMiddleware } from './middleware/ratelimit'
 import { csrfProtection, ensureCsrfToken } from './middleware/csrf'
 import type { Env } from './types'
@@ -45,6 +46,7 @@ export { Sandbox, ClaudeSandbox } from './sandbox'
 export { DevelopWorkflow } from './workflows/develop'
 export { EmbedWorkflow, BulkEmbedWorkflow } from './workflows/embed'
 export { BeadsSyncWorkflow } from './workflows/sync'
+export { ReconcileWorkflow } from './workflows/reconcile'
 export { TodoMCP }
 export { PersistenceRPC } from './rpc'
 export { AgentRPC, AiSdkAgentRPC, ClaudeAgentSdkAgentRPC, ClaudeCodeAgentRPC, OpenAiAgentRPC } from './agents'
@@ -150,6 +152,12 @@ app.post('/api/webhooks/github', async (c) => {
       return c.json({ status: 'ignored', event })
   }
 })
+
+// ============================================
+// Linear webhook (bidirectional issue sync)
+// ============================================
+
+app.post('/api/webhooks/linear', handleLinearWebhook)
 
 // ============================================
 // Widget Pages (HTML, embeddable)
@@ -1613,4 +1621,27 @@ app.get('*', async (c) => {
   return c.json({ error: 'Not found' }, 404)
 })
 
-export default app
+// ============================================
+// Scheduled handler for cron triggers
+// Triggers ReconcileWorkflow every 5 minutes
+// ============================================
+
+export default {
+  fetch: app.fetch,
+
+  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    console.log(`[Cron] Triggered at ${new Date(event.scheduledTime).toISOString()}`)
+
+    // Trigger ReconcileWorkflow
+    try {
+      const workflowId = `reconcile-${event.scheduledTime}`
+      const instance = await env.RECONCILE_WORKFLOW.create({
+        id: workflowId,
+        params: {},
+      })
+      console.log(`[Cron] Started ReconcileWorkflow: ${instance.id}`)
+    } catch (error) {
+      console.error('[Cron] Failed to start ReconcileWorkflow:', error)
+    }
+  },
+}
