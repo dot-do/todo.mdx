@@ -20,7 +20,7 @@ export async function loadBeadsIssues(): Promise<Issue[]> {
   }
 }
 
-/** Load milestones from beads (epics) */
+/** Load milestones from beads (epics) using beads-workflows SDK */
 export async function loadBeadsMilestones(): Promise<Milestone[]> {
   try {
     const moduleName = 'beads-workflows'
@@ -28,43 +28,44 @@ export async function loadBeadsMilestones(): Promise<Milestone[]> {
     const beadsDir = await sdk.findBeadsDir(process.cwd())
     if (!beadsDir) return []
 
-    const rawIssues = await sdk.readIssuesFromJsonl(beadsDir)
-    const epics = rawIssues.filter((i: any) => i.type === 'epic')
+    // Use the epics API from beads-workflows SDK
+    const epicsApi = sdk.createEpicsApi(beadsDir)
+    const epics = await epicsApi.list()
 
-    return epics.map((epic: any) => {
-      // Find all issues that are children of this epic
-      const children = rawIssues.filter((i: any) => {
-        if (!i.dependencies) return false
-        return i.dependencies.some((dep: any) =>
-          dep.type === 'parent-child' && dep.depends_on === epic.id
-        )
+    // Build milestones with detailed progress from children
+    const milestones: Milestone[] = await Promise.all(
+      epics.map(async (epic: any) => {
+        // Get children for detailed status breakdown
+        const children = await epicsApi.children(epic.id)
+
+        const total = children.length
+        const open = children.filter((c: any) => c.status === 'open').length
+        const in_progress = children.filter((c: any) => c.status === 'in_progress').length
+        const blocked = children.filter((c: any) => c.status === 'blocked').length
+        const closed = children.filter((c: any) => c.status === 'closed').length
+        const percent = total > 0 ? Math.round((closed / total) * 100) : 0
+
+        return {
+          id: epic.id,
+          beadsId: epic.id,
+          title: epic.title,
+          description: epic.description,
+          state: epic.status === 'closed' ? 'closed' : 'open',
+          progress: {
+            total,
+            open,
+            in_progress,
+            blocked,
+            closed,
+            percent,
+          },
+          createdAt: epic.created?.toISOString() || new Date().toISOString(),
+          updatedAt: epic.updated?.toISOString() || new Date().toISOString(),
+        } as Milestone
       })
+    )
 
-      const total = children.length
-      const open = children.filter((i: any) => i.status === 'open').length
-      const in_progress = children.filter((i: any) => i.status === 'in_progress').length
-      const blocked = children.filter((i: any) => i.status === 'blocked').length
-      const closed = children.filter((i: any) => i.status === 'closed').length
-      const percent = total > 0 ? Math.round((closed / total) * 100) : 0
-
-      return {
-        id: epic.id,
-        beadsId: epic.id,
-        title: epic.title,
-        description: epic.description,
-        state: epic.status === 'closed' ? 'closed' : 'open',
-        progress: {
-          total,
-          open,
-          in_progress,
-          blocked,
-          closed,
-          percent,
-        },
-        createdAt: epic.created?.toISOString() || new Date().toISOString(),
-        updatedAt: epic.updated?.toISOString() || new Date().toISOString(),
-      }
-    })
+    return milestones
   } catch {
     return []
   }

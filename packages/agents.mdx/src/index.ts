@@ -34,6 +34,19 @@ export type {
   Issue,
   PR,
   IssueFilter,
+  IssueStatus,
+  IssueType,
+  Priority,
+
+  // Re-exports from beads-workflows (prefixed to avoid conflicts)
+  BeadsIssue,
+  BeadsIssueStatus,
+  BeadsIssueType,
+  BeadsPriority,
+  BeadsEpic,
+  BeadsChanges,
+  BeadsIssueEvent,
+  BeadsConfig,
 
   // Claude types
   DoOpts,
@@ -59,6 +72,15 @@ export type {
   Transport,
   TransportFactory,
   CreateRuntime,
+} from './types'
+
+// Type guards from beads-workflows
+export {
+  isValidStatus,
+  isValidType,
+  isValidPriority,
+  isBeadsIssue,
+  isBeadsEpic,
 } from './types'
 
 // Runtime factory

@@ -24,6 +24,17 @@ import type {
   Repo,
 } from './types'
 
+import {
+  createIssuesApi,
+  createEpicsApi,
+  findBeadsDir,
+  type IssuesApi,
+  type EpicsApi,
+  type Issue as SdkIssue,
+  type CreateOptions,
+  type UpdateOptions,
+} from 'beads-workflows'
+
 // ============================================================================
 // Shell Execution (Bun)
 // ============================================================================
@@ -218,81 +229,189 @@ async function gitWorktreeList(): Promise<Array<{ path: string; branch: string }
 }
 
 // ============================================================================
-// Beads CLI Implementation
+// Beads SDK Implementation
 // ============================================================================
 
+// Cached API instances - created lazily per transport
+let cachedIssuesApi: IssuesApi | null = null
+let cachedEpicsApi: EpicsApi | null = null
+let cachedBeadsDir: string | null = null
+
+/**
+ * Get or create the beads directory path
+ */
+async function getBeadsDir(cwd?: string): Promise<string> {
+  if (cachedBeadsDir) return cachedBeadsDir
+
+  const startPath = cwd || process.cwd()
+  const beadsDir = await findBeadsDir(startPath)
+
+  if (!beadsDir) {
+    throw new Error(`No .beads directory found starting from ${startPath}. Run 'bd init' to initialize.`)
+  }
+
+  cachedBeadsDir = beadsDir
+  return beadsDir
+}
+
+/**
+ * Get or create the issues API instance
+ */
+async function getIssuesApi(cwd?: string): Promise<IssuesApi> {
+  if (cachedIssuesApi) return cachedIssuesApi
+
+  const beadsDir = await getBeadsDir(cwd)
+  cachedIssuesApi = createIssuesApi(beadsDir)
+  return cachedIssuesApi
+}
+
+/**
+ * Get or create the epics API instance
+ */
+async function getEpicsApi(cwd?: string): Promise<EpicsApi> {
+  if (cachedEpicsApi) return cachedEpicsApi
+
+  const beadsDir = await getBeadsDir(cwd)
+  cachedEpicsApi = createEpicsApi(beadsDir)
+  return cachedEpicsApi
+}
+
+/**
+ * Reset cached APIs (useful for testing)
+ */
+export function resetBeadsCache(): void {
+  cachedIssuesApi = null
+  cachedEpicsApi = null
+  cachedBeadsDir = null
+}
+
+/**
+ * Convert SDK Issue to transport Issue type
+ */
+function convertIssue(sdkIssue: SdkIssue): Issue {
+  return {
+    id: sdkIssue.id,
+    title: sdkIssue.title,
+    description: sdkIssue.description || '',
+    status: sdkIssue.status === 'in_progress' ? 'in_progress' : sdkIssue.status,
+    priority: sdkIssue.priority,
+    type: sdkIssue.type,
+    assignee: sdkIssue.assignee,
+    labels: sdkIssue.labels || [],
+    createdAt: sdkIssue.created.toISOString(),
+    updatedAt: sdkIssue.updated.toISOString(),
+    closedAt: sdkIssue.closed?.toISOString(),
+  }
+}
+
+// Current working directory for beads operations
+let beadsCwd: string | undefined
+
 async function beadsIssuesList(filter?: IssueFilter): Promise<Issue[]> {
-  const args = ['list', '--json']
+  const api = await getIssuesApi(beadsCwd)
+  const sdkFilter = filter ? {
+    status: filter.status as 'open' | 'in_progress' | 'closed' | undefined,
+    type: filter.type as 'task' | 'bug' | 'feature' | 'epic' | undefined,
+    priority: filter.priority as 0 | 1 | 2 | 3 | 4 | undefined,
+    assignee: filter.assignee,
+  } : undefined
 
-  if (filter?.status) args.push('--status', filter.status)
-  if (filter?.priority !== undefined) args.push('--priority', String(filter.priority))
-  if (filter?.type) args.push('--type', filter.type)
-  if (filter?.assignee) args.push('--assignee', filter.assignee)
-
-  const output = await execOrThrow('bd', args)
-  return JSON.parse(output)
+  const issues = await api.list(sdkFilter)
+  return issues.map(convertIssue)
 }
 
 async function beadsIssuesReady(): Promise<Issue[]> {
-  const output = await execOrThrow('bd', ['ready', '--json'])
-  return JSON.parse(output)
+  const api = await getIssuesApi(beadsCwd)
+  const issues = await api.ready()
+  return issues.map(convertIssue)
 }
 
 async function beadsIssuesBlocked(): Promise<Issue[]> {
-  const output = await execOrThrow('bd', ['blocked', '--json'])
-  return JSON.parse(output)
+  const api = await getIssuesApi(beadsCwd)
+  const issues = await api.blocked()
+  return issues.map(convertIssue)
 }
 
 async function beadsIssuesCreate(opts: { title: string; description?: string; type?: string; priority?: number }): Promise<Issue> {
-  const args = ['create', '--title', opts.title, '--json']
+  const api = await getIssuesApi(beadsCwd)
+  const createOpts: CreateOptions = {
+    title: opts.title,
+    type: (opts.type || 'task') as 'task' | 'bug' | 'feature' | 'epic',
+    priority: (opts.priority ?? 2) as 0 | 1 | 2 | 3 | 4,
+    description: opts.description,
+  }
 
-  if (opts.description) args.push('--description', opts.description)
-  if (opts.type) args.push('--type', opts.type)
-  if (opts.priority !== undefined) args.push('--priority', String(opts.priority))
-
-  const output = await execOrThrow('bd', args)
-  return JSON.parse(output)
+  const issue = await api.create(createOpts)
+  if (!issue) {
+    throw new Error(`Failed to create issue: ${opts.title}`)
+  }
+  return convertIssue(issue)
 }
 
 async function beadsIssuesUpdate(id: string, fields: Partial<Issue>): Promise<Issue> {
-  const args = ['update', id, '--json']
+  const api = await getIssuesApi(beadsCwd)
+  const updateOpts: UpdateOptions = {}
 
-  if (fields.status) args.push('--status', fields.status)
-  if (fields.priority !== undefined) args.push('--priority', String(fields.priority))
-  if (fields.assignee) args.push('--assignee', fields.assignee)
-  if (fields.title) args.push('--title', fields.title)
-  if (fields.description) args.push('--description', fields.description)
+  if (fields.status) updateOpts.status = fields.status as 'open' | 'in_progress' | 'closed'
+  if (fields.priority !== undefined) updateOpts.priority = fields.priority as 0 | 1 | 2 | 3 | 4
+  if (fields.assignee) updateOpts.assignee = fields.assignee
+  if (fields.title) updateOpts.title = fields.title
+  if (fields.description) updateOpts.description = fields.description
 
-  const output = await execOrThrow('bd', args)
-  return JSON.parse(output)
+  const issue = await api.update(id, updateOpts)
+  if (!issue) {
+    throw new Error(`Failed to update issue: ${id}`)
+  }
+  return convertIssue(issue)
 }
 
 async function beadsIssuesClose(id: string, reason?: string): Promise<void> {
-  const args = ['close', id]
-  if (reason) args.push('--reason', reason)
-  await execOrThrow('bd', args)
+  const api = await getIssuesApi(beadsCwd)
+  const success = await api.close(id, reason)
+  if (!success) {
+    throw new Error(`Failed to close issue: ${id}`)
+  }
 }
 
 async function beadsIssuesShow(id: string): Promise<Issue> {
-  const output = await execOrThrow('bd', ['show', id, '--json'])
-  return JSON.parse(output)
+  const api = await getIssuesApi(beadsCwd)
+  const issue = await api.get(id)
+  if (!issue) {
+    throw new Error(`Issue not found: ${id}`)
+  }
+  return convertIssue(issue)
 }
 
 async function beadsEpicsList(): Promise<Issue[]> {
-  const output = await execOrThrow('bd', ['list', '--type', 'epic', '--json'])
-  return JSON.parse(output)
+  const api = await getEpicsApi(beadsCwd)
+  const epics = await api.list()
+  return epics.map(convertIssue)
 }
 
 async function beadsEpicsProgress(id: string): Promise<{ total: number; completed: number; percentage: number }> {
-  const output = await execOrThrow('bd', ['epic', 'progress', id, '--json'])
-  return JSON.parse(output)
+  const api = await getEpicsApi(beadsCwd)
+  const progress = await api.progress(id)
+  return {
+    total: progress.total,
+    completed: progress.closed,
+    percentage: progress.percentage,
+  }
 }
 
 async function beadsEpicsCreate(opts: { title: string; description?: string }): Promise<Issue> {
-  const args = ['create', '--title', opts.title, '--type', 'epic', '--json']
-  if (opts.description) args.push('--description', opts.description)
-  const output = await execOrThrow('bd', args)
-  return JSON.parse(output)
+  const api = await getIssuesApi(beadsCwd)
+  const createOpts: CreateOptions = {
+    title: opts.title,
+    type: 'epic',
+    priority: 2,
+    description: opts.description,
+  }
+
+  const issue = await api.create(createOpts)
+  if (!issue) {
+    throw new Error(`Failed to create epic: ${opts.title}`)
+  }
+  return convertIssue(issue)
 }
 
 // ============================================================================
@@ -462,11 +581,15 @@ export interface LocalTransportConfig {
 }
 
 /**
- * Create a local transport that routes to CLI tools
+ * Create a local transport that routes to CLI tools and SDK
  */
 export function localTransport(config: LocalTransportConfig): Transport {
   // Set repo context for GitHub calls
   repoContext = config.repo
+
+  // Set beads working directory and reset cache for new transport
+  beadsCwd = config.cwd
+  resetBeadsCache()
 
   // Method dispatch table
   const handlers: Record<string, (...args: unknown[]) => Promise<unknown>> = {

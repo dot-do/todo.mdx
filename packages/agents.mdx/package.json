@@ -58,7 +58,8 @@
   },
   "dependencies": {
     "@octokit/auth-app": "^8.1.2",
-    "@octokit/rest": "^21.0.0"
+    "@octokit/rest": "^21.0.0",
+    "beads-workflows": "workspace:*"
   },
   "devDependencies": {
     "@types/bun": "^1.1.0",
@@ -66,14 +67,6 @@
     "tsup": "^8.0.0",
     "typescript": "^5.7.0",
     "vitest": "^2.0.0"
-  },
-  "peerDependencies": {
-    "beads-workflows": ">=0.1.0"
-  },
-  "peerDependenciesMeta": {
-    "beads-workflows": {
-      "optional": true
-    }
   },
   "engines": {
     "node": ">=20.0.0"
