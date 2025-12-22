@@ -16,6 +16,24 @@ test.describe('TODO.mdx Admin', () => {
     // Should have proper welcome heading
     const heading = page.locator('h1').first()
     await expect(heading).toHaveText('TODO.mdx Admin')
+
+    // Should NOT show Payload logo/favicon
+    const payloadLogo = page.locator('img[alt="Payload Logo"]')
+    await expect(payloadLogo).not.toBeVisible()
+
+    // Should NOT link to payloadcms.com/docs
+    const payloadDocsLink = page.locator('a[href="https://payloadcms.com/docs"]')
+    await expect(payloadDocsLink).not.toBeVisible()
+
+    // Admin panel link should NOT have target="_blank" (same-site navigation)
+    const adminLink = page.locator('a.admin')
+    await expect(adminLink).toBeVisible()
+    await expect(adminLink).not.toHaveAttribute('target', '_blank')
+
+    // Should have docs link pointing to TODO.mdx docs
+    const docsLink = page.locator('a.docs')
+    await expect(docsLink).toBeVisible()
+    await expect(docsLink).toHaveAttribute('href', 'https://todo.mdx.do')
   })
 
   test('redirects to login when not authenticated', async ({ page }) => {
