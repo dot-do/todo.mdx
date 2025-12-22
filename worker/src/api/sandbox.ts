@@ -90,10 +90,10 @@ app.post('/execute', async (c) => {
     const body = await c.req.json<ExecuteOptions>()
 
     // Validate required fields
-    if (!body.repo) {
+    if (!body.repo || typeof body.repo !== 'string' || body.repo.trim().length === 0) {
       return c.json({ error: 'Missing required field: repo' }, 400)
     }
-    if (!body.task) {
+    if (!body.task || typeof body.task !== 'string' || body.task.trim().length === 0) {
       return c.json({ error: 'Missing required field: task' }, 400)
     }
     // installationId is optional for public repos

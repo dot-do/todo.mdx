@@ -254,6 +254,14 @@ async function executeClaudeCode(
 ): Promise<ExecuteResult> {
   const { repo, task, context, installationId, branch = 'main', push, targetBranch, commitMessage } = opts
 
+  // Validate required fields
+  if (!repo || typeof repo !== 'string' || repo.trim().length === 0) {
+    throw new Error('Missing or invalid required field: repo')
+  }
+  if (!task || typeof task !== 'string' || task.trim().length === 0) {
+    throw new Error('Missing or invalid required field: task')
+  }
+
   // Validate sandbox is available
   if (!sandbox) {
     throw new Error('Cloudflare Sandbox SDK is not available')
@@ -401,8 +409,9 @@ async function executeClaudeCode(
     summary: claudeResult.stdout || '',
     filesChanged,
     exitCode: claudeResult.success ? 0 : 1,
-    pushedToBranch,
-    commitSha,
+    ...(pushedToBranch && { branch: pushedToBranch }),
+    ...(pushedToBranch && { pushed: true }),
+    ...(commitSha && { commitSha }),
   }
 }
 
