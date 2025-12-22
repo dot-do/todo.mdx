@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ClaudeCodeAgent } from '../claude-code'
 import { AgentDef } from '../../base'
 
@@ -30,15 +30,41 @@ describe('ClaudeCodeAgent', () => {
     expect(typeof agent.ask).toBe('function')
   })
 
-  it('should return placeholder result for do()', async () => {
-    const agent = new ClaudeCodeAgent(testDef)
-    const result = await agent.do('test task')
+  // TDD RED: These tests expect real sandbox execution, NOT placeholder
+  describe('do() sandbox execution', () => {
+    it('should NOT return placeholder message', async () => {
+      const agent = new ClaudeCodeAgent(testDef)
+      const result = await agent.do('echo "hello"')
 
-    expect(result).toBeDefined()
-    expect(result.success).toBe(false) // Placeholder implementation
-    expect(result.output).toContain('Claude Code Sandbox Agent')
-    expect(result.events).toBeDefined()
-    expect(Array.isArray(result.events)).toBe(true)
+      // The placeholder strings should NOT be present
+      expect(result.output).not.toContain('Claude Code Sandbox Agent (Placeholder)')
+      expect(result.output).not.toContain('Implementation pending')
+      expect(result.output).not.toContain('not yet implemented')
+    })
+
+    it('should return success=true for valid tasks', async () => {
+      const agent = new ClaudeCodeAgent(testDef)
+      const result = await agent.do('echo "hello"')
+
+      // Real execution should succeed
+      expect(result.success).toBe(true)
+    })
+
+    it('should include meaningful output', async () => {
+      const agent = new ClaudeCodeAgent(testDef)
+      const result = await agent.do('List files in the current directory')
+
+      expect(result.output.length).toBeGreaterThan(0)
+      expect(result.output).not.toContain('For simple tasks, consider using')
+    })
+
+    it('should include artifacts for file operations', async () => {
+      const agent = new ClaudeCodeAgent(testDef)
+      const result = await agent.do('Create a test file')
+
+      expect(result.artifacts).toBeDefined()
+      expect(Array.isArray(result.artifacts)).toBe(true)
+    })
   })
 
   it('should emit events during do()', async () => {
@@ -74,20 +100,12 @@ describe('ClaudeCodeAgent', () => {
     expect(events[0].type).toBe('message')
   })
 
-  it('should handle do() with streaming disabled', async () => {
-    const agent = new ClaudeCodeAgent(testDef)
-    const result = await agent.do('test task', { stream: false })
-
-    expect(result).toBeDefined()
-    expect(result.success).toBe(false)
-    expect(result.events).toBeDefined()
-  })
-
-  it('should include artifacts array in result', async () => {
+  it('should include events array in result', async () => {
     const agent = new ClaudeCodeAgent(testDef)
     const result = await agent.do('test task')
 
-    expect(result.artifacts).toBeDefined()
-    expect(Array.isArray(result.artifacts)).toBe(true)
+    expect(result.events).toBeDefined()
+    expect(Array.isArray(result.events)).toBe(true)
+    expect(result.events.length).toBeGreaterThan(0)
   })
 })

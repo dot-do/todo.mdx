@@ -8,6 +8,28 @@ import {
   AgentEvent,
   Artifact,
 } from '../base'
+import type { Env } from '../../types/env'
+import type { ExecuteResult } from '../../sandbox/claude'
+
+/**
+ * Options for sandbox execution
+ */
+export interface SandboxExecuteOptions {
+  /** GitHub repository (owner/repo format) */
+  repo?: string
+  /** Additional context to provide */
+  context?: string
+  /** GitHub installation ID for private repos */
+  installationId?: number
+  /** Branch to work on */
+  branch?: string
+  /** Whether to push changes */
+  push?: boolean
+  /** Target branch for push */
+  targetBranch?: string
+  /** Commit message */
+  commitMessage?: string
+}
 
 /**
  * Claude Code Agent implementation for sandbox-tier development
@@ -33,10 +55,14 @@ import {
  */
 export class ClaudeCodeAgent extends Agent {
   readonly def: AgentDef
+  private env?: Env
+  private sandboxOptions?: SandboxExecuteOptions
 
-  constructor(def: AgentDef) {
+  constructor(def: AgentDef, env?: Env, sandboxOptions?: SandboxExecuteOptions) {
     super()
     this.def = def
+    this.env = env
+    this.sandboxOptions = sandboxOptions
   }
 
   /**
