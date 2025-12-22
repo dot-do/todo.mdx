@@ -76,7 +76,19 @@ export async function decrypt(encryptedText: string, secret: string): Promise<st
 }
 
 /**
+ * Check if a string is valid hexadecimal
+ */
+function isHexString(str: string): boolean {
+  return /^[0-9a-fA-F]+$/.test(str)
+}
+
+/**
  * Check if a value is encrypted (has the expected format)
+ * Validates:
+ * - Exactly 3 colon-separated parts
+ * - IV is 32 hex characters (16 bytes)
+ * - AuthTag is 32 hex characters (16 bytes)
+ * - Encrypted data is non-empty valid hex
  */
 export function isEncrypted(value: string): boolean {
   if (!value || typeof value !== 'string') {
@@ -84,5 +96,26 @@ export function isEncrypted(value: string): boolean {
   }
 
   const parts = value.split(':')
-  return parts.length === 3
+  if (parts.length !== 3) {
+    return false
+  }
+
+  const [ivHex, authTagHex, encrypted] = parts
+
+  // Validate IV length (16 bytes = 32 hex chars)
+  if (ivHex.length !== IV_LENGTH * 2 || !isHexString(ivHex)) {
+    return false
+  }
+
+  // Validate authTag length (16 bytes = 32 hex chars)
+  if (authTagHex.length !== AUTH_TAG_LENGTH * 2 || !isHexString(authTagHex)) {
+    return false
+  }
+
+  // Validate encrypted data is non-empty and valid hex
+  if (encrypted.length === 0 || !isHexString(encrypted)) {
+    return false
+  }
+
+  return true
 }

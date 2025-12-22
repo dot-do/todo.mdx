@@ -18,6 +18,7 @@ import workflows from './api/workflows'
 import { authMiddleware, type AuthContext } from './auth'
 import { validateWorkosJwt, mightBeWorkosJwt, isOAuthProviderToken, validateOAuthProviderToken } from './mcp/workos-jwt'
 import { getSessionFromRequest } from './auth/session'
+import { validateSignedState } from './auth/state'
 import { getPayloadClient } from './payload'
 import { handlePRApproval } from './workflows/webhook-handlers'
 import { rateLimitMiddleware } from './middleware/ratelimit'
@@ -533,13 +534,21 @@ app.get('/api/me', authMiddleware, async (c) => {
 app.get('/github/callback', async (c) => {
   const installationId = c.req.query('installation_id')
   const setupAction = c.req.query('setup_action')
-  const state = c.req.query('state') // Contains user ID from OAuth flow
+  const state = c.req.query('state') // Contains signed state with user ID
 
   if (setupAction === 'install' && installationId) {
-    // If we have state with user ID, link installation to user
+    // If we have state, validate signature and extract user ID
     if (state) {
       try {
-        const userId = state // The state parameter contains the user ID
+        // Validate the signed state parameter to prevent injection attacks
+        const stateData = await validateSignedState(state, c.env.COOKIE_ENCRYPTION_KEY)
+
+        if (!stateData?.userId) {
+          console.warn('[GitHub Callback] Invalid or missing userId in state')
+          return c.redirect('https://todo.mdx.do/dashboard?installed=true&error=invalid_state')
+        }
+
+        const userId = stateData.userId
         const payload = await getPayloadClient(c.env)
 
         // Find the installation and add the user
@@ -763,6 +772,29 @@ async function handleInstallation(
         }
         timing.reposSync = Date.now() - t3
         console.log(`[Installation] Synced ${repos.length} repos (${created} created, ${updated} updated) (${timing.reposSync}ms)`)
+
+        // Trigger BeadsSyncWorkflow for each repo to sync beads issues to GitHub
+        const t4 = Date.now()
+        let workflowsTriggered = 0
+        for (const repo of repos) {
+          try {
+            const sanitizedName = repo.full_name.replace(/[^a-zA-Z0-9]/g, '-')
+            const workflowId = `sync-${sanitizedName}-${Date.now()}`
+
+            await c.env.BEADS_SYNC_WORKFLOW.create({
+              id: workflowId,
+              params: {
+                repoFullName: repo.full_name,
+                installationId: installation.id,
+              },
+            })
+            workflowsTriggered++
+          } catch (err) {
+            console.error(`[Installation] Failed to trigger sync for ${repo.full_name}:`, err)
+          }
+        }
+        timing.workflowTrigger = Date.now() - t4
+        console.log(`[Installation] Triggered ${workflowsTriggered} sync workflows (${timing.workflowTrigger}ms)`)
       }
 
       timing.total = Date.now() - t0

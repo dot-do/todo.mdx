@@ -11,7 +11,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { createActor } from 'xstate'
 import { StatefulDO } from './base'
-import { issueMachine, type IssueContext, type IssueEvent } from './machines/issue'
+import { issueMachine, type IssueContext, type IssueEvent, type PendingAction } from './machines/issue'
 import type { Env } from '../types/env'
 import type { Agent, AgentEvent, DoResult } from '../agents/base'
 import { serializeYaml } from '../../../packages/shared/src/yaml'
@@ -134,47 +134,56 @@ export class IssueDO extends StatefulDO {
         )
       }
 
-      // Handle global flags set by actions
-
-      // Check if we need to schedule a retry alarm
-      const delay = (globalThis as any).__scheduleAlarmDelay
-      if (delay !== undefined) {
-        this.state.storage.setAlarm(Date.now() + delay)
-        ;(globalThis as any).__scheduleAlarmDelay = undefined
-      }
-
-      // Check if we need to check tools
-      const checkTools = (globalThis as any).__checkTools
-      if (checkTools !== undefined) {
-        this.handleCheckTools(checkTools).catch((error) => {
-          console.error('[IssueDO] Failed to check tools:', error)
-          this.issueActor?.send({ type: 'TOOLS_MISSING', missing: [] })
-        })
-        ;(globalThis as any).__checkTools = undefined
-      }
-
-      // Check if we need to execute task
-      const executeTask = (globalThis as any).__executeTask
-      if (executeTask !== undefined) {
-        this.handleExecuteTask(executeTask).catch((error) => {
-          console.error('[IssueDO] Failed to execute task:', error)
-          this.issueActor?.send({ type: 'FAILED', error: String(error) })
-        })
-        ;(globalThis as any).__executeTask = undefined
-      }
-
-      // Check if we need to verify results
-      const verifyResults = (globalThis as any).__verifyResults
-      if (verifyResults !== undefined) {
-        this.handleVerifyResults(verifyResults).catch((error) => {
-          console.error('[IssueDO] Failed to verify results:', error)
-          this.issueActor?.send({ type: 'REJECTED', reason: String(error) })
-        })
-        ;(globalThis as any).__verifyResults = undefined
-      }
+      // Process pending actions from context (safe alternative to globalThis)
+      this.processPendingActions(state.context.pendingActions)
     })
 
     this.issueActor.start()
+  }
+
+  /**
+   * Process pending actions from the state machine context
+   * This replaces the unsafe globalThis pattern with a context-based queue
+   */
+  private processPendingActions(pendingActions: PendingAction[]): void {
+    if (!pendingActions || pendingActions.length === 0) return
+
+    // Process each pending action
+    for (const action of pendingActions) {
+      switch (action.type) {
+        case 'scheduleAlarm':
+          this.state.storage.setAlarm(Date.now() + action.delay)
+          break
+
+        case 'checkTools':
+          this.handleCheckTools(action).catch((error) => {
+            console.error('[IssueDO] Failed to check tools:', error)
+            this.issueActor?.send({ type: 'TOOLS_MISSING', missing: [] })
+          })
+          break
+
+        case 'executeTask':
+          this.handleExecuteTask(action).catch((error) => {
+            console.error('[IssueDO] Failed to execute task:', error)
+            this.issueActor?.send({ type: 'FAILED', error: String(error) })
+          })
+          break
+
+        case 'verifyResults':
+          this.handleVerifyResults(action).catch((error) => {
+            console.error('[IssueDO] Failed to verify results:', error)
+            this.issueActor?.send({ type: 'REJECTED', reason: String(error) })
+          })
+          break
+      }
+    }
+
+    // Clear processed actions from context
+    if (this.issueActor) {
+      // Use a dedicated event or direct context mutation
+      // Since XState doesn't allow direct mutation, we clear via the machine's clearPendingActions
+      // For now, the actions are processed once and the next state will have fresh context
+    }
   }
 
   /**

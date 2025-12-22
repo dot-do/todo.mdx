@@ -362,6 +362,23 @@ export class RepoDO extends DurableObject<Env> {
 
       CREATE INDEX IF NOT EXISTS idx_cross_repo_deps_issue ON cross_repo_deps(issue_id);
       CREATE INDEX IF NOT EXISTS idx_cross_repo_deps_target ON cross_repo_deps(depends_on_repo, depends_on_issue);
+
+      -- Milestones table (for GitHub milestones sync)
+      CREATE TABLE IF NOT EXISTS milestones (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        github_id INTEGER UNIQUE,
+        github_number INTEGER,
+        title TEXT NOT NULL,
+        description TEXT DEFAULT '',
+        state TEXT NOT NULL DEFAULT 'open',
+        due_on TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_sync_at TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_milestones_github_number ON milestones(github_number);
+      CREATE INDEX IF NOT EXISTS idx_milestones_state ON milestones(state);
     `)
 
     this.initialized = true
@@ -1939,6 +1956,85 @@ export class RepoDO extends DurableObject<Env> {
         }
         await this.setRepoContext(repoFullName, installationId)
         return Response.json({ ok: true })
+      }
+
+      // Milestones sync from GitHub webhook
+      if (path === '/milestones/sync' && request.method === 'POST') {
+        const payload = (await request.json()) as {
+          source: string
+          milestones: Array<{
+            githubId: number
+            githubNumber: number
+            title: string
+            description?: string
+            state: string
+            dueOn?: string
+            updatedAt: string
+          }>
+        }
+
+        const now = new Date().toISOString()
+        const results: Array<{ title: string; action: 'created' | 'updated' }> = []
+
+        for (const milestone of payload.milestones) {
+          // Check if milestone exists
+          const existing = this.sql
+            .exec('SELECT id FROM milestones WHERE github_id = ?', milestone.githubId)
+            .toArray()
+
+          if (existing.length > 0) {
+            // Update existing
+            this.sql.exec(
+              `UPDATE milestones SET
+                title = ?, description = ?, state = ?, due_on = ?,
+                updated_at = ?, last_sync_at = ?
+               WHERE github_id = ?`,
+              milestone.title,
+              milestone.description || '',
+              milestone.state,
+              milestone.dueOn || null,
+              milestone.updatedAt,
+              now,
+              milestone.githubId
+            )
+            results.push({ title: milestone.title, action: 'updated' })
+          } else {
+            // Insert new
+            this.sql.exec(
+              `INSERT INTO milestones (github_id, github_number, title, description, state, due_on, created_at, updated_at, last_sync_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              milestone.githubId,
+              milestone.githubNumber,
+              milestone.title,
+              milestone.description || '',
+              milestone.state,
+              milestone.dueOn || null,
+              now,
+              milestone.updatedAt,
+              now
+            )
+            results.push({ title: milestone.title, action: 'created' })
+          }
+        }
+
+        this.logSync(payload.source, 'milestones_sync', { count: results.length, results })
+        return Response.json({ ok: true, synced: results.length, results })
+      }
+
+      // List milestones
+      if (path === '/milestones' && request.method === 'GET') {
+        const state = url.searchParams.get('state') || undefined
+        let query = 'SELECT * FROM milestones'
+        const params: any[] = []
+
+        if (state) {
+          query += ' WHERE state = ?'
+          params.push(state)
+        }
+        query += ' ORDER BY due_on ASC NULLS LAST'
+
+        const milestones = this.sql.exec(query, ...params).toArray()
+        return Response.json(milestones)
       }
 
       return new Response('Not Found', { status: 404 })
