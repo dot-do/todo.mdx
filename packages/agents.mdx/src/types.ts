@@ -404,3 +404,9 @@ export interface AgentConfig {
   /** Custom system prompt or instructions */
   instructions?: string
 }
+
+/**
+ * Agent registry entry (compiled output for cloud sync)
+ * Same structure as AgentConfig, used for semantic clarity
+ */
+export type AgentRegistryEntry = AgentConfig

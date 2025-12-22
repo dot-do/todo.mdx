@@ -73,6 +73,7 @@ export type {
   TransportFactory,
   CreateRuntime,
   AgentConfig,
+  AgentRegistryEntry,
   CapabilityConfig,
   TriggerConfig,
   AgentAutonomy,
@@ -93,6 +94,15 @@ export {
   type WorkflowMetadata,
   type CodeBlock,
 } from './parser'
+
+// Agents Parser - Extract agent configurations from .mdx files
+export {
+  parseAgentsMdx,
+  validateCapabilities,
+  compileAgentsToJson,
+  type ParsedAgentsMdx,
+  type ValidationResult,
+} from './agents-parser'
 
 // Compiler - Compile parsed workflows to executable modules
 export {

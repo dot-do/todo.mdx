@@ -2,13 +2,13 @@ import { describe, it, expect } from 'vitest'
 import { builtinAgents, getBuiltinAgent, getBuiltinAgentIds } from '../index'
 
 describe('builtin agents', () => {
-  it('should have exactly 6 agents', () => {
-    expect(builtinAgents).toHaveLength(6)
+  it('should have exactly 10 agents', () => {
+    expect(builtinAgents).toHaveLength(10)
   })
 
   it('should have correct agent IDs', () => {
     const ids = getBuiltinAgentIds()
-    expect(ids).toEqual(['priya', 'reed', 'benny', 'cody', 'dana', 'fiona'])
+    expect(ids).toEqual(['priya', 'reed', 'benny', 'cody', 'dana', 'dana-docs', 'tom', 'sam', 'quinn', 'fiona'])
   })
 
   it('should find agent by id', () => {
@@ -44,6 +44,10 @@ describe('builtin agents', () => {
     expect(getBuiltinAgent('benny')?.tier).toBe('light')
     expect(getBuiltinAgent('cody')?.tier).toBe('worker')
     expect(getBuiltinAgent('dana')?.tier).toBe('worker')
+    expect(getBuiltinAgent('dana-docs')?.tier).toBe('light')
+    expect(getBuiltinAgent('tom')?.tier).toBe('worker')
+    expect(getBuiltinAgent('sam')?.tier).toBe('worker')
+    expect(getBuiltinAgent('quinn')?.tier).toBe('worker')
     expect(getBuiltinAgent('fiona')?.tier).toBe('sandbox')
   })
 
@@ -53,6 +57,10 @@ describe('builtin agents', () => {
     expect(getBuiltinAgent('benny')?.framework).toBe('ai-sdk')
     expect(getBuiltinAgent('cody')?.framework).toBe('ai-sdk')
     expect(getBuiltinAgent('dana')?.framework).toBe('ai-sdk')
+    expect(getBuiltinAgent('dana-docs')?.framework).toBe('ai-sdk')
+    expect(getBuiltinAgent('tom')?.framework).toBe('ai-sdk')
+    expect(getBuiltinAgent('sam')?.framework).toBe('ai-sdk')
+    expect(getBuiltinAgent('quinn')?.framework).toBe('ai-sdk')
     expect(getBuiltinAgent('fiona')?.framework).toBe('claude-code')
   })
 
@@ -62,6 +70,10 @@ describe('builtin agents', () => {
     expect(getBuiltinAgent('benny')?.model).toBe('overall')
     expect(getBuiltinAgent('cody')?.model).toBe('claude-sonnet-4-5')
     expect(getBuiltinAgent('dana')?.model).toBe('overall')
+    expect(getBuiltinAgent('dana-docs')?.model).toBe('claude-haiku-3-5')
+    expect(getBuiltinAgent('tom')?.model).toBe('claude-sonnet-4-5')
+    expect(getBuiltinAgent('sam')?.model).toBe('claude-sonnet-4-5')
+    expect(getBuiltinAgent('quinn')?.model).toBe('claude-sonnet-4-5')
     expect(getBuiltinAgent('fiona')?.model).toBe('best')
   })
 
@@ -96,6 +108,67 @@ describe('builtin agents', () => {
       expect(cody?.instructions).toContain('test')
       expect(cody?.instructions).toContain('TypeScript strict mode')
       expect(cody?.instructions).toContain('conventional commits')
+    })
+  })
+
+  describe('Docs Dana', () => {
+    const dana = getBuiltinAgent('dana-docs')
+
+    it('should be defined with correct name', () => {
+      expect(dana).toBeDefined()
+      expect(dana?.name).toBe('Docs Dana')
+    })
+
+    it('should have github, file, and git capabilities', () => {
+      expect(dana?.tools).toContain('github.*')
+      expect(dana?.tools).toContain('file.*')
+      expect(dana?.tools).toContain('git.*')
+    })
+
+    it('should be light tier', () => {
+      expect(dana?.tier).toBe('light')
+    })
+
+    it('should use claude-haiku-3-5 model', () => {
+      expect(dana?.model).toBe('claude-haiku-3-5')
+    })
+
+    it('should use ai-sdk framework', () => {
+      expect(dana?.framework).toBe('ai-sdk')
+    })
+
+    it('should have documentation-specific instructions', () => {
+      expect(dana?.instructions).toContain('documentation')
+      expect(dana?.instructions).toContain('technical writing')
+    })
+
+    it('should cover API documentation', () => {
+      expect(dana?.instructions).toContain('API')
+    })
+
+    it('should cover README best practices', () => {
+      expect(dana?.instructions).toContain('README')
+    })
+
+    it('should cover code examples', () => {
+      expect(dana?.instructions).toContain('code examples')
+    })
+
+    it('should cover Markdown formatting', () => {
+      expect(dana?.instructions).toContain('Markdown')
+    })
+
+    it('should emphasize keeping docs in sync with code', () => {
+      expect(dana?.instructions).toContain('sync')
+    })
+
+    it('should be user-focused', () => {
+      expect(dana?.instructions).toContain('user')
+    })
+
+    it('should cover changelog and release notes', () => {
+      expect(dana?.instructions).toContain('changelog')
+      expect(dana?.instructions).toContain('release notes')
     })
   })
 })

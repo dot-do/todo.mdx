@@ -53,6 +53,9 @@ export interface DevelopWorkflowPayload {
 
   /** Optional context from TODO.mdx rendering */
   context?: string
+
+  /** Optional agent configuration (capabilities, focus, autonomy) */
+  agentConfig?: import('../agents/base').AgentDef
 }
 
 // ============================================================================
@@ -81,9 +84,13 @@ export class DevelopWorkflow extends WorkflowEntrypoint<WorkflowEnv, DevelopWork
     event: WorkflowEvent<DevelopWorkflowPayload>,
     step: CFWorkflowStep
   ): Promise<void> {
-    const { repo, issue, installationId, context } = event.payload
+    const { repo, issue, installationId, context, agentConfig } = event.payload
 
     console.log(`[DevelopWorkflow] Starting for issue ${issue.id}: ${issue.title}`)
+    if (agentConfig) {
+      console.log(`[DevelopWorkflow] Agent: ${agentConfig.name} (${agentConfig.id})`)
+      console.log(`[DevelopWorkflow] Tier: ${agentConfig.tier}, Model: ${agentConfig.model}`)
+    }
 
     // Create durable runtime
     // Cast step to our WorkflowStep interface for durableTransport
