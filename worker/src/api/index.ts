@@ -9,6 +9,7 @@ import { repos } from './repos.js'
 import { widget } from './widget.js'
 import { search } from './search.js'
 import { models } from './models.js'
+import { agents } from './agents.js'
 import code from './code.js'
 import terminal from './terminal.js'
 import { browser } from '../browser/api.js'
@@ -24,6 +25,7 @@ api.route('/repos', repos)
 api.route('/widget', widget)
 api.route('/search', search)
 api.route('/models', models)
+api.route('/agents', agents)
 api.route('/code', code)
 api.route('/terminal', terminal)
 

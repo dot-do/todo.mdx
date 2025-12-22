@@ -18,6 +18,7 @@ import type {
   GitNamespace,
   TodoNamespace,
   DAGNamespace,
+  AgentsNamespace,
   DoOpts,
   DoResult,
   ResearchOpts,
@@ -205,6 +206,7 @@ export function createRuntime(config: RuntimeConfig): WorkflowRuntime {
     git: createNamespaceProxy<GitNamespace>(syncTransport, 'git'),
     todo: createNamespaceProxy<TodoNamespace>(syncTransport, 'todo'),
     dag: createNamespaceProxy<DAGNamespace>(syncTransport, 'dag'),
+    agents: createNamespaceProxy<AgentsNamespace>(syncTransport, 'agents'),
   }
 }
 
@@ -234,6 +236,7 @@ export function installGlobals(runtime: WorkflowRuntime): void {
   g.git = runtime.git
   g.todo = runtime.todo
   g.dag = runtime.dag
+  g.agents = runtime.agents
 }
 
 /**

@@ -282,6 +282,32 @@ export interface DAGNamespace {
 }
 
 // ============================================================================
+// Agents Interface (Agent Matching)
+// ============================================================================
+
+/**
+ * Agent match result with confidence score
+ */
+export interface AgentMatch {
+  agent: AgentConfig
+  confidence: number
+  reason: string
+}
+
+export interface AgentsNamespace {
+  /**
+   * Match an issue to the best-fit agent
+   * Returns the agent with highest capability coverage and focus area match
+   */
+  match(issue: Issue): Promise<AgentMatch | null>
+
+  /**
+   * List all available agents
+   */
+  list(): Promise<AgentConfig[]>
+}
+
+// ============================================================================
 // Complete Workflow Runtime Interface
 // ============================================================================
 
@@ -310,6 +336,9 @@ export interface WorkflowRuntime {
 
   // DAG - Dependency graph analysis
   dag: DAGNamespace
+
+  // Agents - Agent matching and discovery
+  agents: AgentsNamespace
 }
 
 // ============================================================================

@@ -546,6 +546,9 @@ importers:
       beads-workflows:
         specifier: workspace:*
         version: link:../beads-workflows
+      minimatch:
+        specifier: ^10.1.1
+        version: 10.1.1
     devDependencies:
       '@types/bun':
         specifier: ^1.1.0
@@ -9563,6 +9566,7 @@ packages:
 
   scmp@2.1.0:
     resolution: {integrity: sha512-o/mRQGk9Rcer/jEEw/yw4mwo3EU/NvYvp577/Btqrym9Qy5/MdWGBqipbALgd2lrdWTJ5/gqDusxfnQBxOxT2Q==}
+    deprecated: Just use Node.js's crypto.timingSafeEqual()
 
   scroll-into-view-if-needed@3.1.0:
     resolution: {integrity: sha512-49oNpRjWRvnU8NyGVmUaYG4jtTkNonFZI86MmGRDqBphEK2EXT9gdEUoQPZhuBM8yWHxCWbobltqYO5M4XrUvQ==}

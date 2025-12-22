@@ -67,6 +67,8 @@ export type {
   GitNamespace,
   TodoNamespace,
   DAGNamespace,
+  AgentsNamespace,
+  AgentMatch,
   WorkflowRuntime,
   RuntimeConfig,
   Transport,
@@ -84,6 +86,16 @@ export { createRuntime, installGlobals, initRuntime } from './runtime'
 
 // DAG - Dependency graph analysis
 export { DAG } from './dag'
+
+// Capability matching - Issue → Agent selection
+export {
+  parseRequiredCapabilities,
+  type Capability as RequiredCapability,
+} from './capabilities'
+
+export {
+  matchAgent,
+} from './matcher'
 
 // Parser - Extract TypeScript from .workflows/*.mdx files
 export {
@@ -103,6 +115,17 @@ export {
   type ParsedAgentsMdx,
   type ValidationResult,
 } from './agents-parser'
+
+// Sync - Sync agent configurations to cloud (Payload CMS)
+export {
+  syncAgentsToCloud,
+  mergeAgents,
+  getAgentsForRepo,
+  deleteRemovedAgents,
+  agentConfigToPayloadData,
+  type PayloadAgentData,
+  type PayloadClient,
+} from './sync'
 
 // Compiler - Compile parsed workflows to executable modules
 export {

@@ -1012,6 +1012,7 @@ async function handlePush(
 
   const changedFiles: string[] = []
   let hasBeadsChanges = false
+  let hasAgentsChanges = false
 
   for (const commit of payload.commits || []) {
     const allFiles = [
@@ -1031,6 +1032,11 @@ async function handlePush(
       }
       if (file.startsWith('.roadmap/') || file === 'ROADMAP.md' || file === 'ROADMAP.mdx') {
         changedFiles.push(file)
+      }
+      // Track agents.mdx changes
+      if (file === 'agents.mdx' || file === 'AGENTS.mdx') {
+        changedFiles.push(file)
+        hasAgentsChanges = true
       }
     }
   }
@@ -1057,6 +1063,39 @@ async function handlePush(
         }),
       })
     )
+  }
+
+  // If agents.mdx changed, sync to Payload
+  if (hasAgentsChanges) {
+    try {
+      const { fetchAgentsMdxFromGitHub, handleAgentsPush } = await import('./webhooks/agents')
+      const headCommit = payload.head_commit?.id || payload.after
+
+      // Fetch agents.mdx content from GitHub
+      const agentsMdxContent = await fetchAgentsMdxFromGitHub(
+        repo.full_name,
+        headCommit,
+        installationId,
+        c.env.GITHUB_APP_ID,
+        c.env.GITHUB_PRIVATE_KEY
+      )
+
+      if (agentsMdxContent) {
+        // Sync agents to Payload
+        await handleAgentsPush(c, {
+          repoFullName: repo.full_name,
+          installationId,
+          commit: headCommit,
+          agentsMdxContent,
+        })
+        console.log(`[Push] Synced agents.mdx for ${repo.full_name}`)
+      } else {
+        console.warn(`[Push] Failed to fetch agents.mdx content for ${repo.full_name}`)
+      }
+    } catch (err) {
+      console.error(`[Push] Failed to sync agents.mdx:`, err)
+      // Don't fail the webhook if agents sync fails
+    }
   }
 
   return c.json({ status: 'synced', files: changedFiles })
