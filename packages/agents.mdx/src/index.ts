@@ -66,15 +66,23 @@ export type {
   EpicsNamespace,
   GitNamespace,
   TodoNamespace,
+  DAGNamespace,
   WorkflowRuntime,
   RuntimeConfig,
   Transport,
   TransportFactory,
   CreateRuntime,
+  AgentConfig,
+  CapabilityConfig,
+  TriggerConfig,
+  AgentAutonomy,
 } from './types'
 
 // Runtime factory
 export { createRuntime, installGlobals, initRuntime } from './runtime'
+
+// DAG - Dependency graph analysis
+export { DAG } from './dag'
 
 // Parser - Extract TypeScript from .workflows/*.mdx files
 export {
@@ -118,3 +126,6 @@ export {
   type WorkflowEvent,
   type DurableTransportConfig,
 } from './cloudflare-workflows'
+
+// MDX Components
+export { Agent, Capability, Trigger } from './components'

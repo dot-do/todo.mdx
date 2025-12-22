@@ -256,6 +256,32 @@ export interface TodoNamespace {
 }
 
 // ============================================================================
+// DAG Interface (Dependency Analysis)
+// ============================================================================
+
+export interface DAGNamespace {
+  /**
+   * Get all ready issues (status=open AND all dependencies closed)
+   */
+  ready(): Promise<Issue[]>
+
+  /**
+   * Find the critical path - longest chain of open/in_progress issues to completion
+   */
+  criticalPath(): Promise<Issue[]>
+
+  /**
+   * Get all open issues blocking this issue (transitive)
+   */
+  blockedBy(issueId: string): Promise<Issue[]>
+
+  /**
+   * Get all issues that this issue unblocks (transitive)
+   */
+  unblocks(issueId: string): Promise<Issue[]>
+}
+
+// ============================================================================
 // Complete Workflow Runtime Interface
 // ============================================================================
 
@@ -281,6 +307,9 @@ export interface WorkflowRuntime {
 
   // Todo - Context rendering for agents
   todo: TodoNamespace
+
+  // DAG - Dependency graph analysis
+  dag: DAGNamespace
 }
 
 // ============================================================================
@@ -314,3 +343,64 @@ export interface RuntimeConfig {
  * Create a workflow runtime with the given configuration
  */
 export type CreateRuntime = (config: RuntimeConfig) => WorkflowRuntime
+
+// ============================================================================
+// Agent Configuration Types (MDX Components)
+// ============================================================================
+
+/**
+ * Agent autonomy levels
+ */
+export type AgentAutonomy = 'full' | 'supervised' | 'manual'
+
+/**
+ * Tool/capability access configuration
+ */
+export interface CapabilityConfig {
+  /** Capability name (e.g., 'git', 'github', 'claude') */
+  name: string
+  /** Allowed operations (e.g., ['commit', 'push'] or ['*'] for all) */
+  operations?: string[]
+  /** Optional description */
+  description?: string
+  /** Rate limits or constraints */
+  constraints?: Record<string, unknown>
+}
+
+/**
+ * Event trigger configuration
+ */
+export interface TriggerConfig {
+  /** Event type (e.g., 'issue.ready', 'issue.closed', 'schedule') */
+  event: string
+  /** Optional condition/filter (e.g., 'priority >= 3') */
+  condition?: string
+  /** Optional cron expression for schedule triggers */
+  cron?: string
+  /** Handler function or reference */
+  handler?: string | ((event: unknown, runtime: WorkflowRuntime) => Promise<void>)
+}
+
+/**
+ * Agent configuration
+ */
+export interface AgentConfig {
+  /** Agent name/identifier */
+  name: string
+  /** Capabilities/tools the agent can use */
+  capabilities?: CapabilityConfig[]
+  /** Areas of focus/expertise */
+  focus?: string[]
+  /** Autonomy level */
+  autonomy?: AgentAutonomy
+  /** Event triggers */
+  triggers?: TriggerConfig[]
+  /** Description */
+  description?: string
+  /** Whether to extend a pre-built cloud agent */
+  extends?: string
+  /** Model to use (e.g., 'opus', 'sonnet', 'haiku') */
+  model?: 'opus' | 'sonnet' | 'haiku'
+  /** Custom system prompt or instructions */
+  instructions?: string
+}

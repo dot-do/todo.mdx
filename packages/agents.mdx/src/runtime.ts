@@ -17,6 +17,7 @@ import type {
   EpicsNamespace,
   GitNamespace,
   TodoNamespace,
+  DAGNamespace,
   DoOpts,
   DoResult,
   ResearchOpts,
@@ -203,6 +204,7 @@ export function createRuntime(config: RuntimeConfig): WorkflowRuntime {
     epics: createNamespaceProxy<EpicsNamespace>(syncTransport, 'epics'),
     git: createNamespaceProxy<GitNamespace>(syncTransport, 'git'),
     todo: createNamespaceProxy<TodoNamespace>(syncTransport, 'todo'),
+    dag: createNamespaceProxy<DAGNamespace>(syncTransport, 'dag'),
   }
 }
 
@@ -231,6 +233,7 @@ export function installGlobals(runtime: WorkflowRuntime): void {
   g.epics = runtime.epics
   g.git = runtime.git
   g.todo = runtime.todo
+  g.dag = runtime.dag
 }
 
 /**

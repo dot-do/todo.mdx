@@ -34,6 +34,8 @@ import {
   type UpdateOptions,
 } from 'beads-workflows'
 
+import { DAG } from './dag'
+
 // ============================================================================
 // Shell Execution (Bun)
 // ============================================================================
@@ -550,6 +552,38 @@ async function todoInProgress(): Promise<string> {
 }
 
 // ============================================================================
+// DAG Implementation
+// ============================================================================
+
+async function dagReady(): Promise<Issue[]> {
+  const api = await getIssuesApi(beadsCwd)
+  const allIssues = await api.list()
+  const dag = new DAG(allIssues)
+  return dag.ready()
+}
+
+async function dagCriticalPath(): Promise<Issue[]> {
+  const api = await getIssuesApi(beadsCwd)
+  const allIssues = await api.list()
+  const dag = new DAG(allIssues)
+  return dag.criticalPath()
+}
+
+async function dagBlockedBy(issueId: string): Promise<Issue[]> {
+  const api = await getIssuesApi(beadsCwd)
+  const allIssues = await api.list()
+  const dag = new DAG(allIssues)
+  return dag.blockedBy(issueId)
+}
+
+async function dagUnblocks(issueId: string): Promise<Issue[]> {
+  const api = await getIssuesApi(beadsCwd)
+  const allIssues = await api.list()
+  const dag = new DAG(allIssues)
+  return dag.unblocks(issueId)
+}
+
+// ============================================================================
 // Local Transport Factory
 // ============================================================================
 
@@ -615,6 +649,12 @@ export function localTransport(config: LocalTransportConfig): Transport {
     'todo.ready': (limit) => todoReady(limit as number | undefined),
     'todo.blocked': () => todoBlocked(),
     'todo.inProgress': () => todoInProgress(),
+
+    // DAG
+    'dag.ready': () => dagReady(),
+    'dag.criticalPath': () => dagCriticalPath(),
+    'dag.blockedBy': (issueId) => dagBlockedBy(issueId as string),
+    'dag.unblocks': (issueId) => dagUnblocks(issueId as string),
   }
 
   return {

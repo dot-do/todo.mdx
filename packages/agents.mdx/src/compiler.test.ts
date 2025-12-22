@@ -26,6 +26,7 @@ function createMockRuntime(): WorkflowRuntime {
     epics: {} as any,
     git: {} as any,
     todo: {} as any,
+    dag: {} as any,
   }
 }
 
