@@ -6,6 +6,7 @@
 
 import { DurableObject } from 'cloudflare:workers'
 import { createActor, setup, assign } from 'xstate'
+import { getInstallationToken } from '../utils/github-auth'
 
 export interface Env {
   DB: D1Database
@@ -290,83 +291,6 @@ export class ProjectDO extends DurableObject<Env> {
   }
 
   /**
-   * Create GitHub App installation token using Web Crypto API
-   */
-  private async getInstallationToken(installationId: number): Promise<string> {
-    const now = Math.floor(Date.now() / 1000)
-
-    // Prepare JWT header and payload
-    const header = { alg: 'RS256', typ: 'JWT' }
-    const payload = {
-      iat: now - 60,
-      exp: now + 600,
-      iss: this.env.GITHUB_APP_ID,
-    }
-
-    // Encode header and payload
-    const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-    const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-    const message = `${encodedHeader}.${encodedPayload}`
-
-    // Import private key - handle PEM format
-    let pemKey = this.env.GITHUB_PRIVATE_KEY
-    if (!pemKey.includes('BEGIN')) {
-      pemKey = `-----BEGIN RSA PRIVATE KEY-----\n${pemKey}\n-----END RSA PRIVATE KEY-----`
-    }
-
-    // Remove PEM headers and decode base64
-    const pemContent = pemKey
-      .replace(/-----BEGIN RSA PRIVATE KEY-----/, '')
-      .replace(/-----END RSA PRIVATE KEY-----/, '')
-      .replace(/\n/g, '')
-
-    const binaryKey = Uint8Array.from(atob(pemContent), c => c.charCodeAt(0))
-
-    const privateKey = await crypto.subtle.importKey(
-      'pkcs8',
-      binaryKey,
-      { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
-      false,
-      ['sign']
-    )
-
-    // Sign the message
-    const signature = await crypto.subtle.sign(
-      'RSASSA-PKCS1-v1_5',
-      privateKey,
-      new TextEncoder().encode(message)
-    )
-
-    // Encode signature
-    const encodedSignature = btoa(String.fromCharCode(...new Uint8Array(signature)))
-      .replace(/=/g, '')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-
-    const jwt = `${message}.${encodedSignature}`
-
-    // Use JWT to get installation access token
-    const response = await fetch(
-      `https://api.github.com/app/installations/${installationId}/access_tokens`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          Accept: 'application/vnd.github+json',
-          'User-Agent': 'todo.mdx',
-        },
-      }
-    )
-
-    if (!response.ok) {
-      throw new Error(`Failed to get installation token: ${await response.text()}`)
-    }
-
-    const data = await response.json() as { token: string }
-    return data.token
-  }
-
-  /**
    * Execute GitHub GraphQL query
    */
   private async executeGraphQL<T = any>(
@@ -374,7 +298,7 @@ export class ProjectDO extends DurableObject<Env> {
     variables: Record<string, any>,
     installationId: number
   ): Promise<T> {
-    const token = await this.getInstallationToken(installationId)
+    const token = await getInstallationToken(installationId, this.env)
 
     const response = await fetch('https://api.github.com/graphql', {
       method: 'POST',

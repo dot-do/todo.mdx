@@ -17,6 +17,7 @@ import { execa } from 'execa'
 import path from 'path'
 import fs from 'fs/promises'
 import { hasBdCli } from '../helpers/beads'
+import { hasWorkerCredentials } from '../helpers'
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'
@@ -40,7 +41,7 @@ async function checkClis() {
   }
 }
 
-const hasCredentials = !!TEST_API_KEY
+const hasCredentials = hasWorkerCredentials()
 // Skip tests if credentials are missing OR if bd/gh CLIs are not available
 // (the check happens in beforeAll since it's async)
 const describeWithCredentials = hasCredentials ? describe : describe.skip

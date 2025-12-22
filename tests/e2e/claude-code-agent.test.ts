@@ -18,12 +18,13 @@
  */
 
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest'
+import { hasWorkerCredentials } from '../helpers'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
 const TEST_API_KEY = process.env.TEST_API_KEY
 
 // ANTHROPIC_API_KEY is configured on the worker, not needed for tests
-const hasCredentials = !!TEST_API_KEY
+const hasCredentials = hasWorkerCredentials()
 
 // Skip tests if no credentials
 const describeWithCredentials = hasCredentials ? describe : describe.skip

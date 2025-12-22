@@ -1,4 +1,5 @@
 import type { CollectionConfig } from 'payload'
+import { repoAccess, adminOnly } from '../access'
 
 /**
  * Sync events for tracking bidirectional sync between local and GitHub.
@@ -13,17 +14,11 @@ export const SyncEvents: CollectionConfig = {
   },
   access: {
     // Users can read sync events for repos they have access to
-    read: ({ req: { user } }) => {
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        'repo.installation.users.id': { equals: user.id },
-      }
-    },
-    // Only system can create/update sync events
-    create: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
-    update: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
-    delete: ({ req: { user } }) => Boolean(user?.roles?.includes('admin')),
+    read: repoAccess,
+    // Only internal RPC or admins can create/update/delete sync events
+    create: adminOnly,
+    update: adminOnly,
+    delete: adminOnly,
   },
   fields: [
     {

@@ -1,8 +1,8 @@
 import { describe, test, expect, beforeAll } from 'vitest'
+import { getAuthToken, hasMcpCredentials } from '../helpers/auth'
 
 // MCP server URL
 const MCP_BASE_URL = process.env.MCP_BASE_URL || 'https://todo.mdx.do'
-const TEST_API_KEY = process.env.TEST_API_KEY
 
 // Skip MCP authenticated tests in production unless MCP_API_TOKEN is set
 // TEST_API_KEY works for worker API but MCP requires OAuth-based MCP_API_TOKEN
@@ -10,17 +10,6 @@ const isProduction = MCP_BASE_URL.includes('todo.mdx.do')
 const hasMcpToken = !!process.env.MCP_API_TOKEN
 const skipMcpAuthTests = isProduction && !hasMcpToken
 const skipDoToolTests = isProduction && !process.env.MCP_DO_TOOL_ENABLED
-
-/**
- * Get authentication token
- */
-function getAuthToken(): string | null {
-  return TEST_API_KEY || null
-}
-
-function hasMcpCredentials(): boolean {
-  return !!TEST_API_KEY
-}
 
 // We'll check credentials in beforeAll
 let hasCredentials = false

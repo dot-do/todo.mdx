@@ -1,5 +1,5 @@
 import type { CollectionConfig, Where } from 'payload'
-import { isInternalRequest, internalOrAdmin } from '../access/internal'
+import { isInternalRequest, adminOnly } from '../access'
 
 /**
  * AI Agents configuration.
@@ -13,13 +13,13 @@ export const Agents: CollectionConfig = {
     group: 'Configuration',
   },
   access: {
-    // Users can read agents in their installations/repos
+    // Users can read agents in their installations/repos (custom logic for global agents)
     read: ({ req }) => {
       if (isInternalRequest(req)) return true
       const { user } = req
       if (!user) return false
       if (user.roles?.includes('admin')) return true
-      // Users can see agents in their installations or repos
+      // Users can see agents in their installations or repos, plus global agents
       const orConditions: Where[] = [
         { 'org.users.id': { equals: user.id } },
         { 'repo.installation.users.id': { equals: user.id } },
@@ -27,8 +27,9 @@ export const Agents: CollectionConfig = {
       ]
       return { or: orConditions }
     },
-    // Internal RPC or admins can create/update/delete
-    create: internalOrAdmin,
+    // Only internal RPC or admins can create/delete agents
+    create: adminOnly,
+    // Users can update agents in their installations/repos (custom logic)
     update: ({ req }) => {
       if (isInternalRequest(req)) return true
       const { user } = req
@@ -41,7 +42,7 @@ export const Agents: CollectionConfig = {
       ]
       return { or: orConditions }
     },
-    delete: internalOrAdmin,
+    delete: adminOnly,
   },
   fields: [
     {

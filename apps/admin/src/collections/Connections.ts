@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { isInternalRequest, internalOrAdmin } from '../access/internal'
+import { ownerOrAdmin, authenticated } from '../access'
 
 /**
  * Connections collection.
@@ -13,43 +13,13 @@ export const Connections: CollectionConfig = {
     group: 'Integrations',
   },
   access: {
-    // Only authenticated users can read their own connections
-    read: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      // Admins can see all
-      if (user.roles?.includes('admin')) return true
-      // Users see their own connections
-      return {
-        user: { equals: user.id },
-      }
-    },
-    // Users can create their own connections
-    create: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      return !!req.user
-    },
-    // Users can update their own connections
-    update: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        user: { equals: user.id },
-      }
-    },
-    // Users can delete their own connections
-    delete: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        user: { equals: user.id },
-      }
-    },
+    // Users can read their own connections (or admins/internal)
+    read: ownerOrAdmin('user'),
+    // Authenticated users can create their own connections
+    create: authenticated,
+    // Users can update/delete their own connections
+    update: ownerOrAdmin('user'),
+    delete: ownerOrAdmin('user'),
   },
   fields: [
     {

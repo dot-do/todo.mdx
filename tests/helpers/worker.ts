@@ -4,49 +4,15 @@
  * Authentication via TEST_API_KEY env var (shared secret for testing).
  */
 
-/**
- * Get authentication token (reads env at call time for dotenv support)
- */
-function getAuthToken(): string | null {
-  return process.env.TEST_API_KEY || null
-}
+import {
+  getAuthToken,
+  getWorkerBaseUrl,
+  generateGitHubSignature,
+  hasWorkerCredentials,
+} from './auth'
 
-/**
- * Check if worker credentials are available
- */
-export function hasWorkerCredentials(): boolean {
-  return !!process.env.TEST_API_KEY
-}
-
-function getWorkerBaseUrl(): string {
-  return process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-}
-
-function getWebhookSecret(): string {
-  return process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
-}
-
-/**
- * Generate GitHub webhook signature for testing
- */
-async function generateGitHubSignature(body: string): Promise<string> {
-  const secret = getWebhookSecret()
-  const encoder = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body))
-  const hex = Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-
-  return `sha256=${hex}`
-}
+// Re-export for backwards compatibility
+export { hasWorkerCredentials } from './auth'
 
 function workerFetch(
   path: string,

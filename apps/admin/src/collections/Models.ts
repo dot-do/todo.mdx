@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { internalOrAdmin } from '../access/internal'
+import { authenticated, adminOnly } from '../access'
 
 /**
  * Models collection - AI model catalog from OpenRouter.
@@ -13,12 +13,12 @@ export const Models: CollectionConfig = {
     defaultColumns: ['name', 'provider', 'status', 'tier', 'contextLength'],
   },
   access: {
-    // All authenticated users can read models
-    read: ({ req: { user } }) => !!user,
-    // Only admins can modify models (curation)
-    create: internalOrAdmin,
-    update: internalOrAdmin,
-    delete: internalOrAdmin,
+    // All authenticated users can read models (internal RPC or authenticated)
+    read: authenticated,
+    // Only internal RPC or admins can modify models (curation)
+    create: adminOnly,
+    update: adminOnly,
+    delete: adminOnly,
   },
   fields: [
     // From OpenRouter API

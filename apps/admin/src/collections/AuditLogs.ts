@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { isInternalRequest, internalOrAdmin } from '../access/internal'
+import { repoAccess, adminOnly, denyAll } from '../access'
 
 /**
  * Audit logs for agent actions.
@@ -14,24 +14,13 @@ export const AuditLogs: CollectionConfig = {
   },
   access: {
     // Users can read audit logs for their repos
-    read: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        'repo.installation.users.id': { equals: user.id },
-      }
-    },
-    // Only internal RPC can create audit logs
-    create: internalOrAdmin,
+    read: repoAccess,
+    // Only internal RPC or admins can create audit logs
+    create: adminOnly,
     // Audit logs are immutable - no updates allowed
-    update: () => false,
+    update: denyAll,
     // Only admins can delete (for GDPR compliance requests)
-    delete: ({ req }) => {
-      const { user } = req
-      return user?.roles?.includes('admin') || false
-    },
+    delete: ({ req }) => req.user?.roles?.includes('admin') ?? false,
   },
   fields: [
     {

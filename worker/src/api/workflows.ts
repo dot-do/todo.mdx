@@ -74,7 +74,7 @@ workflows.post('/issue/ready', async (c) => {
  * {
  *   issueId: string,
  *   repoFullName: string,
- *   installationId: number,
+ *   installationId?: number,  // Optional - looked up from repo if not provided
  *   task: string,
  *   branch?: string,
  *   autoMerge?: boolean
@@ -83,13 +83,41 @@ workflows.post('/issue/ready', async (c) => {
 workflows.post('/autonomous', async (c) => {
   try {
     const body = await c.req.json()
-    const { issueId, repoFullName, installationId, task, branch, autoMerge } = body as AutonomousPayload
+    let { issueId, repoFullName, installationId, task, branch, autoMerge } = body as AutonomousPayload
 
-    if (!issueId || !repoFullName || !installationId || !task) {
+    if (!issueId || !repoFullName || !task) {
       return c.json(
-        { error: 'Missing required fields: issueId, repoFullName, installationId, task' },
+        { error: 'Missing required fields: issueId, repoFullName, task' },
         400
       )
+    }
+
+    // Look up installationId from repo if not provided
+    if (!installationId) {
+      const [owner, name] = repoFullName.split('/')
+      if (!owner || !name) {
+        return c.json({ error: 'Invalid repoFullName format, expected owner/name' }, 400)
+      }
+
+      // Query Payload for the repo's installation
+      const payload = await import('../payload.js').then(m => m.getPayloadClient(c.env))
+      const repos = await payload.find({
+        collection: 'repos',
+        where: { fullName: { equals: repoFullName } },
+        depth: 1,
+        limit: 1,
+      })
+
+      if (!repos.docs?.length) {
+        return c.json({ error: `Repo not found: ${repoFullName}` }, 404)
+      }
+
+      const repo = repos.docs[0] as any
+      installationId = repo.installation?.installationId
+
+      if (!installationId) {
+        return c.json({ error: `No GitHub installation found for repo: ${repoFullName}` }, 400)
+      }
     }
 
     // Generate workflow ID

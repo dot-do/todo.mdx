@@ -13,23 +13,15 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
+import { describeWithSlack, describeWithSlackWebhook } from '../helpers'
 import * as worker from '../helpers/worker'
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN
 const SLACK_TEST_CHANNEL = process.env.SLACK_TEST_CHANNEL
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL
-const WORKER_ACCESS_TOKEN = process.env.WORKER_ACCESS_TOKEN
 
-function hasSlackCredentials(): boolean {
-  return !!(SLACK_BOT_TOKEN && SLACK_TEST_CHANNEL && WORKER_ACCESS_TOKEN)
-}
-
-function hasSlackWebhook(): boolean {
-  return !!SLACK_WEBHOOK_URL
-}
-
-const describeWithSlack = hasSlackCredentials() ? describe : describe.skip
-const describeWithWebhook = hasSlackWebhook() ? describe : describe.skip
+// Use shared descriptors
+const describeWithWebhook = describeWithSlackWebhook
 
 // Slack API helper
 async function slackFetch(

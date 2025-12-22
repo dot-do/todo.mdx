@@ -220,36 +220,30 @@ export async function loadGitHubIssues(config: TodoConfig): Promise<Issue[]> {
   }
 }
 
-/** Compile TODO.mdx to TODO.md */
-export async function compile(options: {
+/** Options for the compile function */
+export interface CompileOptions {
   input?: string
   output?: string
   todoDir?: string
   templateDir?: string
   config?: TodoConfig
-} = {}): Promise<{ mainOutput: string; generatedFiles: string[] }> {
-  const {
-    input = 'TODO.mdx',
-    output = 'TODO.md',
-    todoDir = '.todo',
-    templateDir = '.mdx',
-    config = {},
-  } = options
+}
 
-  // Read template
-  let template: string
+/** Load template from file or use default */
+async function loadTemplate(input: string): Promise<string> {
   try {
-    template = await readFile(input, 'utf-8')
+    return await readFile(input, 'utf-8')
   } catch {
-    // Use default template
-    template = DEFAULT_TEMPLATE
+    return DEFAULT_TEMPLATE
   }
+}
 
-  // Parse frontmatter
-  const { frontmatter, content } = extractFrontmatter(template)
-
-  // Merge config from frontmatter
-  const finalConfig: TodoConfig = {
+/** Merge frontmatter settings with provided config */
+function mergeConfig(
+  frontmatter: Record<string, unknown>,
+  config: TodoConfig
+): TodoConfig {
+  return {
     ...config,
     beads: frontmatter.beads as boolean ?? config.beads ?? true,
     api: frontmatter.api as boolean ?? config.api ?? false,
@@ -259,20 +253,39 @@ export async function compile(options: {
     owner: frontmatter.owner as string ?? config.owner,
     repo: frontmatter.repo as string ?? config.repo,
   }
+}
 
-  // Parse outputs array from frontmatter
-  const outputs = frontmatter.outputs as string[] ?? [output]
-
-  // Load issues from various sources
+/** Load issues from all configured sources in parallel */
+async function loadAllIssues(
+  config: TodoConfig,
+  todoDir: string
+): Promise<{
+  beadsIssues: Issue[]
+  fileIssues: Issue[]
+  githubIssues: Issue[]
+  apiIssues: Issue[]
+}> {
   const [beadsIssues, fileIssues, githubIssues, apiIssues] = await Promise.all([
-    finalConfig.beads ? loadBeadsIssues() : [],
-    loadFileIssues(todoDir, finalConfig.filePattern!),
-    loadGitHubIssues(finalConfig),
-    finalConfig.api ? loadApiIssuesInternal(finalConfig) : [],
+    config.beads ? loadBeadsIssues() : [],
+    loadFileIssues(todoDir, config.filePattern!),
+    loadGitHubIssues(config),
+    config.api ? loadApiIssuesInternal(config) : [],
   ])
 
-  // Merge issues (priority: file > beads > api > github)
+  return { beadsIssues, fileIssues, githubIssues, apiIssues }
+}
+
+/** Merge issues from multiple sources with priority: file > beads > api > github */
+function mergeIssues(sources: {
+  beadsIssues: Issue[]
+  fileIssues: Issue[]
+  githubIssues: Issue[]
+  apiIssues: Issue[]
+}): Issue[] {
+  const { beadsIssues, fileIssues, githubIssues, apiIssues } = sources
   const issueMap = new Map<string, Issue>()
+
+  // Lower priority sources first (will be overwritten by higher priority)
   for (const issue of githubIssues) {
     issueMap.set(issue.id, issue)
     if (issue.githubNumber) issueMap.set(`github-${issue.githubNumber}`, issue)
@@ -286,15 +299,22 @@ export async function compile(options: {
   for (const issue of fileIssues) {
     issueMap.set(issue.id, issue)
   }
-  const issues = Array.from(issueMap.values())
 
-  // Hydrate template
-  const result = hydrateTemplate(content, issues, frontmatter)
+  return Array.from(issueMap.values())
+}
 
-  // Track generated files
+/** Write output files (single files and/or individual issue files) */
+async function writeOutputs(options: {
+  outputs: string[]
+  result: string
+  issues: Issue[]
+  todoDir: string
+  templateDir: string
+  filePattern?: string
+}): Promise<string[]> {
+  const { outputs, result, issues, todoDir, templateDir, filePattern } = options
   const generatedFiles: string[] = []
 
-  // Process each output target
   for (const outputTarget of outputs) {
     // Check if this is a glob pattern for individual issue files
     if (outputTarget.includes('*.md') || outputTarget.includes('*.mdx')) {
@@ -302,7 +322,7 @@ export async function compile(options: {
       const outputDir = dirname(outputTarget) || todoDir
       const generated = await generateTodoFiles({
         todoDir: outputDir,
-        pattern: finalConfig.filePattern,
+        pattern: filePattern,
         issues,
         templateDir,
       })
@@ -313,6 +333,47 @@ export async function compile(options: {
       generatedFiles.push(outputTarget)
     }
   }
+
+  return generatedFiles
+}
+
+/** Compile TODO.mdx to TODO.md */
+export async function compile(options: CompileOptions = {}): Promise<{
+  mainOutput: string
+  generatedFiles: string[]
+}> {
+  const {
+    input = 'TODO.mdx',
+    output = 'TODO.md',
+    todoDir = '.todo',
+    templateDir = '.mdx',
+    config = {},
+  } = options
+
+  // Load and parse template
+  const template = await loadTemplate(input)
+  const { frontmatter, content } = extractFrontmatter(template)
+
+  // Merge configuration
+  const finalConfig = mergeConfig(frontmatter, config)
+  const outputs = frontmatter.outputs as string[] ?? [output]
+
+  // Load and merge issues from all sources
+  const issueSources = await loadAllIssues(finalConfig, todoDir)
+  const issues = mergeIssues(issueSources)
+
+  // Hydrate template with issue data
+  const result = hydrateTemplate(content, issues, frontmatter)
+
+  // Write outputs
+  const generatedFiles = await writeOutputs({
+    outputs,
+    result,
+    issues,
+    todoDir,
+    templateDir,
+    filePattern: finalConfig.filePattern,
+  })
 
   return { mainOutput: result, generatedFiles }
 }

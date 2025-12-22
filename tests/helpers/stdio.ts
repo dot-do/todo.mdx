@@ -6,16 +6,10 @@
  * Authentication via TEST_API_KEY env var.
  */
 
-/**
- * Get authentication token (reads env at call time for dotenv support)
- */
-function getAuthToken(): string | null {
-  return process.env.TEST_API_KEY || null
-}
+import { getAuthToken, getWorkerBaseUrl } from './auth'
 
-function getWorkerBaseUrl(): string {
-  return process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-}
+// Re-export for convenience
+export { getWorkerBaseUrl } from './auth'
 
 // Stream IDs for binary protocol
 export const STREAM_STDOUT = 0x01
@@ -730,5 +724,5 @@ export async function createSessionWithRetry(
   throw lastError || new Error('Failed to create session after retries')
 }
 
-// Export getWorkerBaseUrl for test output
-export { getWorkerBaseUrl }
+// Re-export getWorkerBaseUrl for backwards compatibility
+export { getWorkerBaseUrl } from './auth'

@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
 import { encrypt, decrypt, isEncrypted } from '../lib/encryption'
+import { ownerOrAdmin, authenticated } from '../access'
 
 /**
  * Linear workspace integrations.
@@ -12,34 +13,13 @@ export const LinearIntegrations: CollectionConfig = {
     group: 'Linear',
   },
   access: {
-    // Only authenticated users can read their own integrations
-    read: ({ req: { user } }) => {
-      if (!user) return false
-      // Admins can see all
-      if (user.roles?.includes('admin')) return true
-      // Users see their own integrations
-      return {
-        user: { equals: user.id },
-      }
-    },
-    // Users can create their own integrations
-    create: ({ req: { user } }) => !!user,
-    // Users can update their own integrations
-    update: ({ req: { user } }) => {
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        user: { equals: user.id },
-      }
-    },
-    // Users can delete their own integrations
-    delete: ({ req: { user } }) => {
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        user: { equals: user.id },
-      }
-    },
+    // Only authenticated users can read their own integrations (or admins/internal)
+    read: ownerOrAdmin('user'),
+    // Authenticated users can create their own integrations
+    create: authenticated,
+    // Users can update/delete their own integrations
+    update: ownerOrAdmin('user'),
+    delete: ownerOrAdmin('user'),
   },
   hooks: {
     beforeChange: [

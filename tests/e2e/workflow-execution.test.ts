@@ -17,31 +17,27 @@
 
 import { describe, test, expect, beforeAll, beforeEach, afterEach } from 'vitest'
 import { createTestWorktree, type Worktree } from '../helpers/worktree'
+import {
+  describeWithBoth,
+  describeWithAutonomous,
+  hasGitHubCredentials,
+  hasWorkerCredentials,
+  shouldSkipWebhookTests,
+} from '../helpers'
 import * as beads from '../helpers/beads'
 import * as github from '../helpers/github'
 import * as worker from '../helpers/worker'
 import { execa } from 'execa'
 
-const hasGitHubCredentials = github.hasGitHubCredentials()
-const hasWorkerCredentials = worker.hasWorkerCredentials()
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
-// Skip webhook simulation tests when running against production without the real secret
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
-const hasWebhookSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
-const skipWebhookTests = isProduction && !hasWebhookSecret
-
 function hasFullCredentials(): boolean {
-  return hasGitHubCredentials && hasWorkerCredentials && !skipWebhookTests
+  return hasGitHubCredentials() && hasWorkerCredentials() && !shouldSkipWebhookTests()
 }
 
-function hasSandboxCredentials(): boolean {
-  return hasFullCredentials() && !!ANTHROPIC_API_KEY
-}
-
-const describeWithCredentials = hasFullCredentials() ? describe : describe.skip
-const describeWithSandbox = hasSandboxCredentials() ? describe : describe.skip
+// Use shared descriptors
+const describeWithCredentials = describeWithBoth
+const describeWithSandbox = describeWithAutonomous
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'

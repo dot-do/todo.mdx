@@ -1,5 +1,6 @@
 import type { CollectionConfig } from 'payload'
-import { isInternalRequest, internalOrAdmin } from '../access/internal'
+import { installationAccess, adminOnly } from '../access'
+import { createApprovalGatesGroup } from '../fields/approval-gates'
 
 /**
  * GitHub repositories.
@@ -14,27 +15,12 @@ export const Repos: CollectionConfig = {
   },
   access: {
     // Users can read repos they have access to via installation
-    read: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        'installation.users.id': { equals: user.id },
-      }
-    },
-    create: internalOrAdmin,
-    update: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      // Users can update repos they have access to
-      return {
-        'installation.users.id': { equals: user.id },
-      }
-    },
-    delete: internalOrAdmin,
+    read: installationAccess,
+    // Only internal RPC or admins can create/delete repos
+    create: adminOnly,
+    // Users can update repos they have access to via installation
+    update: installationAccess,
+    delete: adminOnly,
   },
   fields: [
     {
@@ -189,200 +175,7 @@ export const Repos: CollectionConfig = {
       ],
     },
     // Approval gate configuration (repo level overrides)
-    {
-      name: 'approvalGates',
-      type: 'group',
-      admin: {
-        description: 'Approval gate settings for this repo (overrides org-level defaults)',
-      },
-      fields: [
-        {
-          name: 'inheritFromOrg',
-          type: 'checkbox',
-          defaultValue: true,
-          admin: {
-            description: 'Inherit approval gate settings from organization',
-          },
-        },
-        {
-          name: 'requireHumanApproval',
-          type: 'checkbox',
-          admin: {
-            description: 'Require human approval before merging PRs',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'allowFullAutonomy',
-          type: 'checkbox',
-          admin: {
-            description: 'Allow fully autonomous operation (no human approval required)',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'maxBudgetPerDay',
-          type: 'number',
-          admin: {
-            description: 'Maximum daily budget in USD for this repo',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'maxAgentSpawnsPerHour',
-          type: 'number',
-          admin: {
-            description: 'Rate limit: max agent spawns per hour for this repo',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'riskThreshold',
-          type: 'select',
-          options: [
-            { label: 'Low - Approve all automatically', value: 'low' },
-            { label: 'Medium - Approve low-risk changes', value: 'medium' },
-            { label: 'High - Require approval for all changes', value: 'high' },
-          ],
-          admin: {
-            description: 'Risk threshold for automatic approval',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'criticalPaths',
-          type: 'json',
-          admin: {
-            description: 'Additional file paths that require human approval (glob patterns)',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'autoApproveLabels',
-          type: 'json',
-          admin: {
-            description: 'Issue labels that allow automatic merge without human approval',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        {
-          name: 'requireApprovalLabels',
-          type: 'json',
-          admin: {
-            description: 'Issue labels that always require human approval',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-        },
-        // Triggers - conditions that trigger approval requirements
-        {
-          name: 'triggers',
-          type: 'group',
-          admin: {
-            description: 'Conditions that trigger approval requirements',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-          fields: [
-            {
-              name: 'labels',
-              type: 'array',
-              admin: {
-                description: 'PR/issue labels that trigger approval',
-              },
-              fields: [
-                {
-                  name: 'label',
-                  type: 'text',
-                  required: true,
-                },
-              ],
-            },
-            {
-              name: 'types',
-              type: 'array',
-              admin: {
-                description: 'Issue types that trigger approval',
-              },
-              fields: [
-                {
-                  name: 'type',
-                  type: 'select',
-                  required: true,
-                  options: [
-                    { label: 'Task', value: 'task' },
-                    { label: 'Bug', value: 'bug' },
-                    { label: 'Feature', value: 'feature' },
-                    { label: 'Epic', value: 'epic' },
-                  ],
-                },
-              ],
-            },
-            {
-              name: 'filesChanged',
-              type: 'array',
-              admin: {
-                description: 'File path patterns that trigger approval (glob patterns)',
-              },
-              fields: [
-                {
-                  name: 'pattern',
-                  type: 'text',
-                  required: true,
-                  admin: {
-                    description: 'Glob pattern (e.g., src/auth/**, *.sql)',
-                  },
-                },
-              ],
-            },
-            {
-              name: 'riskScore',
-              type: 'number',
-              min: 0,
-              max: 100,
-              admin: {
-                description: 'Risk score threshold (0-100) that triggers approval',
-              },
-            },
-          ],
-        },
-        // Approvers - who can approve
-        {
-          name: 'approvers',
-          type: 'array',
-          admin: {
-            description: 'GitHub usernames who can approve',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-          fields: [
-            {
-              name: 'username',
-              type: 'text',
-              required: true,
-              admin: {
-                description: 'GitHub username',
-              },
-            },
-          ],
-        },
-        {
-          name: 'teamApprovers',
-          type: 'array',
-          admin: {
-            description: 'GitHub teams who can approve (format: org/team-slug)',
-            condition: (data) => !data.approvalGates?.inheritFromOrg,
-          },
-          fields: [
-            {
-              name: 'team',
-              type: 'text',
-              required: true,
-              admin: {
-                description: 'GitHub team in format: org/team-slug',
-              },
-            },
-          ],
-        },
-      ],
-    },
+    createApprovalGatesGroup({ level: 'repo' }),
     // Tool configuration (repo level)
     {
       name: 'toolConfig',

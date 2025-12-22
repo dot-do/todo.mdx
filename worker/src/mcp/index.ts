@@ -15,6 +15,26 @@ import type { Env } from "../types";
 import { executeSandboxedWorkflow } from "../sandbox";
 import { getPayloadClient } from "../payload";
 
+/** MCP tool result type */
+type ToolResult = {
+	content: Array<{ type: "text"; text: string }>;
+	isError?: boolean;
+};
+
+/** Context passed to tool handlers after auth verification */
+type RepoContext = {
+	env: Env;
+	repo: string;
+	repoDoc: any;
+	userRepos: any[];
+};
+
+/** Extended context with installation info (for write operations) */
+type RepoContextWithInstallation = RepoContext & {
+	installationId: number;
+	stub: DurableObjectStub;
+};
+
 export class TodoMCP extends McpAgent<Env, unknown, Props> {
 	server = new McpServer({
 		name: "todo.mdx",
@@ -65,6 +85,91 @@ export class TodoMCP extends McpAgent<Env, unknown, Props> {
 		});
 
 		return reposResult.docs || [];
+	}
+
+	/**
+	 * Higher-order function that wraps tool handlers with authentication and repo access verification.
+	 * Reduces boilerplate for the common pattern: auth check -> getUserRepos -> hasAccess check.
+	 *
+	 * @param handler - The actual tool logic to execute after access is verified
+	 * @returns A wrapped handler that performs auth/access checks first
+	 */
+	private withRepoAccess<TArgs extends { repo: string }>(
+		handler: (args: TArgs, ctx: RepoContext) => Promise<ToolResult>
+	): (args: TArgs) => Promise<ToolResult> {
+		return async (args: TArgs): Promise<ToolResult> => {
+			try {
+				const env = this.env as Env;
+				const workosUserId = this.props?.user?.id;
+
+				if (!workosUserId) {
+					return {
+						content: [{ type: "text", text: "Error: Not authenticated" }],
+						isError: true,
+					};
+				}
+
+				const userRepos = await this.getUserRepos(env, workosUserId);
+				const repoDoc = userRepos.find((r: any) => r.fullName === args.repo);
+
+				if (!repoDoc) {
+					return {
+						content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
+						isError: true,
+					};
+				}
+
+				return await handler(args, { env, repo: args.repo, repoDoc, userRepos });
+			} catch (error: any) {
+				return {
+					content: [{ type: "text", text: `Error: ${error.message}` }],
+					isError: true,
+				};
+			}
+		};
+	}
+
+	/**
+	 * Higher-order function for write operations that need installation context and DO stub.
+	 * Extends withRepoAccess to also set up the RepoDO context with installation info.
+	 *
+	 * @param handler - The actual tool logic to execute after context is set up
+	 * @returns A wrapped handler that performs auth/access checks and sets up installation context
+	 */
+	private withRepoAccessAndInstallation<TArgs extends { repo: string }>(
+		handler: (args: TArgs, ctx: RepoContextWithInstallation) => Promise<ToolResult>
+	): (args: TArgs) => Promise<ToolResult> {
+		return this.withRepoAccess(async (args: TArgs, ctx: RepoContext): Promise<ToolResult> => {
+			const { env, repo, repoDoc, userRepos } = ctx;
+
+			// Get installation ID
+			const payload = await getPayloadClient(env);
+			const installationResult = await payload.findByID({
+				collection: "installations",
+				id: repoDoc.installation,
+				overrideAccess: true,
+			});
+			const installationId = (installationResult as any)?.installationId;
+
+			if (!installationId) {
+				return {
+					content: [{ type: "text", text: "No GitHub installation found for this repository" }],
+					isError: true,
+				};
+			}
+
+			// Get DO stub and set context
+			const doId = env.REPO.idFromName(repo);
+			const stub = env.REPO.get(doId);
+
+			await stub.fetch(new Request("http://do/context", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ repoFullName: repo, installationId }),
+			}));
+
+			return await handler(args, { env, repo, repoDoc, userRepos, installationId, stub });
+		});
 	}
 
 	async init() {
@@ -199,50 +304,23 @@ Examples:
 				limit: z.number().optional().default(50).describe("Max results (default: 50)"),
 			},
 			{ readOnlyHint: true },
-			async ({ repo, status, priority, issue_type, limit }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccess(async ({ repo, status, priority, issue_type, limit }, { env }) => {
+				const doId = env.REPO.idFromName(repo);
+				const stub = env.REPO.get(doId);
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
+				const params = new URLSearchParams();
+				if (status) params.set("status", status);
+				if (priority !== undefined) params.set("priority", String(priority));
+				if (issue_type) params.set("type", issue_type);
+				if (limit) params.set("limit", String(limit));
 
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const hasAccess = userRepos.some((r: any) => r.fullName === repo);
+				const response = await stub.fetch(new Request(`http://do/issues?${params}`));
+				const issues = await response.json();
 
-					if (!hasAccess) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					const params = new URLSearchParams();
-					if (status) params.set("status", status);
-					if (priority !== undefined) params.set("priority", String(priority));
-					if (issue_type) params.set("type", issue_type);
-					if (limit) params.set("limit", String(limit));
-
-					const response = await stub.fetch(new Request(`http://do/issues?${params}`));
-					const issues = await response.json();
-
-					return {
-						content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
+				return {
+					content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
+				};
+			}),
 		);
 
 		// Ready: get issues ready to work on (no blockers)
@@ -260,44 +338,17 @@ Examples:
 				limit: z.number().optional().default(20).describe("Max results (default: 20)"),
 			},
 			{ readOnlyHint: true },
-			async ({ repo, limit }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccess(async ({ repo, limit }, { env }) => {
+				const doId = env.REPO.idFromName(repo);
+				const stub = env.REPO.get(doId);
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
+				const response = await stub.fetch(new Request(`http://do/issues/ready?limit=${limit}`));
+				const issues = await response.json();
 
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const hasAccess = userRepos.some((r: any) => r.fullName === repo);
-
-					if (!hasAccess) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					const response = await stub.fetch(new Request(`http://do/issues/ready?limit=${limit}`));
-					const issues = await response.json();
-
-					return {
-						content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
+				return {
+					content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
+				};
+			}),
 		);
 
 		// Blocked: get issues that are blocked by dependencies
@@ -313,44 +364,17 @@ Example:
 				repo: z.string().describe("Repository (owner/name)"),
 			},
 			{ readOnlyHint: true },
-			async ({ repo }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccess(async ({ repo }, { env }) => {
+				const doId = env.REPO.idFromName(repo);
+				const stub = env.REPO.get(doId);
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
+				const response = await stub.fetch(new Request("http://do/issues/blocked"));
+				const issues = await response.json();
 
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const hasAccess = userRepos.some((r: any) => r.fullName === repo);
-
-					if (!hasAccess) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					const response = await stub.fetch(new Request("http://do/issues/blocked"));
-					const issues = await response.json();
-
-					return {
-						content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
+				return {
+					content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
+				};
+			}),
 		);
 
 		// Fetch: get details of a specific issue
@@ -368,51 +392,23 @@ Examples:
 				issue: z.string().describe("Issue number or local ID"),
 			},
 			{ readOnlyHint: true },
-			async ({ repo, issue }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccess(async ({ repo, issue }, { env }) => {
+				const doId = env.REPO.idFromName(repo);
+				const stub = env.REPO.get(doId);
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
-
-					// Verify access using the helper
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const hasAccess = userRepos.some((r: any) => r.fullName === repo);
-
-					if (!hasAccess) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					const response = await stub.fetch(new Request(`http://do/issues/${issue}`));
-					if (!response.ok) {
-						return {
-							content: [{ type: "text", text: `Issue not found: ${issue}` }],
-							isError: true,
-						};
-					}
-
-					const issueData = await response.json();
+				const response = await stub.fetch(new Request(`http://do/issues/${issue}`));
+				if (!response.ok) {
 					return {
-						content: [{ type: "text", text: JSON.stringify(issueData, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
+						content: [{ type: "text", text: `Issue not found: ${issue}` }],
 						isError: true,
 					};
 				}
-			},
+
+				const issueData = await response.json();
+				return {
+					content: [{ type: "text", text: JSON.stringify(issueData, null, 2) }],
+				};
+			}),
 		);
 
 		// Roadmap: get current roadmap state
@@ -535,66 +531,18 @@ Examples:
 				labels: z.array(z.string()).optional().describe("Labels to apply"),
 			},
 			{ destructiveHint: true },
-			async ({ repo, title, description, issue_type, priority, assignee, labels }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccessAndInstallation(async ({ title, description, issue_type, priority, assignee, labels }, { stub }) => {
+				const response = await stub.fetch(new Request("http://do/issues", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ title, description, issue_type, priority, assignee, labels }),
+				}));
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
-
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
-
-					if (!repoDoc) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					// Set context on DO first
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					// Get installation ID
-					const payload = await getPayloadClient(env);
-					const installationResult = await payload.findByID({
-						collection: "installations",
-						id: repoDoc.installation,
-						overrideAccess: true,
-					});
-					const installationId = (installationResult as any)?.installationId;
-
-					if (installationId) {
-						await stub.fetch(new Request("http://do/context", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ repoFullName: repo, installationId }),
-						}));
-					}
-
-					const response = await stub.fetch(new Request("http://do/issues", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ title, description, issue_type, priority, assignee, labels }),
-					}));
-
-					const issue = await response.json();
-					return {
-						content: [{ type: "text", text: JSON.stringify(issue, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
+				const issue = await response.json();
+				return {
+					content: [{ type: "text", text: JSON.stringify(issue, null, 2) }],
+				};
+			}),
 		);
 
 		// Update issue
@@ -616,72 +564,25 @@ Examples:
 				labels: z.array(z.string()).optional().describe("Replace all labels"),
 			},
 			{ destructiveHint: true },
-			async ({ repo, issue, title, description, status, priority, assignee, labels }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccessAndInstallation(async ({ issue, title, description, status, priority, assignee, labels }, { stub }) => {
+				const response = await stub.fetch(new Request(`http://do/issues/${issue}`, {
+					method: "PATCH",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ title, description, status, priority, assignee, labels }),
+				}));
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
-
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
-
-					if (!repoDoc) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					// Set context
-					const payload = await getPayloadClient(env);
-					const installationResult = await payload.findByID({
-						collection: "installations",
-						id: repoDoc.installation,
-						overrideAccess: true,
-					});
-					const installationId = (installationResult as any)?.installationId;
-
-					if (installationId) {
-						await stub.fetch(new Request("http://do/context", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ repoFullName: repo, installationId }),
-						}));
-					}
-
-					const response = await stub.fetch(new Request(`http://do/issues/${issue}`, {
-						method: "PATCH",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ title, description, status, priority, assignee, labels }),
-					}));
-
-					if (!response.ok) {
-						return {
-							content: [{ type: "text", text: `Issue not found: ${issue}` }],
-							isError: true,
-						};
-					}
-
-					const updated = await response.json();
+				if (!response.ok) {
 					return {
-						content: [{ type: "text", text: JSON.stringify(updated, null, 2) }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
+						content: [{ type: "text", text: `Issue not found: ${issue}` }],
 						isError: true,
 					};
 				}
-			},
+
+				const updated = await response.json();
+				return {
+					content: [{ type: "text", text: JSON.stringify(updated, null, 2) }],
+				};
+			}),
 		);
 
 		// Close issue
@@ -698,71 +599,24 @@ Examples:
 				reason: z.string().optional().describe("Reason for closing"),
 			},
 			{ destructiveHint: true },
-			async ({ repo, issue, reason }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccessAndInstallation(async ({ issue, reason }, { stub }) => {
+				const response = await stub.fetch(new Request(`http://do/issues/${issue}/close`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ reason }),
+				}));
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
-
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					const repoDoc = userRepos.find((r: any) => r.fullName === repo);
-
-					if (!repoDoc) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					// Set context
-					const payload = await getPayloadClient(env);
-					const installationResult = await payload.findByID({
-						collection: "installations",
-						id: repoDoc.installation,
-						overrideAccess: true,
-					});
-					const installationId = (installationResult as any)?.installationId;
-
-					if (installationId) {
-						await stub.fetch(new Request("http://do/context", {
-							method: "POST",
-							headers: { "Content-Type": "application/json" },
-							body: JSON.stringify({ repoFullName: repo, installationId }),
-						}));
-					}
-
-					const response = await stub.fetch(new Request(`http://do/issues/${issue}/close`, {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ reason }),
-					}));
-
-					if (!response.ok) {
-						return {
-							content: [{ type: "text", text: `Issue not found: ${issue}` }],
-							isError: true,
-						};
-					}
-
+				if (!response.ok) {
 					return {
-						content: [{ type: "text", text: `Issue ${issue} closed successfully` }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
+						content: [{ type: "text", text: `Issue not found: ${issue}` }],
 						isError: true,
 					};
 				}
-			},
+
+				return {
+					content: [{ type: "text", text: `Issue ${issue} closed successfully` }],
+				};
+			}),
 		);
 
 		// Add dependency
@@ -780,45 +634,20 @@ Example:
 				type: z.enum(["blocks", "related", "parent-child"]).optional().default("blocks").describe("Dependency type"),
 			},
 			{ destructiveHint: true },
-			async ({ repo, issue, depends_on, type }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccess(async ({ repo, issue, depends_on, type }, { env }) => {
+				const doId = env.REPO.idFromName(repo);
+				const stub = env.REPO.get(doId);
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
+				await stub.fetch(new Request("http://do/dependencies", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ issue_id: issue, depends_on_id: depends_on, type }),
+				}));
 
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					if (!userRepos.some((r: any) => r.fullName === repo)) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					await stub.fetch(new Request("http://do/dependencies", {
-						method: "POST",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ issue_id: issue, depends_on_id: depends_on, type }),
-					}));
-
-					return {
-						content: [{ type: "text", text: `Dependency added: ${issue} depends on ${depends_on}` }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
+				return {
+					content: [{ type: "text", text: `Dependency added: ${issue} depends on ${depends_on}` }],
+				};
+			}),
 		);
 
 		// Remove dependency
@@ -834,45 +663,20 @@ Example:
 				depends_on: z.string().describe("Issue to remove from dependencies"),
 			},
 			{ destructiveHint: true },
-			async ({ repo, issue, depends_on }) => {
-				try {
-					const env = this.env as Env;
-					const workosUserId = this.props?.user?.id;
+			this.withRepoAccess(async ({ repo, issue, depends_on }, { env }) => {
+				const doId = env.REPO.idFromName(repo);
+				const stub = env.REPO.get(doId);
 
-					if (!workosUserId) {
-						return {
-							content: [{ type: "text", text: "Error: Not authenticated" }],
-							isError: true,
-						};
-					}
+				await stub.fetch(new Request("http://do/dependencies", {
+					method: "DELETE",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ issue_id: issue, depends_on_id: depends_on }),
+				}));
 
-					const userRepos = await this.getUserRepos(env, workosUserId);
-					if (!userRepos.some((r: any) => r.fullName === repo)) {
-						return {
-							content: [{ type: "text", text: "Access denied: You do not have access to this repository" }],
-							isError: true,
-						};
-					}
-
-					const doId = env.REPO.idFromName(repo);
-					const stub = env.REPO.get(doId);
-
-					await stub.fetch(new Request("http://do/dependencies", {
-						method: "DELETE",
-						headers: { "Content-Type": "application/json" },
-						body: JSON.stringify({ issue_id: issue, depends_on_id: depends_on }),
-					}));
-
-					return {
-						content: [{ type: "text", text: `Dependency removed: ${issue} no longer depends on ${depends_on}` }],
-					};
-				} catch (error: any) {
-					return {
-						content: [{ type: "text", text: `Error: ${error.message}` }],
-						isError: true,
-					};
-				}
-			},
+				return {
+					content: [{ type: "text", text: `Dependency removed: ${issue} no longer depends on ${depends_on}` }],
+				};
+			}),
 		);
 
 		// Create branch

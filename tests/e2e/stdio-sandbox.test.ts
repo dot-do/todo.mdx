@@ -17,20 +17,21 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'vitest'
-import {
+import { hasSandboxCredentials, stdio } from '../helpers'
+
+const {
   createSession,
   createSessionWithRetry,
   getSessionStatus,
   deleteSession,
   runCommand,
   runCommandWithControls,
-  hasSandboxCredentials,
   getWorkerBaseUrl,
   STREAM_STDOUT,
   STREAM_STDERR,
   pack,
   unpack,
-} from '../helpers/stdio'
+} = stdio
 
 // Track created sessions for cleanup
 const createdSessions: string[] = []

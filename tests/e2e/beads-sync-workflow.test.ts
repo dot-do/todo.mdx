@@ -13,6 +13,7 @@ import { describe, test, expect, beforeAll } from 'vitest'
 import { execa } from 'execa'
 import path from 'path'
 import { hasBdCli } from '../helpers/beads'
+import { hasWorkerCredentials } from '../helpers'
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'
@@ -35,7 +36,7 @@ async function checkClis() {
   }
 }
 
-const hasCredentials = !!TEST_API_KEY
+const hasCredentials = hasWorkerCredentials()
 const describeWithCredentials = hasCredentials ? describe : describe.skip
 
 async function triggerSyncWorkflow(): Promise<{ workflowId: string }> {

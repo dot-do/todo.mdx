@@ -2,14 +2,21 @@
 
 import * as React from 'react'
 import { clsx } from 'clsx'
+import {
+  STATUS_COLORS,
+  TYPE_ICONS,
+  getPriorityColor,
+  type IssueStatus,
+  type IssueType,
+} from '../lib/theme'
 
 export interface Issue {
   id: string
   title: string
   description?: string
-  status: 'open' | 'in_progress' | 'blocked' | 'closed'
+  status: IssueStatus
   priority: number
-  type: 'bug' | 'feature' | 'task' | 'epic' | 'chore'
+  type: IssueType
   labels?: string[]
   assignee?: string
   createdAt?: string
@@ -20,29 +27,6 @@ interface IssueListProps {
   issues: Issue[]
   onIssueClick?: (issue: Issue) => void
   className?: string
-}
-
-const statusColors = {
-  open: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-  in_progress: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-  blocked: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-  closed: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-}
-
-const priorityColors = {
-  0: 'text-red-600 dark:text-red-400',
-  1: 'text-orange-600 dark:text-orange-400',
-  2: 'text-yellow-600 dark:text-yellow-400',
-  3: 'text-blue-600 dark:text-blue-400',
-  4: 'text-gray-500 dark:text-gray-400',
-}
-
-const typeIcons: Record<Issue['type'], string> = {
-  bug: '🐛',
-  feature: '✨',
-  task: '📋',
-  epic: '🎯',
-  chore: '🔧',
 }
 
 export function IssueList({ issues, onIssueClick, className }: IssueListProps) {
@@ -86,7 +70,7 @@ export function IssueList({ issues, onIssueClick, className }: IssueListProps) {
               <td className="px-4 py-4">
                 <div className="flex items-start gap-3">
                   <span className="text-lg" title={issue.type}>
-                    {typeIcons[issue.type]}
+                    {TYPE_ICONS[issue.type]}
                   </span>
                   <div>
                     <div className="flex items-center gap-2">
@@ -102,12 +86,12 @@ export function IssueList({ issues, onIssueClick, className }: IssueListProps) {
                 </div>
               </td>
               <td className="px-4 py-4">
-                <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', statusColors[issue.status])}>
+                <span className={clsx('inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium', STATUS_COLORS[issue.status])}>
                   {issue.status.replace('_', ' ')}
                 </span>
               </td>
               <td className="px-4 py-4">
-                <span className={clsx('font-medium', priorityColors[issue.priority as keyof typeof priorityColors] || priorityColors[4])}>
+                <span className={clsx('font-medium', getPriorityColor(issue.priority))}>
                   P{issue.priority}
                 </span>
               </td>

@@ -18,13 +18,14 @@
  * Required environment variables:
  * - TEST_API_KEY: API key for worker auth
  * - WORKER_BASE_URL: Worker URL (defaults to https://todo.mdx.do)
- * - GITHUB_INSTALLATION_ID: GitHub App installation ID
- * - ANTHROPIC_API_KEY: For Claude sandbox execution
+ *
+ * The app internally has all other credentials (GitHub App, Anthropic, etc.)
  *
  * Run with: pnpm --filter @todo.mdx/tests test -- tests/e2e/autonomous-workflow.test.ts
  */
 
 import { describe, test, expect, beforeAll, afterAll, afterEach } from 'vitest'
+import { describeWithAutonomous } from '../helpers'
 
 // ============================================================================
 // Configuration
@@ -32,8 +33,6 @@ import { describe, test, expect, beforeAll, afterAll, afterEach } from 'vitest'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const TEST_API_KEY = process.env.TEST_API_KEY
-const GITHUB_INSTALLATION_ID = process.env.GITHUB_INSTALLATION_ID
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
 
 // Test repository (must have GitHub App installed)
 const TEST_REPO_OWNER = process.env.TEST_REPO_OWNER || 'dot-do'
@@ -49,13 +48,8 @@ const POLL_INTERVAL = 5_000 // 5 seconds between status checks
 // ============================================================================
 
 function hasRequiredCredentials(): boolean {
-  const missing: string[] = []
-  if (!TEST_API_KEY) missing.push('TEST_API_KEY')
-  if (!GITHUB_INSTALLATION_ID) missing.push('GITHUB_INSTALLATION_ID')
-  if (!ANTHROPIC_API_KEY) missing.push('ANTHROPIC_API_KEY')
-
-  if (missing.length > 0) {
-    console.log(`Missing required credentials: ${missing.join(', ')}`)
+  if (!TEST_API_KEY) {
+    console.log('Missing required credential: TEST_API_KEY')
     return false
   }
   return true
@@ -92,7 +86,8 @@ async function checkSandboxAvailability(): Promise<boolean> {
   }
 }
 
-const describeWithCredentials = hasRequiredCredentials() ? describe : describe.skip
+// Use shared descriptor for full autonomous credentials
+const describeWithCredentials = describeWithAutonomous
 const describeIfSandboxAvailable = (name: string, fn: () => void) => {
   return sandboxAvailable ? describe(name, fn) : describe.skip(name, fn)
 }
@@ -122,7 +117,7 @@ async function apiRequest(
 interface AutonomousPayload {
   issueId: string
   repoFullName: string
-  installationId: number
+  installationId?: number  // Optional - app looks it up from repo
   task: string
   branch?: string
   autoMerge?: boolean
@@ -409,7 +404,6 @@ describeWithCredentials('AutonomousWorkflow E2E', () => {
       const payload: AutonomousPayload = {
         issueId,
         repoFullName: TEST_REPO,
-        installationId: parseInt(GITHUB_INSTALLATION_ID!),
         task: 'Test API validation - no actual work needed',
         branch: ctx.branch,
       }

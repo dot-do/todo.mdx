@@ -12,6 +12,7 @@
 import { DurableObject } from 'cloudflare:workers'
 import { createActor, setup, assign } from 'xstate'
 import { decryptPAT } from '../auth/encryption'
+import { getInstallationToken } from '../utils/github-auth'
 
 export interface Env {
   DB: D1Database
@@ -1367,16 +1368,9 @@ export class PRDO extends DurableObject<Env> {
     const context = this.prActor.getSnapshot().context
 
     try {
-      // Get installation token for GitHub API
+      // Get installation token for GitHub API using shared utility
       const { Octokit } = await import('@octokit/rest')
-      const { createAppAuth } = await import('@octokit/auth-app')
-
-      const auth = createAppAuth({
-        appId: this.env.GITHUB_APP_ID,
-        privateKey: this.env.GITHUB_PRIVATE_KEY,
-        installationId: context.installationId,
-      })
-      const { token } = await auth({ type: 'installation' })
+      const token = await getInstallationToken(context.installationId, this.env)
       const octokit = new Octokit({ auth: token })
 
       const [owner, repo] = context.repoFullName.split('/')

@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { isInternalRequest, internalOrAdmin } from '../access/internal'
+import { repoAccess, adminOnly } from '../access'
 
 /**
  * Issues collection.
@@ -15,28 +15,12 @@ export const Issues: CollectionConfig = {
   },
   access: {
     // Users can read issues from repos they have access to
-    read: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      // Users see issues from repos in installations they're connected to
-      return {
-        'repo.installation.users.id': { equals: user.id },
-      }
-    },
-    create: internalOrAdmin,
-    update: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      // Users can update issues from repos they have access to
-      return {
-        'repo.installation.users.id': { equals: user.id },
-      }
-    },
-    delete: internalOrAdmin,
+    read: repoAccess,
+    // Only internal RPC or admins can create/delete issues
+    create: adminOnly,
+    // Users can update issues from repos they have access to
+    update: repoAccess,
+    delete: adminOnly,
   },
   fields: [
     // External IDs for sync tracking

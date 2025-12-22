@@ -6,7 +6,7 @@
  */
 
 import { DurableObject } from 'cloudflare:workers'
-import { SignJWT, importPKCS8 } from 'jose'
+import { getInstallationToken } from '../utils/github-auth'
 
 // Workflow types for triggering autonomous development
 interface WorkflowNamespace {
@@ -151,77 +151,6 @@ function labelToType(labels: string[]): string {
   return 'task' // Default
 }
 
-/**
- * Convert PKCS#1 (RSA PRIVATE KEY) to PKCS#8 (PRIVATE KEY) format.
- * GitHub App keys are in PKCS#1 but jose's importPKCS8 requires PKCS#8.
- */
-function convertPkcs1ToPkcs8(pkcs1Pem: string): string {
-  // Check if already PKCS#8
-  if (pkcs1Pem.includes('-----BEGIN PRIVATE KEY-----')) {
-    return pkcs1Pem
-  }
-
-  // Remove PEM headers and decode
-  const pkcs1Base64 = pkcs1Pem
-    .replace('-----BEGIN RSA PRIVATE KEY-----', '')
-    .replace('-----END RSA PRIVATE KEY-----', '')
-    .replace(/[\s\n\r]/g, '')
-
-  const pkcs1Binary = Uint8Array.from(atob(pkcs1Base64), (c) => c.charCodeAt(0))
-
-  // RSA AlgorithmIdentifier: SEQUENCE { OID 1.2.840.113549.1.1.1, NULL }
-  const rsaAlgorithmId = new Uint8Array([
-    0x30, 0x0d, // SEQUENCE (13 bytes)
-    0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01, // OID rsaEncryption
-    0x05, 0x00, // NULL
-  ])
-
-  // version INTEGER 0
-  const version = new Uint8Array([0x02, 0x01, 0x00])
-
-  // Wrap PKCS#1 key in OCTET STRING
-  const pkcs1Len = pkcs1Binary.length
-  let octetStringHeader: Uint8Array
-  if (pkcs1Len < 128) {
-    octetStringHeader = new Uint8Array([0x04, pkcs1Len])
-  } else if (pkcs1Len < 256) {
-    octetStringHeader = new Uint8Array([0x04, 0x81, pkcs1Len])
-  } else {
-    octetStringHeader = new Uint8Array([0x04, 0x82, (pkcs1Len >> 8) & 0xff, pkcs1Len & 0xff])
-  }
-
-  // Build inner content: version + algorithmId + octetString(pkcs1Key)
-  const innerLen = version.length + rsaAlgorithmId.length + octetStringHeader.length + pkcs1Binary.length
-  let sequenceHeader: Uint8Array
-  if (innerLen < 128) {
-    sequenceHeader = new Uint8Array([0x30, innerLen])
-  } else if (innerLen < 256) {
-    sequenceHeader = new Uint8Array([0x30, 0x81, innerLen])
-  } else {
-    sequenceHeader = new Uint8Array([0x30, 0x82, (innerLen >> 8) & 0xff, innerLen & 0xff])
-  }
-
-  // Combine all parts
-  const pkcs8Binary = new Uint8Array(
-    sequenceHeader.length + version.length + rsaAlgorithmId.length + octetStringHeader.length + pkcs1Binary.length
-  )
-  let offset = 0
-  pkcs8Binary.set(sequenceHeader, offset)
-  offset += sequenceHeader.length
-  pkcs8Binary.set(version, offset)
-  offset += version.length
-  pkcs8Binary.set(rsaAlgorithmId, offset)
-  offset += rsaAlgorithmId.length
-  pkcs8Binary.set(octetStringHeader, offset)
-  offset += octetStringHeader.length
-  pkcs8Binary.set(pkcs1Binary, offset)
-
-  // Encode as base64 with 64-char line breaks
-  const base64 = btoa(String.fromCharCode(...pkcs8Binary))
-  const lines = base64.match(/.{1,64}/g) || []
-
-  return `-----BEGIN PRIVATE KEY-----\n${lines.join('\n')}\n-----END PRIVATE KEY-----`
-}
 
 /** Build the complete label array for GitHub from issue data */
 function buildGitHubLabels(
@@ -412,70 +341,13 @@ export class RepoDO extends DurableObject<Env> {
   // GitHub API helpers
   // ===========================================================================
 
-  private async generateGitHubAppJWT(): Promise<string> {
-    const now = Math.floor(Date.now() / 1000)
-    let privateKeyPEM = (this.env as Env).GITHUB_PRIVATE_KEY
-
-    // Handle different key formats:
-    // 1. Base64 encoded PEM
-    // 2. PEM with escaped newlines (\\n)
-    // 3. Raw PEM
-    if (!privateKeyPEM.includes('-----BEGIN')) {
-      // Assume base64 encoded
-      try {
-        privateKeyPEM = atob(privateKeyPEM)
-      } catch {
-        // Not valid base64, try as-is
-      }
-    }
-    // Convert escaped newlines to actual newlines
-    privateKeyPEM = privateKeyPEM.replace(/\\n/g, '\n')
-
-    // GitHub App keys are PKCS#1 (RSA PRIVATE KEY), but jose requires PKCS#8
-    privateKeyPEM = convertPkcs1ToPkcs8(privateKeyPEM)
-
-    const key = await importPKCS8(privateKeyPEM, 'RS256')
-
-    return new SignJWT({})
-      .setProtectedHeader({ alg: 'RS256' })
-      .setIssuedAt(now)
-      .setExpirationTime(now + 600)
-      .setIssuer((this.env as Env).GITHUB_APP_ID)
-      .sign(key)
-  }
-
-  private async getInstallationToken(installationId: number): Promise<string> {
-    const jwt = await this.generateGitHubAppJWT()
-
-    const response = await fetch(
-      `https://api.github.com/app/installations/${installationId}/access_tokens`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-          'User-Agent': 'todo.mdx-worker',
-        },
-      }
-    )
-
-    if (!response.ok) {
-      const error = await response.text()
-      throw new Error(`Failed to get installation token: ${response.status} ${error}`)
-    }
-
-    const data = (await response.json()) as { token: string }
-    return data.token
-  }
-
   private async fetchGitHubFile(path: string, ref?: string): Promise<string> {
     await this.initRepoContext()
     if (!this.repoFullName || !this.installationId) {
       throw new Error('Repo context not initialized')
     }
 
-    const token = await this.getInstallationToken(this.installationId)
+    const token = await getInstallationToken(this.installationId, this.env)
     const url = `https://api.github.com/repos/${this.repoFullName}/contents/${path}${ref ? `?ref=${ref}` : ''}`
 
     const response = await fetch(url, {
@@ -505,7 +377,7 @@ export class RepoDO extends DurableObject<Env> {
       throw new Error('Repo context not initialized')
     }
 
-    const token = await this.getInstallationToken(this.installationId)
+    const token = await getInstallationToken(this.installationId, this.env)
     const url = `https://api.github.com/repos/${this.repoFullName}/contents/${path}`
 
     const maxRetries = 3
@@ -908,7 +780,7 @@ export class RepoDO extends DurableObject<Env> {
       throw new Error(`Issue not found: ${issueId}`)
     }
 
-    const token = await this.getInstallationToken(this.installationId)
+    const token = await getInstallationToken(this.installationId, this.env)
 
     // Get user labels from DB
     const userLabels = this.sql
@@ -977,7 +849,7 @@ export class RepoDO extends DurableObject<Env> {
       throw new Error(`Issue not found or no GitHub number: ${issueId}`)
     }
 
-    const token = await this.getInstallationToken(this.installationId)
+    const token = await getInstallationToken(this.installationId, this.env)
 
     // Get user labels from DB
     const userLabels = this.sql
@@ -1181,7 +1053,7 @@ export class RepoDO extends DurableObject<Env> {
       throw new Error('Repo context not initialized')
     }
 
-    const token = await this.getInstallationToken(this.installationId)
+    const token = await getInstallationToken(this.installationId, this.env)
 
     const response = await fetch(
       `https://api.github.com/repos/${this.repoFullName}/issues/${githubNumber}`,
@@ -1229,7 +1101,7 @@ export class RepoDO extends DurableObject<Env> {
       throw new Error(`Issue ${issueId} has no GitHub number - cannot create comment`)
     }
 
-    const token = await this.getInstallationToken(this.installationId)
+    const token = await getInstallationToken(this.installationId, this.env)
 
     const response = await fetch(
       `https://api.github.com/repos/${this.repoFullName}/issues/${issue.github_number}/comments`,

@@ -31,6 +31,7 @@ import { execa } from 'execa'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
+import { describeWithAutonomous } from '../helpers'
 
 // ============================================================================
 // Configuration
@@ -98,7 +99,8 @@ async function checkSandboxAvailability(): Promise<boolean> {
   }
 }
 
-const describeWithCredentials = hasRequiredCredentials() ? describe : describe.skip
+// Use shared descriptor for full autonomous credentials
+const describeWithCredentials = describeWithAutonomous
 const describeIfSandboxAvailable = (name: string, fn: () => void) => {
   return sandboxAvailable ? describe(name, fn) : describe.skip(name, fn)
 }

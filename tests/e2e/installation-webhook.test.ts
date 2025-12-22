@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeAll } from 'vitest'
+import { describeWithWebhookSecret, hasWorkerCredentials } from '../helpers'
 import * as worker from '../helpers/worker'
 
 /**
@@ -9,16 +10,13 @@ function hasWebhookSecret(): boolean {
   return !!process.env.GITHUB_WEBHOOK_SECRET
 }
 
-// Skip all tests if worker credentials OR webhook secret are not configured
-const describeWithWorker = worker.hasWorkerCredentials() && hasWebhookSecret() ? describe : describe.skip
-
 /**
  * E2E: GitHub App Installation Webhook Tests
  *
  * Tests the installation webhook handler that creates/deletes
  * installations and repos in D1 via Drizzle ORM.
  */
-describeWithWorker('GitHub App installation webhook', () => {
+describeWithWebhookSecret('GitHub App installation webhook', () => {
   beforeAll(() => {
     if (!worker.hasWorkerCredentials()) {
       console.log('Skipping installation webhook tests - no TEST_API_KEY configured')

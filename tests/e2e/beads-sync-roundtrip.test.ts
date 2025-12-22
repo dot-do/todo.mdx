@@ -13,15 +13,22 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, beforeAll } from 'vitest'
-import { createTestWorktree, type Worktree, waitFor } from '../helpers'
+import {
+  createTestWorktree,
+  type Worktree,
+  waitFor,
+  describeWithBoth,
+  hasGitHubCredentials,
+  hasWorkerCredentials,
+} from '../helpers'
 import * as beads from '../helpers/beads'
 import * as github from '../helpers/github'
 import * as worker from '../helpers/worker'
 import { execa } from 'execa'
 
-// Skip all tests if credentials not configured
-const hasCredentials = github.hasGitHubCredentials() && worker.hasWorkerCredentials()
-const describeWithCredentials = hasCredentials ? describe : describe.skip
+// Skip all tests if credentials not configured - use shared descriptor
+const hasCredentials = hasGitHubCredentials() && hasWorkerCredentials()
+const describeWithCredentials = describeWithBoth
 
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'

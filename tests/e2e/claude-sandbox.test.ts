@@ -19,6 +19,11 @@
  */
 
 import { describe, test, expect, beforeAll } from 'vitest'
+import {
+  describeWithSandbox,
+  hasSandboxCredentials,
+  shouldSkipSandboxTests,
+} from '../helpers'
 
 const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY
@@ -27,12 +32,8 @@ const GITHUB_INSTALLATION_ID = process.env.GITHUB_INSTALLATION_ID
 
 const hasCredentials = !!ANTHROPIC_API_KEY && !!TEST_API_KEY
 
-// Skip sandbox tests in production - sandbox execution endpoint not yet deployed
-// These are TDD RED phase tests, expected to fail until ClaudeSandbox is implemented
-const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
-const skipSandboxTests = isProduction && !process.env.SANDBOX_TESTS_ENABLED
-
-const describeWithCredentials = hasCredentials && !skipSandboxTests ? describe : describe.skip
+// Use shared descriptor that checks sandbox credentials and skip conditions
+const describeWithCredentials = hasCredentials && !shouldSkipSandboxTests() ? describe : describe.skip
 
 // Helper to make authenticated requests to the worker
 async function apiRequest(path: string, options: RequestInit = {}) {

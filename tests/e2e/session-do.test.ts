@@ -16,9 +16,8 @@ import { describe, test, expect, afterAll, beforeEach } from 'vitest'
 import {
   createSession,
   deleteSession,
-  getWorkerBaseUrl,
 } from '../helpers/stdio'
-import { hasWorkerCredentials } from '../helpers/worker'
+import { getAuthToken, getWorkerBaseUrl, hasWorkerCredentials } from '../helpers/auth'
 
 // Track created sessions for cleanup
 const createdSessions: string[] = []
@@ -228,7 +227,3 @@ describe('concurrent session stress test', () => {
   })
 })
 
-// Helper to get auth token - use TEST_API_KEY consistently with createSession/deleteSession
-function getAuthToken(): string | null {
-  return process.env.TEST_API_KEY || null
-}

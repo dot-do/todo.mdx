@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { isInternalRequest } from '../access/internal'
+import { ownerOrAdmin, adminOnly } from '../access'
 
 /**
  * Tool executions audit log.
@@ -13,30 +13,12 @@ export const ToolExecutions: CollectionConfig = {
     group: 'System',
   },
   access: {
-    // Users can read their own executions, admins can read all
-    read: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      const { user } = req
-      if (!user) return false
-      if (user.roles?.includes('admin')) return true
-      return {
-        user: { equals: user.id },
-      }
-    },
-    // Only system can create tool executions
-    create: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      return req.user?.roles?.includes('admin') ?? false
-    },
-    // Only admins can update/delete
-    update: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      return req.user?.roles?.includes('admin') ?? false
-    },
-    delete: ({ req }) => {
-      if (isInternalRequest(req)) return true
-      return req.user?.roles?.includes('admin') ?? false
-    },
+    // Users can read their own executions, admins/internal can read all
+    read: ownerOrAdmin('user'),
+    // Only internal RPC or admins can create/update/delete tool executions
+    create: adminOnly,
+    update: adminOnly,
+    delete: adminOnly,
   },
   fields: [
     {

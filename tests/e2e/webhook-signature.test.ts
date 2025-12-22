@@ -1,34 +1,14 @@
 import { describe, test, expect } from 'vitest'
+import { generateGitHubSignature, getWorkerBaseUrl, getWebhookSecret } from '../helpers/auth'
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
-const GITHUB_WEBHOOK_SECRET = process.env.GITHUB_WEBHOOK_SECRET || 'test-secret'
+const WORKER_BASE_URL = getWorkerBaseUrl()
+const GITHUB_WEBHOOK_SECRET = getWebhookSecret()
 
 // Skip signature verification tests when running against production without the real secret
 // (The test-secret default won't match production's actual webhook secret)
 const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
 const hasRealSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
 const skipValidSignatureTest = isProduction && !hasRealSecret
-
-/**
- * Generate GitHub webhook signature for testing
- */
-async function generateGitHubSignature(body: string, secret: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  )
-
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body))
-  const hex = Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-
-  return `sha256=${hex}`
-}
 
 describe('GitHub webhook signature verification', () => {
   const testPayload = {

@@ -1,5 +1,5 @@
 import type { CollectionConfig } from 'payload'
-import { internalOrAdmin } from '../access/internal'
+import { publicRead, adminOnly } from '../access'
 
 export const ModelDefaults: CollectionConfig = {
   slug: 'model-defaults',
@@ -9,10 +9,12 @@ export const ModelDefaults: CollectionConfig = {
     description: 'Maps model aliases (best, fast, cheap, overall) to actual models',
   },
   access: {
-    read: () => true,
-    create: internalOrAdmin,
-    update: internalOrAdmin,
-    delete: internalOrAdmin,
+    // Model defaults are publicly readable (for API clients)
+    read: publicRead,
+    // Only internal RPC or admins can modify model defaults
+    create: adminOnly,
+    update: adminOnly,
+    delete: adminOnly,
   },
   fields: [
     {
