@@ -175,35 +175,42 @@ export function parseTodoFile(content: string): ParsedTodoFile {
 }
 
 /**
- * Load all .todo/*.md files from a directory
+ * Load all .todo/*.md files from a directory (including subdirectories)
  * @param todoDir - Path to the .todo directory
  * @returns Array of TodoIssue objects
  */
 export async function loadTodoFiles(todoDir: string): Promise<TodoIssue[]> {
-  try {
-    const files = await readdir(todoDir)
-    const mdFiles = files.filter(f => f.endsWith('.md'))
+  const issues: TodoIssue[] = []
 
-    const issues: TodoIssue[] = []
+  async function scanDirectory(dir: string): Promise<void> {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true })
 
-    for (const file of mdFiles) {
-      try {
-        const filePath = join(todoDir, file)
-        const content = await readFile(filePath, 'utf-8')
-        const parsed = parseTodoFile(content)
-        issues.push(parsed.issue)
-      } catch (err) {
-        // Skip files that can't be parsed, but log error
-        console.warn(`Failed to parse ${file}:`, err)
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name)
+
+        if (entry.isDirectory()) {
+          // Recursively scan subdirectories
+          await scanDirectory(fullPath)
+        } else if (entry.isFile() && entry.name.endsWith('.md')) {
+          try {
+            const content = await readFile(fullPath, 'utf-8')
+            const parsed = parseTodoFile(content)
+            issues.push(parsed.issue)
+          } catch (err) {
+            // Skip files that can't be parsed, but log error
+            console.warn(`Failed to parse ${fullPath}:`, err)
+          }
+        }
+      }
+    } catch (err) {
+      // If directory doesn't exist or can't be read, ignore
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw err
       }
     }
-
-    return issues
-  } catch (err) {
-    // If directory doesn't exist or can't be read, return empty array
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return []
-    }
-    throw err
   }
+
+  await scanDirectory(todoDir)
+  return issues
 }

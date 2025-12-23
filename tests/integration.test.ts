@@ -25,7 +25,8 @@ describe('loadTodoFiles integration', () => {
   })
 
   it('should parse actual file from .todo correctly', async () => {
-    const filePath = join(process.cwd(), '.todo', 'todo-01p-web-ide-layout-file-tree-monaco-terminal.md')
+    // File is in closed/ subdirectory with new naming pattern
+    const filePath = join(process.cwd(), '.todo', 'closed', '2025-12-20 Web Ide Layout File Tree  Monaco  Terminal.md')
     const content = await readFile(filePath, 'utf-8')
     const parsed = parseTodoFile(content)
 
