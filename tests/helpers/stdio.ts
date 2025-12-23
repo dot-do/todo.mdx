@@ -8,8 +8,8 @@
 
 import { getAuthToken, getWorkerBaseUrl } from './auth'
 
-// Re-export for convenience
-export { getWorkerBaseUrl } from './auth'
+// Re-export getWorkerBaseUrl for convenience
+export { getWorkerBaseUrl }
 
 // Stream IDs for binary protocol
 export const STREAM_STDOUT = 0x01
@@ -723,6 +723,3 @@ export async function createSessionWithRetry(
 
   throw lastError || new Error('Failed to create session after retries')
 }
-
-// Re-export getWorkerBaseUrl for backwards compatibility
-export { getWorkerBaseUrl } from './auth'

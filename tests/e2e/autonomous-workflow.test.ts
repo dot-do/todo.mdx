@@ -266,31 +266,32 @@ const workflows = {
     workflowId: string,
     timeoutMs: number = WORKFLOW_TIMEOUT
   ): Promise<WorkflowStatus> {
-    const startTime = Date.now()
+    const { waitFor } = await import('../helpers/waitFor')
     let lastStatus = ''
 
-    while (Date.now() - startTime < timeoutMs) {
-      const status = await this.getStatus(workflowId)
+    return waitFor(
+      async () => {
+        const status = await this.getStatus(workflowId)
 
-      // Log status changes
-      if (status.status !== lastStatus) {
-        console.log(`  [Status] ${workflowId}: ${status.status}`)
-        lastStatus = status.status
+        // Log status changes
+        if (status.status !== lastStatus) {
+          console.log(`  [Status] ${workflowId}: ${status.status}`)
+          lastStatus = status.status
+        }
+
+        // Terminal states
+        if (status.status === 'complete' || status.status === 'failed' || status.status === 'error') {
+          return status
+        }
+
+        return null // Continue waiting
+      },
+      {
+        timeout: timeoutMs,
+        interval: POLL_INTERVAL,
+        description: `workflow ${workflowId} to complete`,
       }
-
-      // Terminal states
-      if (status.status === 'complete') {
-        return status
-      }
-
-      if (status.status === 'failed' || status.status === 'error') {
-        return status
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL))
-    }
-
-    throw new Error(`Workflow did not complete within ${timeoutMs}ms`)
+    )
   },
 }
 

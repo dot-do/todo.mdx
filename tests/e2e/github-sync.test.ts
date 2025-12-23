@@ -6,6 +6,7 @@ import {
   describeWithGitHub,
   describeWithWorker,
   describeWithBoth,
+  describeWithWebhookSecret,
 } from '../helpers'
 import * as beads from '../helpers/beads'
 import * as github from '../helpers/github'
@@ -625,7 +626,7 @@ describeWithBoth('bidirectional sync verification', () => {
   })
 })
 
-describeWithWorker('GitHub push event sync', () => {
+describeWithWebhookSecret('GitHub push event sync', () => {
   test('push with .beads/ changes triggers sync', async () => {
     const beforeSha = '0000000000000000000000000000000000000000'
     const afterSha = crypto.randomUUID().replace(/-/g, '').slice(0, 40)

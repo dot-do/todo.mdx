@@ -78,8 +78,8 @@ describe('PRDO webhook integration', () => {
 
     expect(openResponse.ok).toBe(true)
 
-    // Give PRDO time to initialize
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Give PRDO time to initialize (production may have higher latency)
+    await new Promise((resolve) => setTimeout(resolve, 2000))
 
     // 2. Simulate review approval from Quinn
     const reviewResponse = await worker.webhooks.simulatePullRequestReviewEvent(
@@ -100,8 +100,8 @@ describe('PRDO webhook integration', () => {
 
     expect(reviewResponse.ok).toBe(true)
 
-    // Give time for state machine to process
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Give time for state machine to process (production may have higher latency)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 3. Verify PRDO is in approved state
     // Note: This would require a status endpoint on PRDO
@@ -142,7 +142,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(openResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    await new Promise((resolve) => setTimeout(resolve, 2000))
 
     // 2. Quinn requests changes
     const changesResponse = await worker.webhooks.simulatePullRequestReviewEvent(
@@ -162,7 +162,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(changesResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 3. Author pushes fix (synchronize event)
     const fixResponse = await worker.webhooks.simulatePullRequestEvent(
@@ -180,7 +180,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(fixResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 4. Quinn re-reviews and approves
     const reReviewResponse = await worker.webhooks.simulatePullRequestReviewEvent(
@@ -200,7 +200,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(reReviewResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 5. Merge
     const mergeResponse = await worker.webhooks.simulatePullRequestEvent(
@@ -296,7 +296,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(escalateResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // At this point, PRDO should:
     // - Record Quinn's approval
@@ -322,7 +322,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(samReviewResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 4. Merge
     const mergeResponse = await worker.webhooks.simulatePullRequestEvent(
@@ -379,7 +379,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(quinn1Response.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 3. Second reviewer (Sam) requests changes
     const sam1Response = await worker.webhooks.simulatePullRequestReviewEvent(
@@ -399,7 +399,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(sam1Response.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 4. Author pushes fix
     const fixResponse = await worker.webhooks.simulatePullRequestEvent(
@@ -417,7 +417,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(fixResponse.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 5. Sam re-reviews and approves
     const sam2Response = await worker.webhooks.simulatePullRequestReviewEvent(
@@ -437,7 +437,7 @@ describe('PRDO webhook integration', () => {
     )
 
     expect(sam2Response.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 6. Merge
     const mergeResponse = await worker.webhooks.simulatePullRequestEvent(
@@ -532,7 +532,7 @@ describe('PRDO webhook integration', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 3. Close PR
     await worker.webhooks.simulatePullRequestEvent(
@@ -549,7 +549,7 @@ describe('PRDO webhook integration', () => {
       }
     )
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 4. Reopen PR
     const reopenResponse = await worker.webhooks.simulatePullRequestEvent(
@@ -618,7 +618,7 @@ describe('PRDO error handling', () => {
     )
 
     expect(openResponse1.ok).toBe(true)
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // 2. Send duplicate open event (GitHub sometimes does this)
     const openResponse2 = await worker.webhooks.simulatePullRequestEvent(

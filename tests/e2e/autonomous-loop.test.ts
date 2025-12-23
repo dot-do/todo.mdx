@@ -228,23 +228,28 @@ const workflows = {
     targetStatus: 'complete' | 'paused' | 'error',
     timeoutMs: number = WORKFLOW_TIMEOUT
   ): Promise<WorkflowStatus> {
-    const startTime = Date.now()
+    const { waitFor } = await import('../helpers/waitFor')
 
-    while (Date.now() - startTime < timeoutMs) {
-      const status = await this.getStatus(workflowId)
+    return waitFor(
+      async () => {
+        const status = await this.getStatus(workflowId)
 
-      if (status.status === targetStatus) {
-        return status
+        if (status.status === targetStatus) {
+          return status
+        }
+
+        if (status.status === 'error') {
+          throw new Error(`Workflow failed: ${status.error}`)
+        }
+
+        return null // Continue waiting
+      },
+      {
+        timeout: timeoutMs,
+        interval: POLL_INTERVAL,
+        description: `workflow ${workflowId} to reach ${targetStatus}`,
       }
-
-      if (status.status === 'error') {
-        throw new Error(`Workflow failed: ${status.error}`)
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL))
-    }
-
-    throw new Error(`Workflow did not reach ${targetStatus} within ${timeoutMs}ms`)
+    )
   },
 
   async createPR(options: {

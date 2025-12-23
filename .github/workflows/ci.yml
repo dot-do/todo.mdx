@@ -79,8 +79,16 @@ jobs:
 
       - name: Run E2E Tests
         env:
+          # Worker configuration
           WORKER_BASE_URL: https://todo.mdx.do
           TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+          # GitHub App credentials (required for GitHub sync tests)
+          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
+          GITHUB_PRIVATE_KEY: ${{ secrets.GITHUB_PRIVATE_KEY }}
           GITHUB_INSTALLATION_ID: '100570127'
+          GITHUB_WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+
+          # AI features (required for autonomous tests)
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: pnpm test:e2e

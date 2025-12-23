@@ -18,6 +18,7 @@ import {
   waitFor,
   describeWithWorker,
   describeWithBoth,
+  describeWithWebhookSecret,
   hasWorkerCredentials,
 } from '../helpers'
 import * as github from '../helpers/github'
@@ -28,7 +29,7 @@ import { execa } from 'execa'
 const TEST_REPO_OWNER = 'dot-do'
 const TEST_REPO_NAME = 'test.mdx'
 
-describeWithWorker('milestone webhook handlers', () => {
+describeWithWebhookSecret('milestone webhook handlers', () => {
   beforeAll(() => {
     if (!hasWorkerCredentials) {
       console.log('Skipping milestone webhook tests - no WORKER_ACCESS_TOKEN configured')

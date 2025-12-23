@@ -92,25 +92,46 @@ export const describeWithGitHub = createConditionalDescribe({
 })
 
 /**
- * Skip tests if worker credentials are not configured OR if webhook tests should be skipped.
+ * Skip tests if worker credentials are not configured OR if running against production with test credentials.
  *
  * Required env vars: TEST_API_KEY
- * Optional: GITHUB_WEBHOOK_SECRET (required for webhook tests against production)
+ * For production: Needs real API key (not 'test' or 'test-secret')
  */
 export const describeWithWorker = createConditionalDescribe({
-  condition: () => hasWorkerCredentials() && !shouldSkipWebhookTests(),
-  skipMessage: 'Skipping worker tests - credentials not configured (TEST_API_KEY) or webhook secret missing for production',
+  condition: () => {
+    const hasCredentials = hasWorkerCredentials()
+    const apiKey = process.env.TEST_API_KEY
+    const hasRealKey = apiKey && apiKey !== 'test' && apiKey !== 'test-secret'
+    const workerBaseUrl = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+    const isProduction = workerBaseUrl.includes('todo.mdx.do')
+
+    // Skip if no credentials, or if running against production without real API key
+    return hasCredentials && (!isProduction || hasRealKey)
+  },
+  skipMessage: 'Skipping worker tests - TEST_API_KEY not configured or test credentials provided for production',
 })
 
 /**
  * Skip tests if both GitHub AND worker credentials are not configured.
- * Also skips if webhook tests should be skipped.
+ * Also skips if running against production with test credentials.
  *
  * Useful for bidirectional sync tests that need both systems.
  */
 export const describeWithBoth = createConditionalDescribe({
-  condition: () => hasGitHubCredentials() && hasWorkerCredentials() && !shouldSkipWebhookTests(),
-  skipMessage: 'Skipping combined tests - both GitHub and worker credentials required',
+  condition: () => {
+    const hasGitHub = hasGitHubCredentials()
+    const hasWorker = hasWorkerCredentials()
+    const apiKey = process.env.TEST_API_KEY
+    const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET
+    const hasRealKey = apiKey && apiKey !== 'test' && apiKey !== 'test-secret'
+    const hasRealSecret = webhookSecret && webhookSecret !== 'test' && webhookSecret !== 'test-secret'
+    const workerBaseUrl = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+    const isProduction = workerBaseUrl.includes('todo.mdx.do')
+
+    // Skip if missing credentials, or if running against production without real credentials
+    return hasGitHub && hasWorker && (!isProduction || (hasRealKey && hasRealSecret))
+  },
+  skipMessage: 'Skipping combined tests - both GitHub and worker credentials required, or test credentials provided for production',
 })
 
 /**
@@ -151,8 +172,17 @@ export const describeWithMcp = createConditionalDescribe({
  * Required env vars: TEST_API_KEY, GITHUB_WEBHOOK_SECRET (for production)
  */
 export const describeWithWebhookSecret = createConditionalDescribe({
-  condition: () => hasWorkerCredentials() && !!process.env.GITHUB_WEBHOOK_SECRET,
-  skipMessage: 'Skipping webhook tests - GITHUB_WEBHOOK_SECRET not configured',
+  condition: () => {
+    const hasCredentials = hasWorkerCredentials()
+    const webhookSecret = process.env.GITHUB_WEBHOOK_SECRET
+    const hasRealSecret = webhookSecret && webhookSecret !== 'test' && webhookSecret !== 'test-secret'
+    const workerBaseUrl = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
+    const isProduction = workerBaseUrl.includes('todo.mdx.do')
+
+    // Skip if no credentials, or if running against production without real secret
+    return hasCredentials && !!webhookSecret && (!isProduction || hasRealSecret)
+  },
+  skipMessage: 'Skipping webhook tests - GITHUB_WEBHOOK_SECRET not configured or test secret provided for production',
 })
 
 /**

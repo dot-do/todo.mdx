@@ -72,14 +72,21 @@ async function getWorkflowStatus(workflowId: string): Promise<{ status: string; 
 }
 
 async function waitForWorkflow(workflowId: string, timeout = 120000): Promise<void> {
-  const start = Date.now()
-  while (Date.now() - start < timeout) {
-    const status = await getWorkflowStatus(workflowId)
-    if (status.status === 'complete') return
-    if (status.status === 'failed') throw new Error('Workflow failed')
-    await new Promise((r) => setTimeout(r, 2000))
-  }
-  throw new Error('Workflow timeout')
+  const { waitFor } = await import('../helpers/waitFor')
+
+  await waitFor(
+    async () => {
+      const status = await getWorkflowStatus(workflowId)
+      if (status.status === 'complete') return true
+      if (status.status === 'failed') throw new Error('Workflow failed')
+      return null // Continue waiting
+    },
+    {
+      timeout,
+      interval: 2000,
+      description: `workflow ${workflowId} to complete`,
+    }
+  )
 }
 
 async function getBeadsIssueCount(): Promise<number> {

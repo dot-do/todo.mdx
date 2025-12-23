@@ -20,7 +20,7 @@
 import { describe, test, expect, beforeAll, beforeEach } from 'vitest'
 import { hasWorkerCredentials } from '../helpers'
 
-const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'http://localhost:8787'
+const WORKER_BASE_URL = process.env.WORKER_BASE_URL || 'https://todo.mdx.do'
 const TEST_API_KEY = process.env.TEST_API_KEY
 
 // ANTHROPIC_API_KEY is configured on the worker, not needed for tests

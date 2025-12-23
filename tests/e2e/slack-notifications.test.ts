@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll } from 'vitest'
-import { describeWithSlack, describeWithSlackWebhook } from '../helpers'
+import { describeWithSlack, describeWithSlackWebhook, hasSlackCredentials } from '../helpers'
 import * as worker from '../helpers/worker'
 
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN

@@ -7,7 +7,7 @@ const GITHUB_WEBHOOK_SECRET = getWebhookSecret()
 // Skip signature verification tests when running against production without the real secret
 // (The test-secret default won't match production's actual webhook secret)
 const isProduction = WORKER_BASE_URL.includes('todo.mdx.do')
-const hasRealSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined
+const hasRealSecret = process.env.GITHUB_WEBHOOK_SECRET !== undefined && process.env.GITHUB_WEBHOOK_SECRET !== 'test' && process.env.GITHUB_WEBHOOK_SECRET !== 'test-secret'
 const skipValidSignatureTest = isProduction && !hasRealSecret
 
 describe('GitHub webhook signature verification', () => {

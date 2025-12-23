@@ -12,7 +12,7 @@
  * - TEST_API_KEY for authentication
  */
 
-import { describe, test, expect, afterAll, beforeEach } from 'vitest'
+import { describe, test, expect, afterAll, beforeAll } from 'vitest'
 import {
   createSession,
   deleteSession,
@@ -21,6 +21,10 @@ import { getAuthToken, getWorkerBaseUrl, hasWorkerCredentials } from '../helpers
 
 // Track created sessions for cleanup
 const createdSessions: string[] = []
+
+// Check if we have valid credentials for production
+// TEST_API_KEY='test' is not a valid OAuth token
+const hasValidCredentials = hasWorkerCredentials() && process.env.TEST_API_KEY !== 'test'
 
 afterAll(async () => {
   for (const sessionId of createdSessions) {
@@ -32,9 +36,9 @@ afterAll(async () => {
   }
 })
 
-describe('SessionDO token storage', () => {
-  beforeEach((ctx) => {
-    if (!hasWorkerCredentials()) ctx.skip()
+describe.skipIf(!hasValidCredentials)('SessionDO token storage', () => {
+  beforeAll(() => {
+    console.log('SessionDO tests require valid OAuth token (set TEST_API_KEY)')
   })
 
   test('handles short session IDs', async () => {
@@ -110,10 +114,7 @@ describe('SessionDO token storage', () => {
   })
 })
 
-describe('embed endpoint', () => {
-  beforeEach((ctx) => {
-    if (!hasWorkerCredentials()) ctx.skip()
-  })
+describe.skipIf(!hasValidCredentials)('embed endpoint', () => {
 
   test('returns HTML with valid token', async () => {
     const session = await createSession()
@@ -179,10 +180,7 @@ describe('embed endpoint', () => {
   })
 })
 
-describe('concurrent session stress test', () => {
-  beforeEach((ctx) => {
-    if (!hasWorkerCredentials()) ctx.skip()
-  })
+describe.skipIf(!hasValidCredentials)('concurrent session stress test', () => {
 
   test('can create many sessions concurrently', async () => {
     const sessionCount = 10

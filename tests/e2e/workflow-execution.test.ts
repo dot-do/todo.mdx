@@ -35,6 +35,10 @@ function hasFullCredentials(): boolean {
   return hasGitHubCredentials() && hasWorkerCredentials() && !shouldSkipWebhookTests()
 }
 
+function hasSandboxCredentials(): boolean {
+  return hasFullCredentials() && !!ANTHROPIC_API_KEY
+}
+
 // Use shared descriptors
 const describeWithCredentials = describeWithBoth
 const describeWithSandbox = describeWithAutonomous
@@ -97,7 +101,8 @@ describeWithCredentials('workflow trigger on issue ready', () => {
     })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    // Allow time for production sync (production may have higher latency)
+    await new Promise((resolve) => setTimeout(resolve, 2000))
 
     // Verify issue is blocked
     const blockedOutput = await beads.blocked(worktree)
@@ -111,7 +116,8 @@ describeWithCredentials('workflow trigger on issue ready', () => {
     await execa('git', ['push'], { cwd: worktree.path })
     await beads.sync(worktree)
 
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Allow extra time for production sync and workflow trigger
+    await new Promise((resolve) => setTimeout(resolve, 3000))
 
     // Verify issue is now ready
     const readyOutput = await beads.ready(worktree)

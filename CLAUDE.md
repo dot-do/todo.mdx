@@ -77,11 +77,23 @@ bd sync                     # Sync with git remote
 
 1. **Workers RPC**: The Cloudflare Worker accesses Payload CMS via service binding (`env.PAYLOAD.find()`, `env.PAYLOAD.create()`, etc.) - see `worker/wrangler.jsonc` for the binding configuration
 
-2. **Durable Objects**: Per-repo (`RepoDO`) and per-project (`ProjectDO`) coordination for sync operations - see `worker/src/do/`
+2. **Durable Objects**: Coordination and state management - see `worker/src/do/`
+   - `RepoDO`, `ProjectDO` - Per-repo/project sync coordination
+   - `IssueDO`, `PRDO` - Per-issue/PR state machines
+   - `SessionDO`, `RateLimitDO` - Auth sessions and rate limiting
+   - `TodoMCP` - MCP server state
+   - `Sandbox` - Cloudflare Container sandbox instances
 
 3. **OAuth 2.1 + PKCE**: MCP server implements full OAuth 2.1 flow with WorkOS AuthKit - see `worker/src/mcp/index.ts`
 
 4. **GitHub App Webhooks**: Installation, issues, milestones, push, and projects_v2 events - handled in `worker/src/index.ts`
+
+5. **Cloudflare Workflows**: Durable, resumable workflows for long-running operations
+   - `DevelopWorkflow` - Automated development tasks
+   - `BeadsSyncWorkflow` - Sync beads with external sources
+   - `ReconcileWorkflow` - Reconcile state between systems
+   - `EmbedWorkflow`, `BulkEmbedWorkflow` - Generate embeddings for search
+   - `AutonomousWorkflow` - AI-driven autonomous operations
 
 ### Data Flow
 
@@ -153,6 +165,25 @@ Worker secrets (set via `wrangler secret`):
 
 - Use TypeScript strict mode
 - Prefer functional programming patterns
-- Write tests for new features using vitest
 - Use conventional commits for commit messages
 - Track issues with `bd` (beads) - check `bd ready` for unblocked tasks
+
+## Standard Development Process: TDD with Subagents
+
+Use the `superpowers:subagent-driven-development` skill for all feature work:
+
+1. **Break work into independent tasks** - Each task should be completable in isolation
+2. **Dispatch fresh subagent per task** - Use `Task` tool with clear task description
+3. **Subagent follows TDD** - RED (write failing test) → GREEN (make it pass) → REFACTOR
+4. **Code review between tasks** - Use `superpowers:requesting-code-review` after each task
+5. **Iterate until complete** - Continue with next task after review passes
+
+This approach:
+- Keeps context fresh (subagents start clean)
+- Enforces discipline (TDD in each subagent)
+- Maintains quality (review gates between tasks)
+
+Related skills:
+- `superpowers:test-driven-development` - RED-GREEN-REFACTOR methodology
+- `superpowers:systematic-debugging` - Root cause before fixes
+- `superpowers:verification-before-completion` - Evidence before assertions
