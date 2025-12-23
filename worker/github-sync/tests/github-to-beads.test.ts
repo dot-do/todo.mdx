@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { convertGitHubToBeads } from '../src/github-to-beads'
-import type { GitHubIssue } from '../src/github-client'
-import type { ConvertOptions } from '../src/github-to-beads'
-import { defaultConventions } from '../src/conventions'
+import { convertGitHubToBeads } from '../github-to-beads'
+import type { GitHubIssue } from '../github-client'
+import type { ConvertOptions } from '../github-to-beads'
+import { defaultConventions } from '../conventions'
 
 describe('convertGitHubToBeads', () => {
   const baseOptions: ConvertOptions = {

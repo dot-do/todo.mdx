@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/wrangler",
+  "name": "todo-mdx-github-sync",
+  "main": "index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Durable Object binding for db.td
+  // Consumers should configure this to point to their db.td DO
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DB",
+        "class_name": "DB",
+        "script_name": "db-td"
+      }
+    ]
+  },
+
+  // Secrets (set via `wrangler secret put <name>`)
+  // - GITHUB_APP_ID: Your GitHub App's ID
+  // - GITHUB_PRIVATE_KEY: Your GitHub App's private key (PEM format)
+  // - GITHUB_WEBHOOK_SECRET: Secret configured in GitHub App webhook settings
+
+  // Production environment
+  "env": {
+    "production": {
+      "name": "todo-mdx-github-sync"
+    }
+  }
+}

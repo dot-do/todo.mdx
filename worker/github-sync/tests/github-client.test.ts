@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createGitHubClient, type GitHubClient, type GitHubIssue } from '../src/github-client'
+import { createGitHubClient, type GitHubClient, type GitHubIssue } from '../github-client'
 
 describe('GitHubClient', () => {
   let mockOctokit: any

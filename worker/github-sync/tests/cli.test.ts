@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { createGithubCli, type GithubCliOptions, type GithubCli } from '../src/cli'
-import type { GitHubClient } from '../src/github-client'
-import type { SyncOrchestrator, SyncResult } from '../src/sync-orchestrator'
+import { createGithubCli, type GithubCliOptions, type GithubCli } from '../cli'
+import type { GitHubClient } from '../github-client'
+import type { SyncOrchestrator, SyncResult } from '../sync-orchestrator'
 
 describe('GitHub CLI', () => {
   let mockConfig: Map<string, string>

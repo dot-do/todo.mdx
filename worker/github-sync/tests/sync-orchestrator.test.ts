@@ -1,15 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import type { WebhookEvent } from '../src/webhook'
-import type { BeadsIssue } from '../src/beads-to-github'
-import type { GitHubIssue } from '../src/github-client'
-import type { Installation, IssueMapping } from '../src/entities'
-import { defaultConventions } from '../src/conventions'
+import type { WebhookEvent } from '../webhook'
+import type { BeadsIssue } from '../beads-to-github'
+import type { GitHubIssue } from '../github-client'
+import type { Installation, IssueMapping } from '../entities'
+import { defaultConventions } from '../conventions'
 import {
   createSyncOrchestrator,
   type SyncOrchestrator,
   type SyncOrchestratorOptions,
   type SyncResult,
-} from '../src/sync-orchestrator'
+} from '../sync-orchestrator'
 
 describe('SyncOrchestrator', () => {
   let orchestrator: SyncOrchestrator

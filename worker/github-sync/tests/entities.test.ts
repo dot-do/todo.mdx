@@ -7,7 +7,7 @@ import {
   createSyncState,
   createIssueMapping,
   GitHubConventions
-} from '../src/entities'
+} from '../entities'
 
 describe('entities', () => {
   describe('Installation', () => {

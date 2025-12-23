@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { defaultConventions, mergeConventions, type GitHubConventions } from '../src/conventions'
+import { defaultConventions, mergeConventions, type GitHubConventions } from '../conventions'
 
 describe('defaultConventions', () => {
   it('should have type mappings for standard labels', () => {

@@ -4,7 +4,7 @@ import {
   parseWebhookHeaders,
   createWebhookHandler,
   type WebhookEvent,
-} from '../src/webhook'
+} from '../webhook'
 
 // Helper function to compute a valid signature for testing
 async function computeSignature(payload: string, secret: string): Promise<string> {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { convertBeadsToGitHub, type BeadsIssue } from '../src/beads-to-github'
-import { defaultConventions } from '../src/conventions'
+import { convertBeadsToGitHub, type BeadsIssue } from '../beads-to-github'
+import { defaultConventions } from '../conventions'
 
 describe('convertBeadsToGitHub', () => {
   const baseIssue: BeadsIssue = {

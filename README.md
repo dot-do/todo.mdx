@@ -222,6 +222,64 @@ Markdown description content...
 - **beads-workflows** - Read/write issues from `.beads/issues.jsonl`
 - **@mdxld/markdown** - Bi-directional object/markdown conversion
 - **chokidar** - File watching for live sync
+- **db.td** - Git-native distributed database (for worker state)
+- **@todo-mdx/github-sync** - GitHub Issues sync primitives
+
+## GitHub Sync (Worker)
+
+todo.mdx includes a Cloudflare Worker for bidirectional sync between beads and GitHub Issues.
+
+### Using Our Hosted Service
+
+Point your GitHub App webhook to `https://todo.mdx.workers.dev/webhook`.
+
+### Self-Hosting
+
+To run your own instance, create a worker that re-exports the app and the DB Durable Object:
+
+```typescript
+// src/index.ts
+export { default } from 'todo.mdx/worker'
+export { DB } from 'db.td/worker'
+```
+
+Create a `wrangler.jsonc`:
+
+```jsonc
+{
+  "$schema": "https://json.schemastore.org/wrangler",
+  "name": "my-github-sync",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "DB", "class_name": "DB" }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_classes": ["DB"] }
+  ]
+}
+```
+
+Set the required secrets:
+
+```bash
+wrangler secret put GITHUB_APP_ID
+wrangler secret put GITHUB_PRIVATE_KEY
+wrangler secret put GITHUB_WEBHOOK_SECRET
+```
+
+Deploy:
+
+```bash
+wrangler deploy
+```
+
+Configure your GitHub App webhook URL to point to `https://your-worker.workers.dev/webhook`.
 
 ## Development
 

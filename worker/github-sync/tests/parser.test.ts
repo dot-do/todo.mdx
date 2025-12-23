@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { parseIssueBody } from '../src/parser'
-import { defaultConventions, type GitHubConventions } from '../src/conventions'
+import { parseIssueBody } from '../parser'
+import { defaultConventions, type GitHubConventions } from '../conventions'
 
 describe('parseIssueBody', () => {
   describe('dependencies parsing', () => {

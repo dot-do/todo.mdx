@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { mapLabels, type MappedFields } from '../src/label-mapper'
-import { defaultConventions, type GitHubConventions } from '../src/conventions'
+import { mapLabels, type MappedFields } from '../label-mapper'
+import { defaultConventions, type GitHubConventions } from '../conventions'
 
 describe('mapLabels', () => {
   describe('basic type mapping', () => {
