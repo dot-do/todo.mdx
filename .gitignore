@@ -58,6 +58,7 @@ packages/sbx-cli/sbx-stdio
 tests/.mcp-token
 tests/test-results/
 tests/scripts/
+tests/test-output.md
 apps/todo.mdx.do/TEST_RESULTS.md
 apps/todo.mdx.do/MIDDLEWARE_SECURITY.md
 apps/todo.mdx.do/*.sh

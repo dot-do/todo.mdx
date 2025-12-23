@@ -388,8 +388,8 @@ describe('CLI - Integration Tests', () => {
   })
 
   it('should handle build command with output flag', async () => {
-    const result = await execCli(['build', '--output', 'test-output.md'])
-    expect(result.stdout).toContain('Compiling test-output.md')
+    const result = await execCli(['build', '--output', 'tests/test-output.md'])
+    expect(result.stdout).toContain('Compiling tests/test-output.md')
     expect(result.stdout).toContain('Compiled')
     expect(result.exitCode).toBe(0)
   })
