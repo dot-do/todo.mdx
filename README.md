@@ -1,204 +1,220 @@
 # TODO.mdx
 
-**MDX components that render live data to markdown — realtime context for humans AND AI.**
-
-```mdx
-<!-- TODO.mdx -->
-# Project Status
-
-<Stats />           <!-- "12 open, 3 blocked, 5 ready" -->
-
-## Ready to Work
-<Issues.Ready />    <!-- Live list of unblocked issues -->
-
-## Roadmap
-<Roadmap />         <!-- Milestones with progress bars -->
-```
-
-Compiles to `TODO.md` with live data from beads, GitHub Issues, and your API.
-
-## The Insight
-
-Your README, TODO, ROADMAP, and AI instructions (CLAUDE.md, .cursorrules) are all **views of the same data**. Instead of manually keeping them in sync, define them once in MDX and render everywhere.
+**Bi-directional sync between beads issue tracker and markdown files.**
 
 ```
-AGENTS.mdx  →  CLAUDE.md + .cursorrules + .github/copilot-instructions.md
-TODO.mdx    →  TODO.md + .todo/*.md files
-ROADMAP.mdx →  ROADMAP.md + .roadmap/*.md files
-README.mdx  →  README.md (with live stats, badges, API docs)
+.beads/issues.jsonl  <-->  .todo/*.md  -->  TODO.md
 ```
 
-**One source. Multiple outputs. Always current.**
+Issue data lives in one place (beads) but is viewable and editable as markdown files.
 
-## How It Works
+## Install
 
-Write your TODO in MDX with live components:
-
-```mdx
-<!-- TODO.mdx -->
-# Project Status
-
-<Stats />
-
-## Ready to Work
-<Issues.Ready limit={3} />
-
-## Blocked
-<Issues.Blocked />
+```bash
+npm install todo.mdx
+# or
+pnpm add todo.mdx
 ```
-
-Compiles to plain markdown with real data:
-
-```markdown
-# Project Status
-
-12 open · 3 blocked · 5 ready · 68% complete
-
-## Ready to Work
-- [ ] **todo-4fh** [P1]: Create cli.mdx package - MDX-based CLI framework
-- [ ] **todo-8mg** [P1]: Export Payload via Workers RPC
-- [ ] **todo-3y0** [P1]: Add shadcn dashboard to Payload app
-
-## Blocked
-- [ ] **todo-6a9** [P1]: Create claude.mdx CLI package
-  - ⛔ Blocked by: todo-4fh (Create cli.mdx package)
-- [ ] **todo-izz** [P1]: Update worker to use Payload RPC binding
-  - ⛔ Blocked by: todo-8mg (Export Payload via Workers RPC)
-```
-
-AI agents read this and know exactly what to work on next. Humans read it and see project status at a glance. Same data, rendered for the audience.
-
-## Packages
-
-| Package | Description |
-|---------|-------------|
-| [todo.mdx](./packages/todo.mdx) | `TODO.mdx` → `TODO.md` + `.todo/*.md` ↔ GitHub Issues ↔ beads |
-| [roadmap.mdx](./packages/roadmap.mdx) | `ROADMAP.mdx` → `ROADMAP.md` ↔ GitHub Milestones ↔ beads epics |
-| cli.mdx *(planned)* | MDX-based CLI framework (Bun + React → terminal + markdown) |
-| readme.mdx *(planned)* | `README.mdx` → `README.md` with live stats |
-| agents.mdx *(planned)* | `AGENTS.mdx` → `CLAUDE.md` + `.cursorrules` |
-| claude.mdx *(planned)* | CLI to dispatch Claude Code sessions for TODOs |
 
 ## Quick Start
 
 ```bash
 # Initialize TODO.mdx in your project
-npx todo.mdx init
+todo.mdx init
 
-# Compile to TODO.md
-npx todo.mdx
+# Compile issues to TODO.md
+todo.mdx build
 
-# Generate .todo/*.md files from issues
-npx todo.mdx --generate
+# Bi-directional sync beads <-> .todo/*.md
+todo.mdx sync
 
-# Start MCP server for Claude Desktop
-npx todo.mdx --mcp
+# Watch mode for live sync
+todo.mdx watch
 ```
 
-## Components
+## How It Works
 
-### Issues
+### 1. Beads Issues
 
-```mdx
-<Issues.Open />           <!-- All open issues -->
-<Issues.Closed />         <!-- Completed issues -->
-<Issues.Ready />          <!-- No blockers, ready to work -->
-<Issues.Blocked />        <!-- Blocked by dependencies -->
-<Issues.InProgress />     <!-- Currently being worked -->
+Issues are stored in `.beads/issues.jsonl` (managed by the [beads](https://github.com/beads-io/beads) issue tracker):
+
+```bash
+bd create --title="Add user authentication" --type=feature --priority=1
+bd list --status=open
 ```
 
-### Stats
+### 2. Markdown Files
 
-```mdx
-<Stats />                 <!-- "12 open · 3 closed · 80% complete" -->
-<Stats.Progress />        <!-- Progress bar -->
-<Stats.Burndown />        <!-- Burndown chart (planned) -->
+Each issue becomes a `.todo/{id}-{slug}.md` file:
+
+```markdown
+---
+id: todo-abc
+title: Add user authentication
+status: open
+type: feature
+priority: 1
+---
+
+## Description
+
+Implement OAuth 2.0 login with GitHub and Google providers.
+
+## Acceptance Criteria
+
+- [ ] Users can sign in with GitHub
+- [ ] Users can sign in with Google
+- [ ] Session persists across page refreshes
 ```
 
-### Roadmap
+Edit the markdown file directly - changes sync back to beads.
 
-```mdx
-<Roadmap />               <!-- All milestones with issues -->
-<Milestone id="v1.0" />   <!-- Single milestone -->
-<Timeline />              <!-- Gantt-style view (planned) -->
+### 3. Compiled Output
+
+`todo.mdx build` compiles all issues into `TODO.md`:
+
+```markdown
+# TODO
+
+## In Progress
+
+- [ ] [#todo-def] Setup CI/CD pipeline - *task, P1*
+
+## Open
+
+### Features
+
+- [ ] [#todo-abc] Add user authentication - *feature, P1*
+
+### Tasks
+
+- [ ] [#todo-xyz] Write API documentation - *task, P2*
+
+## Recently Completed
+
+- [x] [#todo-123] Initial project setup - *closed 2025-12-22*
+```
+
+## CLI Commands
+
+```bash
+todo.mdx build                    # Compile to TODO.md
+todo.mdx build --output docs/TODO.md  # Custom output path
+
+todo.mdx sync                     # Bi-directional sync
+todo.mdx sync --dry-run           # Preview changes
+todo.mdx sync --direction beads-to-files  # One-way sync
+
+todo.mdx watch                    # Watch mode for live sync
+
+todo.mdx init                     # Initialize in project
+todo.mdx --help                   # Show help
+todo.mdx --version                # Show version
+```
+
+## Programmatic API
+
+```typescript
+import {
+  compile,
+  sync,
+  watch,
+  loadBeadsIssues,
+  loadTodoFiles,
+  generateTodoFile,
+} from 'todo.mdx'
+
+// Compile issues to TODO.md content
+const result = await compile()
+console.log(result.output) // Markdown string
+
+// Bi-directional sync
+const syncResult = await sync({
+  conflictStrategy: 'newest-wins', // or 'beads-wins', 'file-wins'
+})
+console.log(`Created: ${syncResult.created.length}`)
+console.log(`Updated: ${syncResult.updated.length}`)
+
+// Watch for changes
+const watcher = await watch({
+  debounceMs: 300,
+  onChange: (event) => console.log(event),
+})
+// Later: await watcher.close()
+
+// Load issues from beads
+const beadsIssues = await loadBeadsIssues()
+
+// Load issues from .todo/*.md files
+const fileIssues = await loadTodoFiles()
+
+// Generate markdown for an issue
+const markdown = generateTodoFile(issue)
+```
+
+## Configuration
+
+Options can be passed to the API functions:
+
+```typescript
+interface TodoConfig {
+  beads?: boolean           // Enable beads integration (default: true)
+  beadsDir?: string         // Path to .beads directory
+  todoDir?: string          // Directory for .todo/*.md (default: '.todo')
+  conflictStrategy?: 'beads-wins' | 'file-wins' | 'newest-wins'
+}
+```
+
+## File Format
+
+`.todo/*.md` files use YAML frontmatter:
+
+```yaml
+---
+id: todo-abc
+title: Issue title
+status: open | in_progress | closed
+type: task | bug | feature | epic
+priority: 0-4 (0=critical, 4=backlog)
+assignee: username
+labels: [label1, label2]
+dependsOn: [todo-xyz]
+blocks: [todo-def]
+---
+
+Markdown description content...
 ```
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        todo.mdx.do                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │ Payload CMS │  │  Dashboard  │  │   Cloudflare Worker │ │
-│  │   (Admin)   │  │  (Next.js)  │  │  (API/MCP/Webhooks) │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
-│         │                │                    │             │
-│         └────────────────┼────────────────────┘             │
-│                          │                                  │
-│                    ┌─────▼─────┐                           │
-│                    │    D1     │                           │
-│                    │ (SQLite)  │                           │
-│                    └───────────┘                           │
+│                        todo.mdx                              │
+│                                                              │
+│  ┌─────────────────┐       ┌─────────────────┐             │
+│  │ beads-workflows │ <---> │  @mdxld/markdown │             │
+│  │   (read/write)  │       │   (parse/gen)    │             │
+│  └────────┬────────┘       └────────┬────────┘             │
+│           │                         │                       │
+│           v                         v                       │
+│  ┌─────────────────┐       ┌─────────────────┐             │
+│  │ .beads/         │       │ .todo/*.md      │             │
+│  │ issues.jsonl    │ <---> │ issue files     │             │
+│  └─────────────────┘       └────────┬────────┘             │
+│                                     │                       │
+│                                     v                       │
+│                            ┌─────────────────┐             │
+│                            │ TODO.md         │             │
+│                            │ (compiled)      │             │
+│                            └─────────────────┘             │
 └─────────────────────────────────────────────────────────────┘
-                           │
-         ┌─────────────────┼─────────────────┐
-         ▼                 ▼                 ▼
-    ┌─────────┐      ┌──────────┐     ┌───────────┐
-    │  beads  │      │  GitHub  │     │ Linear    │
-    │ (local) │      │  Issues  │     │ (planned) │
-    └─────────┘      └──────────┘     └───────────┘
 ```
 
-## Data Sources
+## Dependencies
 
-- **beads** — Local issue tracking (`.beads/` directory)
-- **GitHub Issues** — Synced via GitHub App webhooks
-- **GitHub Milestones** — Mapped to roadmap
-- **Linear** — *(planned)* Two-way sync with Linear issues
-- **todo.mdx API** — REST + MCP for remote access
-
-## Configuration
-
-```mdx
----
-title: My Project TODO
-beads: true
-filePattern: "[id]-[title].md"
-outputs:
-  - TODO.md
-  - .todo/*.md
----
-```
-
-## MCP Server
-
-todo.mdx exposes an MCP server for AI assistants:
-
-```bash
-# Local (stdio) - for Claude Desktop
-npx todo.mdx --mcp
-
-# Remote (HTTP) - for cloud MCP clients
-# Available at https://todo.mdx.do/mcp
-```
-
-**Tools available:**
-- `listIssues` — List issues with filters
-- `createIssue` — Create new issue
-- `updateIssue` — Update issue status/fields
-- `search` — Search across all issues
-- `roadmap` — Get current roadmap state
-
-## Why MDX?
-
-MDX lets you embed React components in Markdown. This means:
-
-1. **Composable** — Build complex views from simple components
-2. **Type-safe** — Full TypeScript support
-3. **Extensible** — Add custom components for your workflow
-4. **Familiar** — It's just Markdown with superpowers
-
-The output is always plain Markdown — readable by humans, AI, and tools.
+- **beads-workflows** - Read/write issues from `.beads/issues.jsonl`
+- **@mdxld/markdown** - Bi-directional object/markdown conversion
+- **chokidar** - File watching for live sync
 
 ## License
 

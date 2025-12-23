@@ -1,1 +1,0 @@
-export { generateTypeDefs } from './typedefs'

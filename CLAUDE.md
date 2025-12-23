@@ -4,155 +4,110 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is todo.mdx?
 
-MDX components that render live data to markdown — realtime context for humans AND AI.
-
-The core insight: README, TODO, ROADMAP, and AI instructions (CLAUDE.md, .cursorrules) are all views of the same data. Define once in MDX, render everywhere:
+Bi-directional sync between beads issue tracker and markdown files.
 
 ```
-TODO.mdx    →  TODO.md + .todo/*.md files
-ROADMAP.mdx →  ROADMAP.md + .roadmap/*.md files
-AGENTS.mdx  →  CLAUDE.md + .cursorrules + .github/copilot-instructions.md
+.beads/issues.jsonl  ←→  .todo/*.md  →  TODO.md
 ```
+
+The core insight: Issue data should live in one place (beads) but be viewable and editable as markdown files.
 
 ## Commands
 
 ```bash
-# Monorepo (Turborepo + pnpm workspaces)
-pnpm dev                    # Start all apps/packages in dev mode
-pnpm build                  # Build all packages
-pnpm typecheck              # Type check all packages
-pnpm test                   # Run tests across all packages
-pnpm test:e2e               # Run E2E tests only (tests/ package)
+# Development
+pnpm install            # Install dependencies
+pnpm build              # Build the package
+pnpm dev                # Watch mode
+pnpm test               # Run tests
+pnpm typecheck          # Type check
 
-# Single package tests
-pnpm --filter @todo.mdx/core test           # Run todo.mdx package tests
-pnpm --filter @todo.mdx/tests test          # Run E2E tests
-
-# Worker development
-cd worker && pnpm dev       # Start worker locally (wrangler dev)
-cd worker && pnpm deploy    # Deploy worker to Cloudflare
-
-# Payload admin
-cd apps/admin && pnpm dev   # Start Payload CMS admin
+# CLI (after build)
+todo.mdx build          # Compile TODO.mdx → TODO.md
+todo.mdx sync           # Bi-directional sync beads ↔ .todo/*.md
+todo.mdx watch          # Watch mode for live sync
+todo.mdx init           # Initialize TODO.mdx in project
 
 # Issue tracking (beads)
-bd ready                    # Show issues ready to work (no blockers)
-bd list --status=open       # All open issues
-bd show <id>                # Issue details with dependencies
-bd create --title="..."     # Create issue
-bd close <id>               # Close issue
-bd sync                     # Sync with git remote
+bd ready                # Show issues ready to work (no blockers)
+bd list --status=open   # All open issues
+bd show <id>            # Issue details with dependencies
+bd create --title="..." # Create issue
+bd close <id>           # Close issue
+bd sync                 # Sync with git remote
 ```
 
 ## Architecture
 
-### System Components
-
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        todo.mdx.do                           │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │ Payload CMS │  │  Dashboard  │  │   Cloudflare Worker │ │
-│  │  (apps/     │  │ (apps/todo. │  │     (worker/)       │ │
-│  │   admin/)   │  │  mdx.do/)   │  │  (API/MCP/Webhooks) │ │
-│  └─────────────┘  └─────────────┘  └─────────────────────┘ │
-│         │                │                    │             │
-│         └────────────────┼────────────────────┘             │
-│                          │                                  │
-│                    ┌─────▼─────┐                           │
-│                    │    D1     │                           │
-│                    │ (SQLite)  │                           │
-│                    └───────────┘                           │
+│                        todo.mdx                              │
+│                                                              │
+│  ┌─────────────────┐       ┌─────────────────┐             │
+│  │ beads-workflows │ ←───→ │  @mdxld/markdown │             │
+│  │   (read/write)  │       │   (parse/gen)    │             │
+│  └────────┬────────┘       └────────┬────────┘             │
+│           │                         │                       │
+│           ▼                         ▼                       │
+│  ┌─────────────────┐       ┌─────────────────┐             │
+│  │ .beads/         │       │ .todo/*.md      │             │
+│  │ issues.jsonl    │ ←───→ │ issue files     │             │
+│  └─────────────────┘       └────────┬────────┘             │
+│                                     │                       │
+│                                     ▼                       │
+│                            ┌─────────────────┐             │
+│                            │ TODO.md         │             │
+│                            │ (compiled)      │             │
+│                            └─────────────────┘             │
 └─────────────────────────────────────────────────────────────┘
-                           │
-         ┌─────────────────┼─────────────────┐
-         ▼                 ▼                 ▼
-    ┌─────────┐      ┌──────────┐     ┌───────────┐
-    │  beads  │      │  GitHub  │     │  Linear   │
-    │ (local) │      │  Issues  │     │           │
-    └─────────┘      └──────────┘     └───────────┘
 ```
-
-### Key Architecture Patterns
-
-1. **Workers RPC**: The Cloudflare Worker accesses Payload CMS via service binding (`env.PAYLOAD.find()`, `env.PAYLOAD.create()`, etc.) - see `worker/wrangler.jsonc` for the binding configuration
-
-2. **Durable Objects**: Per-repo (`RepoDO`) and per-project (`ProjectDO`) coordination for sync operations - see `worker/src/do/`
-
-3. **OAuth 2.1 + PKCE**: MCP server implements full OAuth 2.1 flow with WorkOS AuthKit - see `worker/src/mcp/index.ts`
-
-4. **GitHub App Webhooks**: Installation, issues, milestones, push, and projects_v2 events - handled in `worker/src/index.ts`
 
 ### Data Flow
 
-```
-beads (.beads/) ←→ todo.mdx API ←→ GitHub Issues
-       ↓                ↓
-   TODO.mdx         Payload CMS
-       ↓                ↓
-   TODO.md          Dashboard
-```
+1. **beads → .todo/*.md**: Issues from `.beads/issues.jsonl` are rendered as individual markdown files
+2. **.todo/*.md → beads**: Edits to markdown files are synced back to beads via `bd update`
+3. **TODO.mdx → TODO.md**: Template is hydrated with issue data to generate summary view
 
 ## Project Structure
 
 ```
 todo.mdx/
-├── apps/
-│   ├── admin/             # Payload CMS backend (collections, config)
-│   └── todo.mdx.do/       # Next.js docs site (Fumadocs + OpenNext)
-├── packages/
-│   ├── todo.mdx/          # Core: TODO.mdx → TODO.md + .todo/*.md
-│   ├── roadmap.mdx/       # ROADMAP.mdx → ROADMAP.md
-│   ├── cli.mdx/           # MDX-based CLI framework (planned)
-│   └── dashboard/         # Shared dashboard components
-├── worker/                # Cloudflare Worker
-│   └── src/
-│       ├── mcp/           # MCP server with OAuth 2.1
-│       ├── do/            # Durable Objects (RepoDO, ProjectDO)
-│       ├── auth/          # WorkOS AuthKit integration
-│       └── api/           # REST API routes
-├── tests/                 # E2E tests (vitest)
-└── .beads/                # Local issue tracking database
+├── src/
+│   ├── index.ts        # Main exports
+│   ├── types.ts        # TypeScript interfaces
+│   ├── beads.ts        # Read issues from beads-workflows
+│   ├── parser.ts       # Parse .todo/*.md files
+│   ├── generator.ts    # Generate .todo/*.md files
+│   ├── compiler.ts     # Compile TODO.mdx → TODO.md
+│   ├── sync.ts         # Bi-directional sync logic
+│   ├── watcher.ts      # File watching for live sync
+│   └── cli.ts          # CLI commands
+├── .beads/             # Issue tracking database
+├── .todo/              # Generated issue markdown files
+├── TODO.mdx            # Template for TODO.md
+├── TODO.md             # Compiled output
+├── package.json
+├── tsconfig.json
+└── tsup.config.ts
 ```
 
-## Key Files
+## Key Dependencies
 
-- `packages/todo.mdx/src/compiler.ts` - MDX to markdown compilation
-- `packages/todo.mdx/src/parser.ts` - Parse .todo/*.md files
-- `worker/src/mcp/index.ts` - MCP server with OAuth 2.1 and tool implementations
-- `worker/src/do/repo.ts` - RepoDO for per-repo sync coordination
-- `worker/src/index.ts` - Main worker entry, webhook handlers
-- `apps/admin/src/payload.config.ts` - Payload CMS configuration
-- `apps/admin/src/collections/*.ts` - Payload collections (Users, Repos, Issues, etc.)
-
-## Payload Collections
-
-The admin app (`apps/admin/`) defines these collections:
-- `Users` - WorkOS-authenticated users
-- `Installations` - GitHub App installations
-- `Repos` - Tracked repositories
-- `Issues` - Synced issues
-- `Milestones` - Synced milestones
-- `LinearIntegrations` - Linear workspace connections
+- **beads-workflows** - Read/write issues from .beads/issues.jsonl
+- **@mdxld/markdown** - Bi-directional object ↔ markdown conversion
+- **@mdxld/extract** - Extract structured data from rendered content
+- **chokidar** - File watching for live sync
 
 ## Testing
 
-- Unit tests use **vitest** in individual packages
-- E2E tests in `tests/` package test worker, GitHub sync, Linear integration
-- Run single test file: `pnpm --filter @todo.mdx/tests test -- tests/e2e/github-sync.test.ts`
-
-## Environment Variables
-
-Worker secrets (set via `wrangler secret`):
-- `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` - GitHub App
-- `WORKOS_API_KEY`, `WORKOS_CLIENT_ID`, `WORKOS_CLIENT_SECRET` - WorkOS AuthKit
-- `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET` - Linear
-- `ANTHROPIC_API_KEY` - AI features
+- Uses **vitest** for unit tests
+- Run tests: `pnpm test`
+- Watch mode: `pnpm test:watch`
 
 ## Development Guidelines
 
 - Use TypeScript strict mode
 - Prefer functional programming patterns
-- Write tests for new features using vitest
 - Use conventional commits for commit messages
 - Track issues with `bd` (beads) - check `bd ready` for unblocked tasks
+- Follow TDD: write failing test, make it pass, refactor

@@ -1,6 +1,0 @@
-[submodule "tests/fixtures/test.mdx"]
-	path = tests/fixtures/test.mdx
-	url = https://github.com/dot-do/test.mdx
-[submodule "packages/beads-workflows"]
-	path = packages/beads-workflows
-	url = https://github.com/dot-do/beads-workflows
