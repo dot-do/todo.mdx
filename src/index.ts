@@ -39,3 +39,7 @@ export type { SyncOptions } from './sync.js'
 // Watcher
 export { watch } from './watcher.js'
 export type { WatchOptions, Watcher } from './watcher.js'
+
+// Templates
+export { renderTemplate, resolveTemplate } from './templates.js'
+export type { TemplateContext, TemplateConfig } from './templates.js'

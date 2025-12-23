@@ -48,3 +48,12 @@ export {
   convertGitHubToBeads,
   type ConvertOptions,
 } from './github-to-beads'
+
+export {
+  createSyncOrchestrator,
+  type SyncOrchestrator,
+  type SyncOrchestratorOptions,
+  type SyncResult,
+  type SyncConflict,
+  type ConflictStrategy,
+} from './sync-orchestrator'
