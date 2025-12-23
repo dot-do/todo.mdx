@@ -152,7 +152,7 @@ function generateBody(issue: TodoIssue): string {
     if (issue.dependsOn && issue.dependsOn.length > 0) {
       lines.push('**Depends on:**')
       issue.dependsOn.forEach(dep => {
-        lines.push(`- **${dep}**`)
+        lines.push(`- [${dep}](./${dep}.md)`)
       })
       lines.push('')
     }
@@ -160,7 +160,7 @@ function generateBody(issue: TodoIssue): string {
     if (issue.blocks && issue.blocks.length > 0) {
       lines.push('**Blocks:**')
       issue.blocks.forEach(block => {
-        lines.push(`- **${block}**`)
+        lines.push(`- [${block}](./${block}.md)`)
       })
       lines.push('')
     }
@@ -168,7 +168,7 @@ function generateBody(issue: TodoIssue): string {
     if (issue.children && issue.children.length > 0) {
       lines.push('**Children:**')
       issue.children.forEach(child => {
-        lines.push(`- **${child}**`)
+        lines.push(`- [${child}](./${child}.md)`)
       })
       lines.push('')
     }

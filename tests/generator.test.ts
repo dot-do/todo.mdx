@@ -77,10 +77,10 @@ describe('generateTodoFile', () => {
 
     expect(result).toContain('### Related Issues')
     expect(result).toContain('**Depends on:**')
-    expect(result).toContain('- **todo-abc**')
-    expect(result).toContain('- **todo-def**')
+    expect(result).toContain('[todo-abc](./todo-abc.md)')
+    expect(result).toContain('[todo-def](./todo-def.md)')
     expect(result).toContain('**Blocks:**')
-    expect(result).toContain('- **todo-xyz**')
+    expect(result).toContain('[todo-xyz](./todo-xyz.md)')
   })
 
   it('generates todo file with timestamps', () => {
@@ -97,13 +97,16 @@ describe('generateTodoFile', () => {
 
     const result = generateTodoFile(issue)
 
+    // Timestamps should ONLY be in frontmatter, not in body
     expect(result).toContain('createdAt: "2024-01-01T00:00:00Z"')
     expect(result).toContain('updatedAt: "2024-01-02T12:00:00Z"')
     expect(result).toContain('closedAt: "2024-01-03T18:00:00Z"')
-    expect(result).toContain('### Timeline')
-    expect(result).toContain('**Created:**')
-    expect(result).toContain('**Updated:**')
-    expect(result).toContain('**Closed:**')
+
+    // Timeline section should NOT exist in the body
+    expect(result).not.toContain('### Timeline')
+    expect(result).not.toContain('**Created:**')
+    expect(result).not.toContain('**Updated:**')
+    expect(result).not.toContain('**Closed:**')
   })
 
   it('generates todo file with special characters in title', () => {
@@ -152,9 +155,9 @@ describe('generateTodoFile', () => {
 
     expect(result).toContain('### Related Issues')
     expect(result).toContain('**Children:**')
-    expect(result).toContain('- **todo-child1**')
-    expect(result).toContain('- **todo-child2**')
-    expect(result).toContain('- **todo-child3**')
+    expect(result).toContain('- [todo-child1](./todo-child1.md)')
+    expect(result).toContain('- [todo-child2](./todo-child2.md)')
+    expect(result).toContain('- [todo-child3](./todo-child3.md)')
   })
 
   it('generates todo file with source field', () => {
@@ -170,6 +173,31 @@ describe('generateTodoFile', () => {
     const result = generateTodoFile(issue)
 
     expect(result).toContain('source: "beads"')
+  })
+
+  it('converts dependency references to markdown links', () => {
+    const issue: TodoIssue = {
+      id: 'todo-main',
+      title: 'Issue with Linked Dependencies',
+      status: 'open',
+      priority: 2,
+      type: 'task',
+      dependsOn: ['todo-abc'],
+      blocks: ['todo-xyz'],
+      children: ['todo-123'],
+    }
+
+    const result = generateTodoFile(issue)
+
+    // Should contain markdown links, not just bold text
+    expect(result).toContain('[todo-abc](./todo-abc.md)')
+    expect(result).toContain('[todo-xyz](./todo-xyz.md)')
+    expect(result).toContain('[todo-123](./todo-123.md)')
+
+    // Should NOT contain the old bold format
+    expect(result).not.toContain('- **todo-abc**')
+    expect(result).not.toContain('- **todo-xyz**')
+    expect(result).not.toContain('- **todo-123**')
   })
 })
 
