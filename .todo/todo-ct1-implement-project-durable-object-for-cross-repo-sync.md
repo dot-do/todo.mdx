@@ -14,9 +14,3 @@ source: "beads"
 # Implement Project Durable Object for cross-repo sync
 
 Cross-repo milestone coordination via GitHub Projects
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

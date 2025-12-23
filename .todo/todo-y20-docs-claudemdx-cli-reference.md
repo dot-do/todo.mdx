@@ -14,9 +14,3 @@ source: "beads"
 # docs: claude.mdx CLI reference
 
 Documentation for claude.mdx CLI. Dispatching Claude Code sessions for TODOs. Authentication, session management.
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

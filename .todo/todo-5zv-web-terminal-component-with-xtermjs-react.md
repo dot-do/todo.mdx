@@ -9,6 +9,7 @@ createdAt: "2025-12-20T19:42:43.189Z"
 updatedAt: "2025-12-20T20:01:23.505Z"
 closedAt: "2025-12-20T20:01:23.505Z"
 source: "beads"
+blocks: ["todo-01p", "todo-g21", "todo-nsd"]
 ---
 
 # Web terminal component with xterm.js + React
@@ -112,12 +113,6 @@ Match Claude Code's terminal aesthetic - dark theme, monospace font, proper line
 ### Related Issues
 
 **Blocks:**
-- **todo-01p**
-- **todo-g21**
-- **todo-nsd**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-01p](./todo-01p.md)
+- [todo-g21](./todo-g21.md)
+- [todo-nsd](./todo-nsd.md)

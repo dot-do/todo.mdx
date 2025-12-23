@@ -1,5 +1,6 @@
 /**
  * Generator for .todo/*.md files from TodoIssue objects
+ * Output format compatible with @mdxld/markdown fromMarkdown() for round-trip parsing
  */
 import { promises as fs } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -45,7 +46,7 @@ function generateFilename(issue: TodoIssue): string {
 
 /**
  * Serialize a value for YAML frontmatter
- * Handles strings, numbers, booleans, arrays, dates, null/undefined
+ * Uses simple, readable YAML format compatible with fromMarkdown()
  */
 function serializeYamlValue(value: unknown): string {
   if (value === null || value === undefined) {
@@ -53,12 +54,8 @@ function serializeYamlValue(value: unknown): string {
   }
 
   if (typeof value === 'string') {
-    // Quote strings that contain special characters or start with special chars
-    if (value.includes(':') || value.includes('#') || value.includes('"') ||
-        value.includes('\n') || value.startsWith('[') || value.startsWith('{')) {
-      return `"${value.replace(/"/g, '\\"')}"`
-    }
-    return `"${value}"`
+    // Always quote strings for consistency and safety
+    return `"${value.replace(/"/g, '\\"').replace(/\n/g, '\\n')}"`
   }
 
   if (typeof value === 'number' || typeof value === 'boolean') {
@@ -77,6 +74,7 @@ function serializeYamlValue(value: unknown): string {
 
 /**
  * Generate YAML frontmatter from issue metadata
+ * Output format compatible with @mdxld/markdown fromMarkdown()
  */
 function generateFrontmatter(issue: TodoIssue): string {
   const lines: string[] = ['---']
@@ -84,17 +82,14 @@ function generateFrontmatter(issue: TodoIssue): string {
   // Required fields
   lines.push(`id: ${issue.id}`)
   lines.push(`title: ${serializeYamlValue(issue.title)}`)
-  lines.push(`state: ${issue.status}`)
+  lines.push(`state: ${issue.status}`) // Use 'state' for parser compatibility
   lines.push(`priority: ${issue.priority}`)
   lines.push(`type: ${issue.type}`)
 
-  // Optional fields
-  if (issue.labels && issue.labels.length > 0) {
-    lines.push(`labels: ${serializeYamlValue(issue.labels)}`)
-  } else {
-    lines.push(`labels: []`)
-  }
+  // Labels (always include, even if empty)
+  lines.push(`labels: ${serializeYamlValue(issue.labels || [])}`)
 
+  // Optional metadata fields
   if (issue.assignee) {
     lines.push(`assignee: ${serializeYamlValue(issue.assignee)}`)
   }
@@ -119,68 +114,84 @@ function generateFrontmatter(issue: TodoIssue): string {
     lines.push(`source: ${serializeYamlValue(issue.source)}`)
   }
 
+  // Store dependency arrays in frontmatter for fromMarkdown() compatibility
+  if (issue.dependsOn && issue.dependsOn.length > 0) {
+    lines.push(`dependsOn: ${serializeYamlValue(issue.dependsOn)}`)
+  }
+
+  if (issue.blocks && issue.blocks.length > 0) {
+    lines.push(`blocks: ${serializeYamlValue(issue.blocks)}`)
+  }
+
+  if (issue.children && issue.children.length > 0) {
+    lines.push(`children: ${serializeYamlValue(issue.children)}`)
+  }
+
   lines.push('---')
 
   return lines.join('\n')
 }
 
 /**
- * Generate markdown body with H1 heading and description
+ * Generate markdown body content
+ * Creates H1 heading, description, and dependency links
  */
 function generateBody(issue: TodoIssue): string {
-  const lines: string[] = []
+  const sections: string[] = []
 
   // H1 heading with title
-  lines.push(`# ${issue.title}`)
-  lines.push('')
+  sections.push(`# ${issue.title}`)
 
   // Description if present
   if (issue.description && issue.description.trim()) {
-    lines.push(issue.description.trim())
-    lines.push('')
+    sections.push('')
+    sections.push(issue.description.trim())
   }
 
-  // Dependency information (blocks/dependsOn)
+  // Related Issues section with markdown links
   const hasDependencies = (issue.dependsOn && issue.dependsOn.length > 0) ||
                           (issue.blocks && issue.blocks.length > 0) ||
                           (issue.children && issue.children.length > 0)
 
   if (hasDependencies) {
-    lines.push('### Related Issues')
-    lines.push('')
+    sections.push('')
+    sections.push('### Related Issues')
 
     if (issue.dependsOn && issue.dependsOn.length > 0) {
-      lines.push('**Depends on:**')
+      sections.push('')
+      sections.push('**Depends on:**')
       issue.dependsOn.forEach(dep => {
-        lines.push(`- [${dep}](./${dep}.md)`)
+        sections.push(`- [${dep}](./${dep}.md)`)
       })
-      lines.push('')
     }
 
     if (issue.blocks && issue.blocks.length > 0) {
-      lines.push('**Blocks:**')
+      sections.push('')
+      sections.push('**Blocks:**')
       issue.blocks.forEach(block => {
-        lines.push(`- [${block}](./${block}.md)`)
+        sections.push(`- [${block}](./${block}.md)`)
       })
-      lines.push('')
     }
 
     if (issue.children && issue.children.length > 0) {
-      lines.push('**Children:**')
+      sections.push('')
+      sections.push('**Children:**')
       issue.children.forEach(child => {
-        lines.push(`- [${child}](./${child}.md)`)
+        sections.push(`- [${child}](./${child}.md)`)
       })
-      lines.push('')
     }
   }
 
-  return lines.join('\n')
+  return sections.join('\n')
 }
 
 /**
  * Generate a complete .todo/*.md file from a TodoIssue
+ * Uses manual generation for full control over output format
+ * Output is compatible with @mdxld/markdown fromMarkdown() parser
+ *
  * @param issue - The issue to generate markdown for
- * @returns The complete markdown content
+ * @returns The complete markdown content with frontmatter and body
  */
 export function generateTodoFile(issue: TodoIssue): string {
   const frontmatter = generateFrontmatter(issue)

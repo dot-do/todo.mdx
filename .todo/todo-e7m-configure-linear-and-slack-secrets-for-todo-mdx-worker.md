@@ -23,9 +23,3 @@ Add Linear and Slack integration secrets when those integrations are implemented
 **Slack:**
 - SLACK_BOT_TOKEN
 - SLACK_SIGNING_SECRET
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/23/2025
-- **Closed:** 12/23/2025

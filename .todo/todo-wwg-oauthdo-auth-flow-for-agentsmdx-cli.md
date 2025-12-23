@@ -9,6 +9,7 @@ createdAt: "2025-12-20T16:02:52.884Z"
 updatedAt: "2025-12-20T17:07:10.534Z"
 closedAt: "2025-12-20T17:07:10.534Z"
 source: "beads"
+blocks: ["todo-r35"]
 ---
 
 # oauth.do auth flow for agents.mdx CLI
@@ -18,10 +19,4 @@ source: "beads"
 ### Related Issues
 
 **Blocks:**
-- **todo-r35**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-r35](./todo-r35.md)

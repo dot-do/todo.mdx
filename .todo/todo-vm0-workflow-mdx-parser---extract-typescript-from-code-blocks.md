@@ -9,6 +9,7 @@ createdAt: "2025-12-20T16:02:36.316Z"
 updatedAt: "2025-12-20T16:15:04.785Z"
 closedAt: "2025-12-20T16:15:04.785Z"
 source: "beads"
+blocks: ["todo-xmf"]
 ---
 
 # Workflow MDX parser - extract TypeScript from code blocks
@@ -18,10 +19,4 @@ Parse .workflows/*.mdx files and extract TypeScript code from code blocks. Compi
 ### Related Issues
 
 **Blocks:**
-- **todo-xmf**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-xmf](./todo-xmf.md)

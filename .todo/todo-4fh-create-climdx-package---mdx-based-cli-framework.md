@@ -9,6 +9,7 @@ createdAt: "2025-12-20T15:25:45.527Z"
 updatedAt: "2025-12-20T17:16:25.471Z"
 closedAt: "2025-12-20T17:16:25.471Z"
 source: "beads"
+blocks: ["todo-15a", "todo-6a9", "todo-ac9"]
 ---
 
 # Create cli.mdx package - MDX-based CLI framework
@@ -38,12 +39,6 @@ Tech: Bun + React + MDX + markdown output
 ### Related Issues
 
 **Blocks:**
-- **todo-15a**
-- **todo-6a9**
-- **todo-ac9**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-15a](./todo-15a.md)
+- [todo-6a9](./todo-6a9.md)
+- [todo-ac9](./todo-ac9.md)

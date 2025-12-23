@@ -21,9 +21,3 @@ Error: missing secret key. A secret key is needed to secure Payload.
 ```
 
 Root cause: The `PAYLOAD_SECRET` environment variable is not set on the deployed Cloudflare Worker.
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

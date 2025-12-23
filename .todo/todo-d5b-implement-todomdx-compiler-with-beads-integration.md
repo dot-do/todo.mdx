@@ -12,9 +12,3 @@ source: "beads"
 ---
 
 # Implement todo.mdx compiler with beads integration
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

@@ -9,6 +9,7 @@ createdAt: "2025-12-20T18:35:09.110Z"
 updatedAt: "2025-12-20T23:31:28.796Z"
 closedAt: "2025-12-20T23:31:28.796Z"
 source: "beads"
+dependsOn: ["todo-9sv"]
 ---
 
 # Add sandbox capability grants for MCP `do` tool context
@@ -31,10 +32,4 @@ Need to decide which approach maintains the `do` tool's simplicity while gaining
 ### Related Issues
 
 **Depends on:**
-- **todo-9sv**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-9sv](./todo-9sv.md)

@@ -9,6 +9,8 @@ createdAt: "2025-12-20T20:09:19.763Z"
 updatedAt: "2025-12-20T20:17:49.518Z"
 closedAt: "2025-12-20T20:17:49.518Z"
 source: "beads"
+dependsOn: ["todo-kxl"]
+blocks: ["todo-az6"]
 ---
 
 # Fix CLI to properly load issues and generate .todo files
@@ -34,13 +36,7 @@ Location: packages/todo.mdx/src/cli.ts
 ### Related Issues
 
 **Depends on:**
-- **todo-kxl**
+- [todo-kxl](./todo-kxl.md)
 
 **Blocks:**
-- **todo-az6**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-az6](./todo-az6.md)

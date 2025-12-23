@@ -9,6 +9,7 @@ createdAt: "2025-12-20T15:25:32.233Z"
 updatedAt: "2025-12-20T17:31:24.535Z"
 closedAt: "2025-12-20T17:31:24.535Z"
 source: "beads"
+dependsOn: ["todo-4fh"]
 ---
 
 # Create claude.mdx CLI package
@@ -30,10 +31,4 @@ Commands:
 ### Related Issues
 
 **Depends on:**
-- **todo-4fh**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-4fh](./todo-4fh.md)

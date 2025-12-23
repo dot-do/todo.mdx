@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:03:34.995Z"
 updatedAt: "2025-12-23T10:08:49.103Z"
 closedAt: "2025-12-23T10:08:49.103Z"
 source: "beads"
+blocks: ["todo-6f4", "todo-bzw", "todo-dgq", "todo-hq9", "todo-imh", "todo-lle"]
 ---
 
 # cli.mdx: Shared CLI Foundation
@@ -18,15 +19,9 @@ Shared CLI foundation for all *.mdx packages (todo.mdx, roadmap.mdx, readme.mdx,
 ### Related Issues
 
 **Blocks:**
-- **todo-6f4**
-- **todo-bzw**
-- **todo-dgq**
-- **todo-hq9**
-- **todo-imh**
-- **todo-lle**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/23/2025
-- **Closed:** 12/23/2025
+- [todo-6f4](./todo-6f4.md)
+- [todo-bzw](./todo-bzw.md)
+- [todo-dgq](./todo-dgq.md)
+- [todo-hq9](./todo-hq9.md)
+- [todo-imh](./todo-imh.md)
+- [todo-lle](./todo-lle.md)

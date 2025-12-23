@@ -9,6 +9,8 @@ createdAt: "2025-12-20T16:02:43.498Z"
 updatedAt: "2025-12-20T17:15:45.135Z"
 closedAt: "2025-12-20T17:15:45.135Z"
 source: "beads"
+dependsOn: ["todo-6bv"]
+blocks: ["todo-3pz"]
 ---
 
 # Cloudflare Workflows integration for durable execution
@@ -18,13 +20,7 @@ Wrap workflow steps in Cloudflare Workflows step.do() and step.waitForEvent() fo
 ### Related Issues
 
 **Depends on:**
-- **todo-6bv**
+- [todo-6bv](./todo-6bv.md)
 
 **Blocks:**
-- **todo-3pz**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-3pz](./todo-3pz.md)

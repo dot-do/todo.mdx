@@ -654,3 +654,251 @@ describe('sync', () => {
   })
 })
 
+describe('detectChanges with diff()', () => {
+  it('should use diff().hasChanges for field-level change detection', () => {
+    const beadsIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Original title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        source: 'beads',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ]
+
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Modified title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        source: 'file',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+    ]
+
+    const result = detectChanges(beadsIssues, fileIssues)
+
+    // File is newer, should push to beads
+    expect(result.toBeads).toHaveLength(1)
+    expect(result.toBeads[0].title).toBe('Modified title')
+  })
+
+  it('should correctly detect no changes when issues are identical', () => {
+    const beadsIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Same title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        description: 'Same description',
+        labels: ['label1', 'label2'],
+        source: 'beads',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ]
+
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Same title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        description: 'Same description',
+        labels: ['label1', 'label2'],
+        source: 'file',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ]
+
+    const result = detectChanges(beadsIssues, fileIssues)
+
+    expect(result.toBeads).toHaveLength(0)
+    expect(result.toFiles).toHaveLength(0)
+    expect(result.conflicts).toHaveLength(0)
+  })
+
+  it('should report field-level conflicts using diff() result inspection', () => {
+    const beadsIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Beads title',
+        status: 'in_progress',
+        type: 'task',
+        priority: 2,
+        source: 'beads',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+    ]
+
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'File title',
+        status: 'open',
+        type: 'task',
+        priority: 3,
+        source: 'file',
+        updatedAt: '2024-01-02T01:00:00.000Z',
+      },
+    ]
+
+    const result = detectChanges(beadsIssues, fileIssues)
+
+    // Should detect conflict
+    expect(result.conflicts).toHaveLength(1)
+    expect(result.conflicts[0].issueId).toBe('task-1')
+    // Conflict should be in one of the modified fields: title, status, or priority
+    expect(['title', 'status', 'priority']).toContain(result.conflicts[0].field)
+  })
+
+  it('should detect multiple field differences', () => {
+    const beadsIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Original',
+        status: 'open',
+        type: 'task',
+        priority: 1,
+        description: 'Beads description',
+        labels: ['backend'],
+        source: 'beads',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+    ]
+
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Modified',
+        status: 'in_progress',
+        type: 'task',
+        priority: 2,
+        description: 'File description',
+        labels: ['frontend'],
+        source: 'file',
+        updatedAt: '2024-01-02T01:00:00.000Z',
+      },
+    ]
+
+    const result = detectChanges(beadsIssues, fileIssues)
+
+    // Should detect conflict (timestamps within same day)
+    expect(result.conflicts).toHaveLength(1)
+    // The implementation should be able to identify multiple field changes
+  })
+})
+
+describe('sync with applyExtract()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(loadBeadsIssues).mockResolvedValue([])
+    vi.mocked(loadTodoFiles).mockResolvedValue([])
+    vi.mocked(writeTodoFiles).mockResolvedValue([])
+    vi.mocked(createIssue).mockResolvedValue({ success: true })
+    vi.mocked(updateIssue).mockResolvedValue({ success: true })
+    vi.mocked(closeIssue).mockResolvedValue({ success: true })
+  })
+
+  it('should use applyExtract() when merging file changes into beads issue', async () => {
+    const beadsIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Original title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        description: 'Original description',
+        labels: ['backend'],
+        source: 'beads',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ]
+
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Updated title',
+        status: 'in_progress',
+        type: 'task',
+        priority: 3,
+        description: 'Updated description',
+        labels: ['frontend', 'urgent'],
+        source: 'file',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+    ]
+
+    vi.mocked(loadBeadsIssues).mockResolvedValue(beadsIssues)
+    vi.mocked(loadTodoFiles).mockResolvedValue(fileIssues)
+
+    const result = await sync({ todoDir: '.todo' })
+
+    // Should update beads with merged data from file
+    expect(updateIssue).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({
+        title: 'Updated title',
+        status: 'in_progress',
+        priority: 3,
+        description: 'Updated description',
+        labels: ['frontend', 'urgent'],
+      }),
+      expect.any(Object)
+    )
+    expect(result.updated).toContain('task-1')
+  })
+
+  it('should preserve fields not modified in file when using applyExtract()', async () => {
+    const beadsIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Original title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        description: 'Original description',
+        assignee: 'alice',
+        labels: ['backend'],
+        source: 'beads',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ]
+
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'task-1',
+        title: 'Updated title',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        // description omitted - should be preserved from beads
+        assignee: 'alice',
+        labels: ['backend'],
+        source: 'file',
+        updatedAt: '2024-01-02T00:00:00.000Z',
+      },
+    ]
+
+    vi.mocked(loadBeadsIssues).mockResolvedValue(beadsIssues)
+    vi.mocked(loadTodoFiles).mockResolvedValue(fileIssues)
+
+    const result = await sync({ todoDir: '.todo' })
+
+    // Should update only the title
+    expect(updateIssue).toHaveBeenCalledWith(
+      'task-1',
+      expect.objectContaining({
+        title: 'Updated title',
+        description: 'Original description', // Preserved
+      }),
+      expect.any(Object)
+    )
+  })
+})
+

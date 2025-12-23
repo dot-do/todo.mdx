@@ -9,6 +9,8 @@ createdAt: "2025-12-20T18:52:16.142Z"
 updatedAt: "2025-12-20T19:03:28.885Z"
 closedAt: "2025-12-20T19:03:28.885Z"
 source: "beads"
+dependsOn: ["todo-4j2"]
+blocks: ["todo-peb"]
 ---
 
 # Create Cloudflare Workflow for embedding generation
@@ -87,13 +89,7 @@ For bulk re-index, batch embeddings:
 ### Related Issues
 
 **Depends on:**
-- **todo-4j2**
+- [todo-4j2](./todo-4j2.md)
 
 **Blocks:**
-- **todo-peb**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-peb](./todo-peb.md)

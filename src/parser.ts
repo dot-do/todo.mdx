@@ -1,68 +1,60 @@
 /**
  * Parser for .todo/*.md files
- * Extracts YAML frontmatter and markdown content to create TodoIssue objects
+ * Uses @mdxld/markdown for robust frontmatter extraction
  */
 
 import { readdir, readFile } from 'fs/promises'
 import { join } from 'path'
+import { Markdown } from '@mdxld/markdown'
 import type { ParsedTodoFile, TodoIssue } from './types.js'
 
 /**
- * Parse YAML frontmatter from markdown content
- * Simple parser that handles the --- delimited format
+ * Parse a value from YAML-like string format
+ * Handles: strings, numbers, booleans, arrays, null
  */
-function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
-  const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/
-  const match = content.match(frontmatterRegex)
+function parseYamlValue(value: string): unknown {
+  const trimmed = value.trim()
 
-  if (!match) {
-    return { frontmatter: {}, body: content }
+  // Handle null
+  if (trimmed === 'null' || trimmed === 'undefined') {
+    return null
   }
 
-  const [, frontmatterStr, body] = match
-  const frontmatter: Record<string, unknown> = {}
+  // Handle booleans
+  if (trimmed === 'true') return true
+  if (trimmed === 'false') return false
 
-  // Parse YAML-like frontmatter line by line
-  const lines = frontmatterStr.split('\n')
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
+  // Handle numbers
+  if (/^-?\d+$/.test(trimmed)) return parseInt(trimmed, 10)
+  if (/^-?\d+\.\d+$/.test(trimmed)) return parseFloat(trimmed)
 
-    const colonIndex = trimmed.indexOf(':')
-    if (colonIndex === -1) continue
-
-    const key = trimmed.slice(0, colonIndex).trim()
-    let value: unknown = trimmed.slice(colonIndex + 1).trim()
-
-    // Parse basic types
-    if (value === 'true') value = true
-    else if (value === 'false') value = false
-    else if (value === 'null') value = null
-    else if (/^-?\d+$/.test(value as string)) value = parseInt(value as string, 10)
-    else if (/^-?\d+\.\d+$/.test(value as string)) value = parseFloat(value as string)
-    else if ((value as string).startsWith('"') && (value as string).endsWith('"')) {
-      value = (value as string).slice(1, -1)
-    } else if ((value as string).startsWith("'") && (value as string).endsWith("'")) {
-      value = (value as string).slice(1, -1)
-    } else if ((value as string).startsWith('[') && (value as string).endsWith(']')) {
-      // Parse arrays
-      const arrayContent = (value as string).slice(1, -1)
-      value = arrayContent.split(',').map(item => {
-        const trimmedItem = item.trim()
-        if (trimmedItem.startsWith('"') && trimmedItem.endsWith('"')) {
-          return trimmedItem.slice(1, -1)
+  // Handle arrays in JSON format
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      return JSON.parse(trimmed)
+    } catch {
+      // Fallback: parse as comma-separated strings
+      const content = trimmed.slice(1, -1)
+      return content.split(',').map(item => {
+        const cleaned = item.trim()
+        // Remove quotes if present
+        if ((cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+            (cleaned.startsWith("'") && cleaned.endsWith("'"))) {
+          return cleaned.slice(1, -1)
         }
-        if (trimmedItem.startsWith("'") && trimmedItem.endsWith("'")) {
-          return trimmedItem.slice(1, -1)
-        }
-        return trimmedItem
+        return cleaned
       }).filter(Boolean)
     }
-
-    frontmatter[key] = value
   }
 
-  return { frontmatter, body: body.trim() }
+  // Handle quoted strings
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1)
+  }
+
+  // Return as-is (unquoted string)
+  return trimmed
 }
 
 /**
@@ -130,16 +122,28 @@ function validateId(id: unknown): string {
 
 /**
  * Parse a single .todo/*.md file
+ * Uses Markdown.extractMeta() from @mdxld/markdown for robust frontmatter parsing
  * @param content - The file content to parse
  * @returns ParsedTodoFile with frontmatter, content, and extracted issue
  */
 export function parseTodoFile(content: string): ParsedTodoFile {
-  const { frontmatter, body } = parseFrontmatter(content)
+  // Use Markdown.extractMeta() to extract frontmatter as strings
+  const metaStrings = Markdown.extractMeta(content)
+
+  // Parse values from strings to proper types
+  const frontmatter: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(metaStrings)) {
+    frontmatter[key] = parseYamlValue(value)
+  }
+
+  // Extract body content (everything after frontmatter)
+  const frontmatterMatch = content.match(/^---\s*\n[\s\S]*?\n---\s*\n/m)
+  const body = frontmatterMatch ? content.slice(frontmatterMatch[0].length).trim() : content.trim()
 
   // Validate and extract ID
   const id = validateId(frontmatter.id)
 
-  // Extract issue metadata from frontmatter
+  // Extract issue metadata, using parsed frontmatter
   const issue: TodoIssue = {
     id,
     title: (frontmatter.title as string) || 'Untitled',
@@ -156,7 +160,7 @@ export function parseTodoFile(content: string): ParsedTodoFile {
     blocks: Array.isArray(frontmatter.blocks) ? frontmatter.blocks as string[] : undefined,
     parent: frontmatter.parent as string | undefined,
     children: Array.isArray(frontmatter.children) ? frontmatter.children as string[] : undefined,
-    source: 'file',
+    source: (frontmatter.source as 'beads' | 'file') || 'file',
   }
 
   return {

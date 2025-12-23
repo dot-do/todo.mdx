@@ -14,9 +14,3 @@ source: "beads"
 # docs: cli.mdx framework guide
 
 Guide for building CLIs with cli.mdx. MDX-based CLI framework with Bun + React (Ink-style). Component library, rendering to terminal and markdown.
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

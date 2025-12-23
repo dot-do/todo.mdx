@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:08:44.507Z"
 updatedAt: "2025-12-20T23:10:43.541Z"
 closedAt: "2025-12-20T23:10:43.541Z"
 source: "beads"
+blocks: ["todo-0u4", "todo-25c", "todo-az6", "todo-c80", "todo-dok", "todo-luy", "todo-si1"]
 ---
 
 # Core todo.mdx: Render beads issues as .todo/*.mdx files
@@ -27,16 +28,10 @@ This epic covers completing the core rendering pipeline.
 ### Related Issues
 
 **Blocks:**
-- **todo-0u4**
-- **todo-25c**
-- **todo-az6**
-- **todo-c80**
-- **todo-dok**
-- **todo-luy**
-- **todo-si1**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-0u4](./todo-0u4.md)
+- [todo-25c](./todo-25c.md)
+- [todo-az6](./todo-az6.md)
+- [todo-c80](./todo-c80.md)
+- [todo-dok](./todo-dok.md)
+- [todo-luy](./todo-luy.md)
+- [todo-si1](./todo-si1.md)

@@ -9,6 +9,7 @@ createdAt: "2025-12-20T15:25:31.013Z"
 updatedAt: "2025-12-20T17:06:04.550Z"
 closedAt: "2025-12-20T17:06:04.550Z"
 source: "beads"
+dependsOn: ["todo-4fh"]
 ---
 
 # Create agents.mdx package
@@ -25,10 +26,4 @@ Integrates with MCP tool definitions. Single source of truth for AI agent config
 ### Related Issues
 
 **Depends on:**
-- **todo-4fh**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-4fh](./todo-4fh.md)

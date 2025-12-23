@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:13:47.170Z"
 updatedAt: "2025-12-20T20:26:29.105Z"
 closedAt: "2025-12-20T20:26:29.105Z"
 source: "beads"
+dependsOn: ["todo-01p"]
 ---
 
 # E2E: Playwright tests for Web IDE (terminal, file tree, editor)
@@ -59,10 +60,4 @@ Add Playwright E2E tests for the Web IDE interface.
 ### Related Issues
 
 **Depends on:**
-- **todo-01p**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-01p](./todo-01p.md)

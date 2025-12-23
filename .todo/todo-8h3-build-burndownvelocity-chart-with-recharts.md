@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:13:26.449Z"
 updatedAt: "2025-12-20T20:25:52.266Z"
 closedAt: "2025-12-20T20:25:52.266Z"
 source: "beads"
+dependsOn: ["todo-78w"]
 ---
 
 # Build burndown/velocity chart with Recharts
@@ -49,10 +50,4 @@ Recharts is the charting library used by shadcn/ui charts.
 ### Related Issues
 
 **Depends on:**
-- **todo-78w**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-78w](./todo-78w.md)

@@ -86,9 +86,3 @@ Review what the provider actually exposes vs what ChatGPT expects.
 - [MCP Authorization Spec](https://modelcontextprotocol.io/specification/draft/basic/authorization)
 - [MCP Inspector](https://github.com/modelcontextprotocol/inspector)
 - [WorkOS DCR in MCP](https://workos.com/blog/dynamic-client-registration-dcr-mcp-oauth)
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/21/2025
-- **Closed:** 12/21/2025

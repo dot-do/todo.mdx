@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:09:19.575Z"
 updatedAt: "2025-12-20T20:23:19.893Z"
 closedAt: "2025-12-20T20:23:19.893Z"
 source: "beads"
+dependsOn: ["todo-kxl", "todo-luy"]
 ---
 
 # Add issue-specific MDX components (Subtasks, RelatedIssues, Timeline)
@@ -29,11 +30,5 @@ Location: packages/todo.mdx/src/compiler.ts, add to hydrateTemplate()
 ### Related Issues
 
 **Depends on:**
-- **todo-kxl**
-- **todo-luy**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-kxl](./todo-kxl.md)
+- [todo-luy](./todo-luy.md)

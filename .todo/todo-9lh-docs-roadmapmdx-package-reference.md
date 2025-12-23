@@ -14,9 +14,3 @@ source: "beads"
 # docs: roadmap.mdx package reference
 
 Documentation for roadmap.mdx. Milestone, Timeline, Roadmap components. GitHub Milestones sync. Epic integration.
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

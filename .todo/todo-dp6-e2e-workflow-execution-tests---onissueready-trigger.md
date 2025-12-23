@@ -9,6 +9,7 @@ createdAt: "2025-12-20T16:46:00.423Z"
 updatedAt: "2025-12-20T17:38:53.273Z"
 closedAt: "2025-12-20T17:38:53.273Z"
 source: "beads"
+dependsOn: ["todo-4wq"]
 ---
 
 # E2E: Workflow execution tests - on.issue.ready trigger
@@ -18,10 +19,4 @@ Test full workflow: issue becomes ready → workflow triggers → Claude spawns 
 ### Related Issues
 
 **Depends on:**
-- **todo-4wq**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-4wq](./todo-4wq.md)

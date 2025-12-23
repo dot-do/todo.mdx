@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:05:20.985Z"
 updatedAt: "2025-12-23T10:08:49.109Z"
 closedAt: "2025-12-23T10:08:49.109Z"
 source: "beads"
+dependsOn: ["todo-3ny"]
 ---
 
 # cli.mdx: Interactive prompt components
@@ -18,10 +19,4 @@ Create MDX components for interactive prompts: Input, Select, Confirm, MultiSele
 ### Related Issues
 
 **Depends on:**
-- **todo-3ny**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/23/2025
-- **Closed:** 12/23/2025
+- [todo-3ny](./todo-3ny.md)

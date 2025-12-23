@@ -9,6 +9,8 @@ createdAt: "2025-12-20T16:02:47.157Z"
 updatedAt: "2025-12-20T17:53:58.825Z"
 closedAt: "2025-12-20T17:53:58.825Z"
 source: "beads"
+dependsOn: ["todo-3pz"]
+blocks: ["todo-6dj"]
 ---
 
 # Worker Loader for dynamic per-repo workflow modules
@@ -18,13 +20,7 @@ Use Cloudflare Worker Loader to dynamically load workflow code per-repo. Each re
 ### Related Issues
 
 **Depends on:**
-- **todo-3pz**
+- [todo-3pz](./todo-3pz.md)
 
 **Blocks:**
-- **todo-6dj**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-6dj](./todo-6dj.md)

@@ -9,6 +9,8 @@ createdAt: "2025-12-20T20:09:19.483Z"
 updatedAt: "2025-12-20T20:17:49.687Z"
 closedAt: "2025-12-20T20:17:49.687Z"
 source: "beads"
+dependsOn: ["todo-kxl"]
+blocks: ["todo-25c"]
 ---
 
 # Add issue-level MDX template support (.mdx/issue.mdx)
@@ -26,13 +28,7 @@ Location: packages/todo.mdx/src/compiler.ts
 ### Related Issues
 
 **Depends on:**
-- **todo-kxl**
+- [todo-kxl](./todo-kxl.md)
 
 **Blocks:**
-- **todo-25c**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-25c](./todo-25c.md)

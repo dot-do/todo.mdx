@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:12:55.168Z"
 updatedAt: "2025-12-20T23:01:06.839Z"
 closedAt: "2025-12-20T23:01:06.839Z"
 source: "beads"
+blocks: ["todo-38t", "todo-8h3", "todo-djd", "todo-mf4"]
 ---
 
 # Project visualization dashboard: Kanban, Gantt, Burndown charts
@@ -37,13 +38,7 @@ All components should integrate with beads/API issue data.
 ### Related Issues
 
 **Blocks:**
-- **todo-38t**
-- **todo-8h3**
-- **todo-djd**
-- **todo-mf4**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-38t](./todo-38t.md)
+- [todo-8h3](./todo-8h3.md)
+- [todo-djd](./todo-djd.md)
+- [todo-mf4](./todo-mf4.md)

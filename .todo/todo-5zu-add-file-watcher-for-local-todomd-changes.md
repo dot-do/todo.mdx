@@ -14,9 +14,3 @@ source: "beads"
 # Add file watcher for local .todo/*.md changes
 
 Watch mode that detects local file changes and syncs to GitHub
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/23/2025
-- **Closed:** 12/23/2025

@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:05:21.067Z"
 updatedAt: "2025-12-23T10:08:49.108Z"
 closedAt: "2025-12-23T10:08:49.108Z"
 source: "beads"
+dependsOn: ["todo-3ny"]
 ---
 
 # cli.mdx: Output formatting components (Table, Box, Spinner)
@@ -18,10 +19,4 @@ Create MDX components for CLI output: Table (for lists), Box (for sections), Spi
 ### Related Issues
 
 **Depends on:**
-- **todo-3ny**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/23/2025
-- **Closed:** 12/23/2025
+- [todo-3ny](./todo-3ny.md)

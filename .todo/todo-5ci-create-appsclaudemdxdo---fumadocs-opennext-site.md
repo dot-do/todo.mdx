@@ -10,6 +10,7 @@ createdAt: "2025-12-20T16:41:06.732Z"
 updatedAt: "2025-12-20T17:04:22.935Z"
 closedAt: "2025-12-20T17:04:22.935Z"
 source: "beads"
+dependsOn: ["todo-wny"]
 ---
 
 # Create apps/claude.mdx.do - Fumadocs + OpenNext site
@@ -19,10 +20,4 @@ Next.js docs site for claude.mdx package using Fumadocs. Deploy with OpenNext to
 ### Related Issues
 
 **Depends on:**
-- **todo-wny**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-wny](./todo-wny.md)

@@ -9,6 +9,7 @@ createdAt: "2025-12-20T18:52:16.054Z"
 updatedAt: "2025-12-20T19:00:24.296Z"
 closedAt: "2025-12-20T19:00:24.296Z"
 source: "beads"
+blocks: ["todo-9il", "todo-kdl", "todo-pt4"]
 ---
 
 # Set up Vectorize index with Workers AI bge-m3 embeddings
@@ -74,12 +75,6 @@ Each vector should include metadata:
 ### Related Issues
 
 **Blocks:**
-- **todo-9il**
-- **todo-kdl**
-- **todo-pt4**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-9il](./todo-9il.md)
+- [todo-kdl](./todo-kdl.md)
+- [todo-pt4](./todo-pt4.md)

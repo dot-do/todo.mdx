@@ -48,6 +48,7 @@
 
 import { createIssue, updateIssue, closeIssue } from 'beads-workflows'
 import type { CreateOptions, UpdateOptions } from 'beads-workflows'
+import { diff, applyExtract } from '@mdxld/markdown'
 import { loadBeadsIssues } from './beads.js'
 import { loadTodoFiles } from './parser.js'
 import { writeTodoFiles } from './generator.js'
@@ -76,48 +77,35 @@ export interface ChangeDetectionResult {
 }
 
 /**
- * Check if two issues have the same content (ignoring updatedAt)
+ * Check if two issues have the same content (ignoring updatedAt and source)
  */
 function issuesAreEqual(a: TodoIssue, b: TodoIssue): boolean {
-  return (
-    a.id === b.id &&
-    a.title === b.title &&
-    a.status === b.status &&
-    a.type === b.type &&
-    a.priority === b.priority &&
-    a.description === b.description &&
-    a.assignee === b.assignee &&
-    JSON.stringify(a.labels || []) === JSON.stringify(b.labels || []) &&
-    JSON.stringify(a.dependsOn || []) === JSON.stringify(b.dependsOn || []) &&
-    JSON.stringify(a.blocks || []) === JSON.stringify(b.blocks || []) &&
-    a.parent === b.parent
-  )
+  // Create normalized versions without updatedAt and source for comparison
+  const { updatedAt: _aUpdatedAt, source: _aSource, ...aNormalized } = a
+  const { updatedAt: _bUpdatedAt, source: _bSource, ...bNormalized } = b
+
+  const diffResult = diff(aNormalized, bNormalized)
+  return !diffResult.hasChanges
 }
 
 /**
- * Detect which fields differ between two issues
+ * Detect which fields differ between two issues using diff()
  */
 function detectDifferentFields(beadsIssue: TodoIssue, fileIssue: TodoIssue): string[] {
-  const fields: string[] = []
+  // Create normalized versions without updatedAt and source for comparison
+  const { updatedAt: _beadsUpdatedAt, source: _beadsSource, ...beadsNormalized } = beadsIssue
+  const { updatedAt: _fileUpdatedAt, source: _fileSource, ...fileNormalized } = fileIssue
 
-  if (beadsIssue.title !== fileIssue.title) fields.push('title')
-  if (beadsIssue.status !== fileIssue.status) fields.push('status')
-  if (beadsIssue.type !== fileIssue.type) fields.push('type')
-  if (beadsIssue.priority !== fileIssue.priority) fields.push('priority')
-  if (beadsIssue.description !== fileIssue.description) fields.push('description')
-  if (beadsIssue.assignee !== fileIssue.assignee) fields.push('assignee')
-  if (JSON.stringify(beadsIssue.labels || []) !== JSON.stringify(fileIssue.labels || [])) {
-    fields.push('labels')
-  }
-  if (JSON.stringify(beadsIssue.dependsOn || []) !== JSON.stringify(fileIssue.dependsOn || [])) {
-    fields.push('dependsOn')
-  }
-  if (JSON.stringify(beadsIssue.blocks || []) !== JSON.stringify(fileIssue.blocks || [])) {
-    fields.push('blocks')
-  }
-  if (beadsIssue.parent !== fileIssue.parent) fields.push('parent')
+  const diffResult = diff(beadsNormalized, fileNormalized)
 
-  return fields
+  // Collect all changed fields: added, modified, and removed
+  const fields = new Set<string>([
+    ...Object.keys(diffResult.added),
+    ...Object.keys(diffResult.modified),
+    ...diffResult.removed,
+  ])
+
+  return Array.from(fields)
 }
 
 /**
@@ -228,16 +216,23 @@ function toCreateOptions(issue: TodoIssue): CreateOptions {
 }
 
 /**
- * Convert TodoIssue to UpdateOptions for beads-workflows
+ * Convert TodoIssue to UpdateOptions for beads-workflows, optionally merging with original issue
  */
-function toUpdateOptions(issue: TodoIssue): UpdateOptions {
+function toUpdateOptions(issue: TodoIssue, originalIssue?: TodoIssue): UpdateOptions {
+  let mergedIssue = issue
+
+  // If we have an original issue, use applyExtract to merge changes
+  if (originalIssue) {
+    mergedIssue = applyExtract(originalIssue, issue)
+  }
+
   return {
-    title: issue.title,
-    status: issue.status,
-    priority: issue.priority,
-    description: issue.description,
-    assignee: issue.assignee,
-    labels: issue.labels,
+    title: mergedIssue.title,
+    status: mergedIssue.status,
+    priority: mergedIssue.priority,
+    description: mergedIssue.description,
+    assignee: mergedIssue.assignee,
+    labels: mergedIssue.labels,
   }
 }
 
@@ -335,8 +330,8 @@ export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
           result.created.push(issue.id)
         }
       } else {
-        // Update existing issue
-        const updateResult = await updateIssue(issue.id, toUpdateOptions(issue), {
+        // Update existing issue - use applyExtract to merge file changes into beads issue
+        const updateResult = await updateIssue(issue.id, toUpdateOptions(issue, beadsIssue), {
           cwd: beadsDir,
         })
         if (updateResult.success) {

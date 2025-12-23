@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { generateTodoFile, writeTodoFiles } from '../src/generator.js'
 import type { TodoIssue } from '../src/types.js'
+import { fromMarkdown } from '@mdxld/markdown'
 
 describe('generateTodoFile', () => {
   it('generates basic todo file with minimal fields', () => {
@@ -198,6 +199,120 @@ describe('generateTodoFile', () => {
     expect(result).not.toContain('- **todo-abc**')
     expect(result).not.toContain('- **todo-xyz**')
     expect(result).not.toContain('- **todo-123**')
+  })
+})
+
+describe('generateTodoFile - @mdxld/markdown compatibility', () => {
+  it('should include YAML frontmatter compatible with fromMarkdown()', () => {
+    const issue: TodoIssue = {
+      id: 'todo-mdxld-2',
+      title: 'Frontmatter Test',
+      status: 'in_progress',
+      priority: 1,
+      type: 'feature',
+    }
+
+    const result = generateTodoFile(issue)
+
+    // Should have proper YAML frontmatter delimiters
+    expect(result).toMatch(/^---\n/)
+    expect(result).toMatch(/\n---\n/)
+
+    // Frontmatter should contain key fields
+    const frontmatterMatch = result.match(/^---\n([\s\S]*?)\n---/)
+    expect(frontmatterMatch).toBeTruthy()
+
+    const frontmatter = frontmatterMatch![1]
+    expect(frontmatter).toContain('id:')
+    expect(frontmatter).toContain('title:')
+    expect(frontmatter).toContain('state:') // Using 'state' for compatibility
+    expect(frontmatter).toContain('priority:')
+    expect(frontmatter).toContain('type:')
+  })
+
+  it('should store dependency arrays in frontmatter for round-trip compatibility', () => {
+    const issue: TodoIssue = {
+      id: 'todo-mdxld-4',
+      title: 'Issue with Dependencies',
+      status: 'open',
+      priority: 2,
+      type: 'task',
+      dependsOn: ['todo-a', 'todo-b'],
+      blocks: ['todo-c'],
+      children: ['todo-x', 'todo-y'],
+    }
+
+    const result = generateTodoFile(issue)
+
+    // Dependency IDs should be in frontmatter for round-trip parsing
+    expect(result).toContain('dependsOn: ["todo-a", "todo-b"]')
+    expect(result).toContain('blocks: ["todo-c"]')
+    expect(result).toContain('children: ["todo-x", "todo-y"]')
+
+    // Dependencies should also be rendered as markdown links in body
+    expect(result).toContain('[todo-a](./todo-a.md)')
+    expect(result).toContain('[todo-b](./todo-b.md)')
+    expect(result).toContain('[todo-c](./todo-c.md)')
+    expect(result).toContain('[todo-x](./todo-x.md)')
+    expect(result).toContain('[todo-y](./todo-y.md)')
+  })
+
+  it('should use H1 heading for title', () => {
+    const issue: TodoIssue = {
+      id: 'todo-mdxld-5',
+      title: 'Heading Test',
+      status: 'open',
+      priority: 2,
+      type: 'task',
+    }
+
+    const result = generateTodoFile(issue)
+
+    // Title should be H1 (# Title)
+    expect(result).toContain('# Heading Test')
+  })
+
+  it('should handle all TodoIssue fields including optional ones', () => {
+    const issue: TodoIssue = {
+      id: 'todo-mdxld-3',
+      title: 'Complete Issue',
+      description: 'Full issue with all fields',
+      status: 'closed',
+      priority: 3,
+      type: 'bug',
+      labels: ['critical', 'security'],
+      assignee: 'team-lead',
+      createdAt: '2024-01-01T00:00:00Z',
+      updatedAt: '2024-01-02T00:00:00Z',
+      closedAt: '2024-01-03T00:00:00Z',
+      parent: 'todo-epic-1',
+      source: 'beads',
+      dependsOn: ['todo-dep-1'],
+      blocks: ['todo-block-1'],
+      children: ['todo-child-1', 'todo-child-2'],
+    }
+
+    const result = generateTodoFile(issue)
+
+    // Verify all fields are in frontmatter
+    expect(result).toContain('id: todo-mdxld-3')
+    expect(result).toContain('title: "Complete Issue"')
+    expect(result).toContain('state: closed')
+    expect(result).toContain('priority: 3')
+    expect(result).toContain('type: bug')
+    expect(result).toContain('labels: ["critical", "security"]')
+    expect(result).toContain('assignee: "team-lead"')
+    expect(result).toContain('createdAt: "2024-01-01T00:00:00Z"')
+    expect(result).toContain('updatedAt: "2024-01-02T00:00:00Z"')
+    expect(result).toContain('closedAt: "2024-01-03T00:00:00Z"')
+    expect(result).toContain('parent: "todo-epic-1"')
+    expect(result).toContain('source: "beads"')
+    expect(result).toContain('dependsOn: ["todo-dep-1"]')
+    expect(result).toContain('blocks: ["todo-block-1"]')
+    expect(result).toContain('children: ["todo-child-1", "todo-child-2"]')
+
+    // Verify description is in body
+    expect(result).toContain('Full issue with all fields')
   })
 })
 

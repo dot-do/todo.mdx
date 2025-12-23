@@ -10,6 +10,8 @@ createdAt: "2025-12-20T20:05:02.127Z"
 updatedAt: "2025-12-20T20:14:43.590Z"
 closedAt: "2025-12-20T20:14:43.590Z"
 source: "beads"
+dependsOn: ["todo-3ny"]
+blocks: ["todo-lle"]
 ---
 
 # cli.mdx: Command component API design
@@ -19,13 +21,7 @@ Design the Command component API for defining CLI commands in MDX. Include: args
 ### Related Issues
 
 **Depends on:**
-- **todo-3ny**
+- [todo-3ny](./todo-3ny.md)
 
 **Blocks:**
-- **todo-lle**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-lle](./todo-lle.md)

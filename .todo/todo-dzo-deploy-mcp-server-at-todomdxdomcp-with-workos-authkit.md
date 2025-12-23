@@ -9,6 +9,7 @@ createdAt: "2025-12-20T17:41:38.961Z"
 updatedAt: "2025-12-20T18:11:59.231Z"
 closedAt: "2025-12-20T18:11:59.231Z"
 source: "beads"
+dependsOn: ["todo-nkz", "todo-q2h", "todo-1vj"]
 ---
 
 # Deploy MCP server at todo.mdx.do/mcp with WorkOS AuthKit
@@ -63,12 +64,6 @@ Deploy remote MCP server with OAuth 2.1 authentication using WorkOS AuthKit.
 ### Related Issues
 
 **Depends on:**
-- **todo-nkz**
-- **todo-q2h**
-- **todo-1vj**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-nkz](./todo-nkz.md)
+- [todo-q2h](./todo-q2h.md)
+- [todo-1vj](./todo-1vj.md)

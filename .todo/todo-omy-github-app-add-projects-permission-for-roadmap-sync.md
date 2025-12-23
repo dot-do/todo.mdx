@@ -14,9 +14,3 @@ source: "beads"
 # GitHub App: Add Projects permission for roadmap sync
 
 GitHub App needs Projects read/write permission to sync roadmap.mdx with GitHub Projects. Required for milestone/epic visualization.
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

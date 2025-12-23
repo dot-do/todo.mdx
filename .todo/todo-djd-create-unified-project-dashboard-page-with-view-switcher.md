@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:13:26.537Z"
 updatedAt: "2025-12-20T23:00:59.276Z"
 closedAt: "2025-12-20T23:00:59.276Z"
 source: "beads"
+dependsOn: ["todo-78w"]
 ---
 
 # Create unified project dashboard page with view switcher
@@ -42,10 +43,4 @@ Location: apps/todo.mdx.do/app/dashboard/projects/
 ### Related Issues
 
 **Depends on:**
-- **todo-78w**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-78w](./todo-78w.md)

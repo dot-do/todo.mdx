@@ -9,6 +9,7 @@ createdAt: "2025-12-20T19:47:40.346Z"
 updatedAt: "2025-12-23T10:08:49.119Z"
 closedAt: "2025-12-23T10:08:49.119Z"
 source: "beads"
+dependsOn: ["todo-wm0", "todo-0ot", "todo-nsd"]
 ---
 
 # Shared terminal sessions: user + Claude in same sandbox
@@ -229,12 +230,6 @@ interface ClaudeSessionInterface {
 ### Related Issues
 
 **Depends on:**
-- **todo-wm0**
-- **todo-0ot**
-- **todo-nsd**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/23/2025
-- **Closed:** 12/23/2025
+- [todo-wm0](./todo-wm0.md)
+- [todo-0ot](./todo-0ot.md)
+- [todo-nsd](./todo-nsd.md)

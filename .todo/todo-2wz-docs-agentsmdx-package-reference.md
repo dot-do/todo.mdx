@@ -14,9 +14,3 @@ source: "beads"
 # docs: agents.mdx package reference
 
 Full agents.mdx documentation. AGENTS.mdx → CLAUDE.md + .cursorrules. AI instruction generation, context rendering.
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025

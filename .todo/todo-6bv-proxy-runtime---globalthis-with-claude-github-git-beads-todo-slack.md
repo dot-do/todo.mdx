@@ -9,6 +9,7 @@ createdAt: "2025-12-20T16:02:38.223Z"
 updatedAt: "2025-12-20T16:33:51.290Z"
 closedAt: "2025-12-20T16:33:51.290Z"
 source: "beads"
+blocks: ["todo-c2z", "todo-xmf"]
 ---
 
 # Proxy runtime - globalThis with claude, github, git, beads, todo, slack
@@ -18,11 +19,5 @@ Create the Proxy-based runtime that wraps globalThis with API namespaces. Abstra
 ### Related Issues
 
 **Blocks:**
-- **todo-c2z**
-- **todo-xmf**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-c2z](./todo-c2z.md)
+- [todo-xmf](./todo-xmf.md)

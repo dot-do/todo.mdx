@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:09:19.857Z"
 updatedAt: "2025-12-20T23:10:24.672Z"
 closedAt: "2025-12-20T23:10:24.672Z"
 source: "beads"
+dependsOn: ["todo-kxl", "todo-dok"]
 ---
 
 # Implement file watcher for .todo/*.md bidirectional sync
@@ -30,11 +31,5 @@ Location: packages/todo.mdx/src/watcher.ts (new file)
 ### Related Issues
 
 **Depends on:**
-- **todo-kxl**
-- **todo-dok**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-kxl](./todo-kxl.md)
+- [todo-dok](./todo-dok.md)

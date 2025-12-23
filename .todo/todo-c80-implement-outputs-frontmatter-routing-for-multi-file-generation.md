@@ -9,6 +9,7 @@ createdAt: "2025-12-20T20:09:19.660Z"
 updatedAt: "2025-12-20T20:17:49.877Z"
 closedAt: "2025-12-20T20:17:49.877Z"
 source: "beads"
+dependsOn: ["todo-kxl"]
 ---
 
 # Implement outputs: frontmatter routing for multi-file generation
@@ -33,10 +34,4 @@ Location: packages/todo.mdx/src/compiler.ts, compile() function
 ### Related Issues
 
 **Depends on:**
-- **todo-kxl**
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
+- [todo-kxl](./todo-kxl.md)

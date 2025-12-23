@@ -11,9 +11,9 @@ describe('loadTodoFiles integration', () => {
     // Should load at least some issues
     expect(issues.length).toBeGreaterThan(0)
 
-    // All should have file source
+    // All should have a valid source (either 'beads' or 'file')
     for (const issue of issues) {
-      expect(issue.source).toBe('file')
+      expect(issue.source).toMatch(/^(beads|file)$/)
       expect(issue.id).toBeTruthy()
       expect(issue.title).toBeTruthy()
     }

@@ -14,9 +14,3 @@ source: "beads"
 # Implement roadmap.mdx compiler with epic support
 
 Compile ROADMAP.mdx to ROADMAP.md with beads epics and GitHub Milestones
-
-### Timeline
-
-- **Created:** 12/20/2025
-- **Updated:** 12/20/2025
-- **Closed:** 12/20/2025
