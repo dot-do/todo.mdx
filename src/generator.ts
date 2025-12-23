@@ -174,27 +174,6 @@ function generateBody(issue: TodoIssue): string {
     }
   }
 
-  // Timeline section
-  lines.push('### Timeline')
-  lines.push('')
-
-  if (issue.createdAt) {
-    const date = new Date(issue.createdAt)
-    lines.push(`- **Created:** ${date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}`)
-  }
-
-  if (issue.updatedAt) {
-    const date = new Date(issue.updatedAt)
-    lines.push(`- **Updated:** ${date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}`)
-  }
-
-  if (issue.closedAt) {
-    const date = new Date(issue.closedAt)
-    lines.push(`- **Closed:** ${date.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}`)
-  }
-
-  lines.push('')
-
   return lines.join('\n')
 }
 
