@@ -156,20 +156,20 @@ export function createGithubCli(options: GithubCliOptions): GithubCli {
         },
       },
       beadsOps: {
-        getIssue: async () => null,
-        createIssue: async (issue) => issue,
-        updateIssue: async (id, issue) => ({ ...issue, id }) as any,
+        getIssue: async (_id: string) => null,
+        createIssue: async (issue: any) => issue,
+        updateIssue: async (id: string, issue: any) => ({ ...issue, id }) as any,
         listIssues: async () => [],
       },
       mappingOps: {
-        getMapping: async () => null,
-        getMappingByGitHub: async () => null,
-        createMapping: async (mapping) => ({
+        getMapping: async (_beadsId: string) => null,
+        getMappingByGitHub: async (_number: number) => null,
+        createMapping: async (mapping: any) => ({
           $type: 'IssueMapping',
           $id: 'mock-mapping',
           ...mapping,
         }),
-        updateMapping: async (id, data) => ({
+        updateMapping: async (id: string, data: any) => ({
           $type: 'IssueMapping',
           $id: id,
           ...data,

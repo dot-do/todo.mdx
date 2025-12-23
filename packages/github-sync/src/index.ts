@@ -57,3 +57,9 @@ export {
   type SyncConflict,
   type ConflictStrategy,
 } from './sync-orchestrator'
+
+export {
+  createGithubCli,
+  type GithubCli,
+  type GithubCliOptions,
+} from './cli'
