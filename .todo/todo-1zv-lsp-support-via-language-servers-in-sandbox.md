@@ -1,10 +1,14 @@
 ---
 id: todo-1zv
 title: "LSP support via language servers in sandbox"
-state: open
+state: closed
 priority: 3
 type: feature
-labels: [intellisense, lsp, monaco]
+labels: ["intellisense", "lsp", "monaco"]
+createdAt: "2025-12-20T19:52:43.434Z"
+updatedAt: "2025-12-23T10:08:49.123Z"
+closedAt: "2025-12-23T10:08:49.123Z"
+source: "beads"
 ---
 
 # LSP support via language servers in sandbox
@@ -176,7 +180,13 @@ async function startLanguageServers(sandbox: Sandbox, languages: string[]) {
 - Cache LSP state in DO for reconnection
 - Consider sharing LSP across sessions for same repo
 
+### Related Issues
+
+**Depends on:**
+- **todo-2ob**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025

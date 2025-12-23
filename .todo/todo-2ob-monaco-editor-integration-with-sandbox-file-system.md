@@ -4,7 +4,11 @@ title: "Monaco editor integration with sandbox file system"
 state: closed
 priority: 2
 type: feature
-labels: [editor, monaco, sandbox]
+labels: ["editor", "monaco", "sandbox"]
+createdAt: "2025-12-20T19:52:42.855Z"
+updatedAt: "2025-12-20T20:09:29.948Z"
+closedAt: "2025-12-20T20:09:29.948Z"
+source: "beads"
 ---
 
 # Monaco editor integration with sandbox file system
@@ -229,11 +233,15 @@ function detectLanguage(path: string): string {
 
 ### Related Issues
 
+**Depends on:**
+- **todo-42f**
+
 **Blocks:**
-- **todo-01p**: Web IDE layout: file tree + Monaco + terminal
-- **todo-1zv**: LSP support via language servers in sandbox
+- **todo-01p**
+- **todo-1zv**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

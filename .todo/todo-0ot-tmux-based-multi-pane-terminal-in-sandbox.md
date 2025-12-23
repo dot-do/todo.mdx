@@ -1,10 +1,14 @@
 ---
 id: todo-0ot
 title: "tmux-based multi-pane terminal in sandbox"
-state: open
+state: closed
 priority: 2
 type: feature
-labels: [sandbox, terminal, tmux]
+labels: ["sandbox", "terminal", "tmux"]
+createdAt: "2025-12-20T19:47:40.470Z"
+updatedAt: "2025-12-23T10:08:49.118Z"
+closedAt: "2025-12-23T10:08:49.118Z"
+source: "beads"
 ---
 
 # tmux-based multi-pane terminal in sandbox
@@ -174,10 +178,14 @@ function TmuxTerminal({ sessionId }) {
 
 ### Related Issues
 
+**Depends on:**
+- **todo-42f**
+
 **Blocks:**
-- **todo-1u3**: Shared terminal sessions: user + Claude in same sandbox
+- **todo-1u3**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025

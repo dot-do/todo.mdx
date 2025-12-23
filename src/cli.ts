@@ -36,7 +36,7 @@ OPTIONS:
 
 EXAMPLES:
   todo.mdx build
-  todo.mdx build --output ./docs/TODO.md
+  todo.mdx build --output ./README.md
   todo.mdx sync
   todo.mdx sync --dry-run
   todo.mdx sync --direction beads-to-files
@@ -90,7 +90,7 @@ async function buildCommand(args: { values: Record<string, unknown> }): Promise<
   const validatedPath = validateOutputPath(outputPath)
 
   try {
-    log('→', 'Compiling TODO.md...')
+    log('→', `Compiling ${outputPath}...`)
     const result = await compile()
 
     await fs.writeFile(validatedPath, result.output, 'utf-8')
@@ -216,7 +216,7 @@ async function initCommand(): Promise<void> {
     log('✓', `Created ${todoDir}/ directory`)
 
     // Create TODO.mdx template if it doesn't exist
-    const todoMdxPath = 'TODO.mdx'
+    const todoMdxPath = '.beads/TODO.mdx'
     try {
       await fs.access(todoMdxPath)
       log('→', `${todoMdxPath} already exists, skipping`)
@@ -231,7 +231,7 @@ Run \`todo.mdx build\` to regenerate this file.
       log('✓', `Created ${todoMdxPath}`)
     }
 
-    // Create .gitignore entry for TODO.md if not exists
+    // Create .gitignore entry for .beads/TODO.md if not exists
     try {
       const gitignorePath = '.gitignore'
       let gitignore = ''

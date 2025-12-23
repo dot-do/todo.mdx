@@ -20,7 +20,7 @@ todo.mdx init
 
 This creates:
 - `.todo/` directory for markdown issue files
-- `TODO.mdx` template (if it doesn't exist)
+- `.beads/TODO.mdx` template (if it doesn't exist)
 - Adds `TODO.md` to `.gitignore`
 
 ### 2. Create issues with beads
@@ -61,12 +61,12 @@ After setup, your project will look like:
 ```
 your-project/
 ├── .beads/
-│   └── issues.jsonl      # Beads issue database
+│   ├── issues.jsonl      # Beads issue database
+│   └── TODO.mdx          # Template (optional)
 ├── .todo/
 │   ├── todo-abc-add-user-auth.md
 │   └── todo-def-fix-login-bug.md
-├── TODO.md               # Compiled summary
-└── TODO.mdx              # Template (optional)
+└── TODO.md               # Compiled summary
 ```
 
 ## Next Steps

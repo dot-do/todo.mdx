@@ -4,7 +4,11 @@ title: "Integrate vector search into REST API endpoints"
 state: closed
 priority: 2
 type: feature
-labels: [api, search, vectorize]
+labels: ["api", "search", "vectorize"]
+createdAt: "2025-12-20T18:52:16.322Z"
+updatedAt: "2025-12-20T19:06:54.266Z"
+closedAt: "2025-12-20T19:06:54.266Z"
+source: "beads"
 ---
 
 # Integrate vector search into REST API endpoints
@@ -76,7 +80,13 @@ app.get('/similar/:id', async (c) => {
 - Public search: rate-limited, no auth
 - Authenticated search: uses user's repo access to filter results
 
+### Related Issues
+
+**Depends on:**
+- **todo-4j2**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

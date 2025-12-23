@@ -4,7 +4,11 @@ title: "Trigger embedding workflow from GitHub webhooks"
 state: closed
 priority: 2
 type: task
-labels: [vectorize, webhooks, workflows]
+labels: ["vectorize", "webhooks", "workflows"]
+createdAt: "2025-12-20T18:52:16.418Z"
+updatedAt: "2025-12-20T19:04:41.736Z"
+closedAt: "2025-12-20T19:04:41.736Z"
+source: "beads"
 ---
 
 # Trigger embedding workflow from GitHub webhooks
@@ -57,7 +61,13 @@ if (action === 'deleted') {
 ## Idempotency
 Workflow handles retries automatically. Vector upsert is idempotent (same ID overwrites).
 
+### Related Issues
+
+**Depends on:**
+- **todo-kdl**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

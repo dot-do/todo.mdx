@@ -351,24 +351,131 @@ describe('CLI - Path Validation (Security)', () => {
 })
 
 describe('CLI - Integration Tests', () => {
-  // These tests would require building the CLI first
-  // They are skipped by default and can be run after build
-  it.skip('should show version', async () => {
+  // These tests require building the CLI first
+  // Run 'pnpm build' before running these tests
+  it('should show version', async () => {
     const result = await execCli(['--version'])
     expect(result.stdout).toContain('0.1.0')
     expect(result.exitCode).toBe(0)
   })
 
-  it.skip('should show help', async () => {
+  it('should show help', async () => {
     const result = await execCli(['--help'])
     expect(result.stdout).toContain('USAGE:')
     expect(result.stdout).toContain('COMMANDS:')
     expect(result.exitCode).toBe(0)
   })
 
-  it.skip('should handle unknown command', async () => {
+  it('should handle unknown command', async () => {
     const result = await execCli(['unknown'])
     expect(result.stderr).toContain('Unknown command')
     expect(result.exitCode).toBe(1)
+  })
+
+  it('should show help when no command provided', async () => {
+    const result = await execCli([])
+    expect(result.stdout).toContain('USAGE:')
+    expect(result.stdout).toContain('COMMANDS:')
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('should handle build command', async () => {
+    const result = await execCli(['build'])
+    expect(result.stdout).toContain('Compiling TODO.md')
+    expect(result.stdout).toContain('Compiled')
+    expect(result.stdout).toContain('issues')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle build command with output flag', async () => {
+    const result = await execCli(['build', '--output', 'test-output.md'])
+    expect(result.stdout).toContain('Compiling test-output.md')
+    expect(result.stdout).toContain('Compiled')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should show issue counts in build output', async () => {
+    const result = await execCli(['build'])
+    expect(result.stdout).toContain('In Progress:')
+    expect(result.stdout).toContain('Open:')
+    expect(result.stdout).toContain('Closed:')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should reject path traversal in build output', async () => {
+    const result = await execCli(['build', '--output', '../../etc/passwd'])
+    expect(result.stderr).toContain('Output path must be within the project directory')
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('should handle sync command', async () => {
+    const result = await execCli(['sync'])
+    expect(result.stdout).toContain('Syncing')
+    expect(result.stdout).toContain('bidirectional')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle sync command with dry-run flag', async () => {
+    const result = await execCli(['sync', '--dry-run'])
+    expect(result.stdout).toContain('dry-run')
+    expect(result.stdout).toContain('Syncing')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle sync command with direction flag', async () => {
+    const result = await execCli(['sync', '--direction', 'beads-to-files'])
+    expect(result.stdout).toContain('beads-to-files')
+    expect(result.stdout).toContain('Syncing')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle sync with files-to-beads direction', async () => {
+    const result = await execCli(['sync', '--direction', 'files-to-beads'])
+    expect(result.stdout).toContain('files-to-beads')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle sync with multiple flags', async () => {
+    const result = await execCli(['sync', '--dry-run', '--direction', 'beads-to-files'])
+    expect(result.stdout).toContain('dry-run')
+    expect(result.stdout).toContain('beads-to-files')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should reject invalid sync direction', async () => {
+    const result = await execCli(['sync', '--direction', 'invalid-direction'])
+    expect(result.stderr).toContain('Invalid direction')
+    expect(result.exitCode).toBe(1)
+  })
+
+  it('should handle init command', async () => {
+    const result = await execCli(['init'])
+    expect(result.stdout).toContain('Initializing todo.mdx')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle help command', async () => {
+    const result = await execCli(['help'])
+    expect(result.stdout).toContain('USAGE:')
+    expect(result.stdout).toContain('COMMANDS:')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle version command', async () => {
+    const result = await execCli(['version'])
+    expect(result.stdout).toContain('0.1.0')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle -h flag', async () => {
+    const result = await execCli(['-h'])
+    expect(result.stdout).toContain('USAGE:')
+    expect(result.exitCode).toBe(0)
+  })
+
+  it('should handle -v flag', async () => {
+    const result = await execCli(['-v'])
+    expect(result.stdout).toContain('0.1.0')
+    expect(result.exitCode).toBe(0)
   })
 })

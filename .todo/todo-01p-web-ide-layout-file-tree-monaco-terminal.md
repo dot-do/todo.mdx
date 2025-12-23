@@ -4,7 +4,11 @@ title: "Web IDE layout: file tree + Monaco + terminal"
 state: closed
 priority: 2
 type: feature
-labels: [ide, layout, ui]
+labels: ["ide", "layout", "ui"]
+createdAt: "2025-12-20T19:52:43.234Z"
+updatedAt: "2025-12-20T20:26:29.046Z"
+closedAt: "2025-12-20T20:26:29.046Z"
+source: "beads"
 ---
 
 # Web IDE layout: file tree + Monaco + terminal
@@ -246,10 +250,16 @@ useEffect(() => {
 
 ### Related Issues
 
+**Depends on:**
+- **todo-5zv**
+- **todo-2ob**
+- **todo-439**
+
 **Blocks:**
-- **todo-rpf**: E2E: Playwright tests for Web IDE (terminal, file tree, editor)
+- **todo-rpf**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

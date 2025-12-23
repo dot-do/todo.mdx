@@ -4,7 +4,11 @@ title: "Sandbox SDK integration for Claude Code execution"
 state: closed
 priority: 1
 type: feature
-labels: [claude-code, sandbox, terminal]
+labels: ["claude-code", "sandbox", "terminal"]
+createdAt: "2025-12-20T19:42:43.413Z"
+updatedAt: "2025-12-20T19:58:08.624Z"
+closedAt: "2025-12-20T19:58:08.624Z"
+source: "beads"
 ---
 
 # Sandbox SDK integration for Claude Code execution
@@ -96,12 +100,14 @@ export async function startClaudeSession(
 ### Related Issues
 
 **Blocks:**
-- **todo-0ot**: tmux-based multi-pane terminal in sandbox
-- **todo-2ob**: Monaco editor integration with sandbox file system
-- **todo-439**: File tree browser component for sandbox navigation
-- **todo-wm0**: WebSocket endpoint for terminal session management
+- **todo-0ot**
+- **todo-2ob**
+- **todo-439**
+- **todo-nsd**
+- **todo-wm0**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

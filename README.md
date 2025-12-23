@@ -22,7 +22,7 @@ pnpm add todo.mdx
 # Initialize todo.mdx in your project
 todo.mdx init
 
-# Compile issues to TODO.md
+# Compile issues to .beads/TODO.md
 todo.mdx build
 
 # Bi-directional sync beads <-> .todo/*.md
@@ -71,7 +71,7 @@ Edit the markdown file directly - changes sync back to beads.
 
 ### 3. Compiled Output
 
-`todo.mdx build` compiles all issues into `TODO.md`:
+`todo.mdx build` compiles all issues into `.beads/TODO.md`:
 
 ```markdown
 # TODO
@@ -99,7 +99,7 @@ Edit the markdown file directly - changes sync back to beads.
 
 ```bash
 todo.mdx build                        # Compile to TODO.md
-todo.mdx build --output docs/TODO.md  # Custom output path
+todo.mdx build --output README.md     # Custom output path
 
 todo.mdx sync                         # Bi-directional sync
 todo.mdx sync --dry-run               # Preview changes

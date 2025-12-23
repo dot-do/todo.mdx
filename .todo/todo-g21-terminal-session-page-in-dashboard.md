@@ -4,7 +4,11 @@ title: "Terminal session page in dashboard"
 state: closed
 priority: 2
 type: feature
-labels: [dashboard, terminal, ui]
+labels: ["dashboard", "terminal", "ui"]
+createdAt: "2025-12-20T19:42:43.529Z"
+updatedAt: "2025-12-20T20:09:29.900Z"
+closedAt: "2025-12-20T20:09:29.900Z"
+source: "beads"
 ---
 
 # Terminal session page in dashboard
@@ -92,7 +96,14 @@ export default function TerminalSession({ params }) {
 - Reconnect on disconnect
 - Session timeout warning
 
+### Related Issues
+
+**Depends on:**
+- **todo-5zv**
+- **todo-wm0**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

@@ -4,7 +4,11 @@ title: "WebSocket endpoint for terminal session management"
 state: closed
 priority: 1
 type: feature
-labels: [terminal, websocket, worker]
+labels: ["terminal", "websocket", "worker"]
+createdAt: "2025-12-20T19:42:43.301Z"
+updatedAt: "2025-12-20T20:02:11.858Z"
+closedAt: "2025-12-20T20:02:11.858Z"
+source: "beads"
 ---
 
 # WebSocket endpoint for terminal session management
@@ -136,12 +140,17 @@ export { terminal }
 
 ### Related Issues
 
+**Depends on:**
+- **todo-42f**
+
 **Blocks:**
-- **todo-1u3**: Shared terminal sessions: user + Claude in same sandbox
-- **todo-g21**: Terminal session page in dashboard
-- **todo-wko**: Terminal session persistence with Durable Objects
+- **todo-1u3**
+- **todo-g21**
+- **todo-nsd**
+- **todo-wko**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

@@ -4,7 +4,12 @@ title: "GitHub Actions: Build & typecheck on PR"
 state: closed
 priority: 1
 type: task
-labels: [ci-cd, github-actions]
+labels: ["ci-cd", "github-actions"]
+assignee: "agent-1"
+createdAt: "2025-12-20T20:04:02.679Z"
+updatedAt: "2025-12-20T20:14:43.546Z"
+closedAt: "2025-12-20T20:14:43.546Z"
+source: "beads"
 ---
 
 # GitHub Actions: Build & typecheck on PR
@@ -13,10 +18,14 @@ Create .github/workflows/ci.yml for build, typecheck, and test on every PR. Use 
 
 ### Related Issues
 
+**Depends on:**
+- **todo-w5g**
+
 **Blocks:**
-- **todo-gv3**: GitHub Actions: npm publish on release tag
+- **todo-gv3**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

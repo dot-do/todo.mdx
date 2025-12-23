@@ -1,10 +1,14 @@
 ---
 id: todo-wko
 title: "Terminal session persistence with Durable Objects"
-state: open
+state: closed
 priority: 2
 type: feature
-labels: [durable-objects, persistence, terminal]
+labels: ["durable-objects", "persistence", "terminal"]
+createdAt: "2025-12-20T19:42:43.645Z"
+updatedAt: "2025-12-23T10:08:49.119Z"
+closedAt: "2025-12-23T10:08:49.119Z"
+source: "beads"
 ---
 
 # Terminal session persistence with Durable Objects
@@ -134,7 +138,14 @@ export class TerminalSessionDO extends DurableObject<Env> {
 - Session history stored in D1 after completion
 - Graceful sandbox cleanup on DO hibernation
 
+### Related Issues
+
+**Depends on:**
+- **todo-wm0**
+- **todo-nsd**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025

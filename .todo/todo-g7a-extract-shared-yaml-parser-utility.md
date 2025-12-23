@@ -1,10 +1,14 @@
 ---
 id: todo-g7a
 title: "Extract shared YAML parser utility"
-state: open
+state: closed
 priority: 1
 type: task
-labels: [code-quality, packages]
+labels: ["code-quality", "packages"]
+createdAt: "2025-12-20T20:02:54.655Z"
+updatedAt: "2025-12-21T21:50:40.894Z"
+closedAt: "2025-12-21T21:50:40.894Z"
+source: "beads"
 ---
 
 # Extract shared YAML parser utility
@@ -14,4 +18,5 @@ Same YAML parser implementation exists in 4+ files with slight variations: packa
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/21/2025
+- **Closed:** 12/21/2025

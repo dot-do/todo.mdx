@@ -1,10 +1,14 @@
 ---
 id: todo-9sv
 title: "Migrate MCP `do` tool to use sandboxed worker loader"
-state: in_progress
+state: closed
 priority: 1
 type: task
-labels: [mcp, sandbox, security]
+labels: ["mcp", "sandbox", "security"]
+createdAt: "2025-12-20T18:35:09.035Z"
+updatedAt: "2025-12-20T23:31:28.749Z"
+closedAt: "2025-12-20T23:31:28.749Z"
+source: "beads"
 ---
 
 # Migrate MCP `do` tool to use sandboxed worker loader
@@ -31,9 +35,10 @@ Use `executeSandboxedWorkflow()` from `worker/src/sandbox/loader.ts` which provi
 ### Related Issues
 
 **Blocks:**
-- **todo-i28**: Add sandbox capability grants for MCP `do` tool context
+- **todo-i28**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

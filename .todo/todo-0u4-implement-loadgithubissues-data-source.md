@@ -1,10 +1,14 @@
 ---
 id: todo-0u4
 title: "Implement loadGitHubIssues() data source"
-state: open
+state: closed
 priority: 2
 type: feature
-labels: [github, todo.mdx]
+labels: ["github", "todo.mdx"]
+createdAt: "2025-12-20T20:09:19.957Z"
+updatedAt: "2025-12-20T23:10:25.271Z"
+closedAt: "2025-12-20T23:10:25.271Z"
+source: "beads"
 ---
 
 # Implement loadGitHubIssues() data source
@@ -22,7 +26,13 @@ This allows rendering GitHub issues as .todo/*.mdx without beads.
 
 Location: packages/todo.mdx/src/compiler.ts, add loadGitHubIssues()
 
+### Related Issues
+
+**Depends on:**
+- **todo-kxl**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

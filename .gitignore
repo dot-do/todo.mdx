@@ -61,3 +61,6 @@ tests/scripts/
 apps/todo.mdx.do/TEST_RESULTS.md
 apps/todo.mdx.do/MIDDLEWARE_SECURITY.md
 apps/todo.mdx.do/*.sh
+
+# todo.mdx generated file
+TODO.md

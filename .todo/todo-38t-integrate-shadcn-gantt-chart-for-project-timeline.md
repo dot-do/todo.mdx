@@ -1,10 +1,14 @@
 ---
 id: todo-38t
 title: "Integrate shadcn Gantt chart for project timeline"
-state: open
+state: closed
 priority: 1
 type: feature
-labels: [dashboard, gantt, shadcn]
+labels: ["dashboard", "gantt", "shadcn"]
+createdAt: "2025-12-20T20:13:26.363Z"
+updatedAt: "2025-12-20T20:25:52.222Z"
+closedAt: "2025-12-20T20:25:52.222Z"
+source: "beads"
 ---
 
 # Integrate shadcn Gantt chart for project timeline
@@ -31,7 +35,13 @@ Add Gantt chart visualization to dashboard for project timeline view.
 - Kibo UI Gantt: https://www.kibo-ui.com/components/gantt
 - recharts-gantt-chart: https://github.com/rudrodip/recharts-gantt-chart
 
+### Related Issues
+
+**Depends on:**
+- **todo-78w**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

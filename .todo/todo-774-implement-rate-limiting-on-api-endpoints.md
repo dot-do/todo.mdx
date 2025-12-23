@@ -1,10 +1,14 @@
 ---
 id: todo-774
 title: "Implement rate limiting on API endpoints"
-state: open
+state: closed
 priority: 1
 type: feature
-labels: [security, worker]
+labels: ["security", "worker"]
+createdAt: "2025-12-20T20:02:55.138Z"
+updatedAt: "2025-12-21T20:51:29.709Z"
+closedAt: "2025-12-21T20:51:29.709Z"
+source: "beads"
 ---
 
 # Implement rate limiting on API endpoints
@@ -14,4 +18,5 @@ No rate limiting configured on any API routes or Payload endpoints. API vulnerab
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/21/2025
+- **Closed:** 12/21/2025

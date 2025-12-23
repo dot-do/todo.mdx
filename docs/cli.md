@@ -6,11 +6,11 @@ todo.mdx provides a command-line interface for common operations.
 
 ### `todo.mdx build`
 
-Compile issues to TODO.md.
+Compile issues to `TODO.md`.
 
 ```bash
 todo.mdx build
-todo.mdx build --output docs/TODO.md
+todo.mdx build --output README.md
 ```
 
 **Options:**
@@ -21,7 +21,7 @@ todo.mdx build --output docs/TODO.md
 **Output:**
 - Loads issues from beads and `.todo/*.md`
 - Merges and deduplicates
-- Writes formatted TODO.md
+- Writes formatted TODO.md to project root
 
 ### `todo.mdx sync`
 
@@ -74,8 +74,8 @@ todo.mdx init
 
 Creates:
 - `.todo/` directory
-- `TODO.mdx` template
-- Adds `TODO.md` to `.gitignore`
+- `.beads/TODO.mdx` template
+- Adds `.beads/TODO.md` to `.gitignore`
 
 ### `todo.mdx --help`
 
@@ -111,7 +111,7 @@ todo.mdx sync
 # Work on issues...
 bd update todo-abc --status=in_progress
 
-# End of day - rebuild TODO.md
+# End of day - rebuild TODO
 todo.mdx build
 git add TODO.md .todo/
 git commit -m "Update TODO"

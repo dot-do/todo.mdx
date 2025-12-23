@@ -1,10 +1,14 @@
 ---
 id: todo-irl
 title: "Developer Experience & Onboarding"
-state: open
+state: closed
 priority: 1
 type: epic
-labels: [cli, dx, onboarding]
+labels: ["cli", "dx", "onboarding"]
+createdAt: "2025-12-20T20:03:34.838Z"
+updatedAt: "2025-12-23T10:08:49.105Z"
+closedAt: "2025-12-23T10:08:49.105Z"
+source: "beads"
 ---
 
 # Developer Experience & Onboarding
@@ -14,12 +18,13 @@ First-run experience, CLI ergonomics, error messages, and local development work
 ### Related Issues
 
 **Blocks:**
-- **todo-7jg**: CLI: Helpful error messages with fix suggestions
-- **todo-amc**: CLI: `npx todo.mdx init` command
-- **todo-vwq**: CLI: Watch mode with hot reload
-- **todo-wrs**: CLI: Status command showing sync health
+- **todo-7jg**
+- **todo-amc**
+- **todo-vwq**
+- **todo-wrs**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025

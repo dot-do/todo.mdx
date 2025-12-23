@@ -23,7 +23,7 @@ pnpm test               # Run tests
 pnpm typecheck          # Type check
 
 # CLI (after build)
-todo.mdx build          # Compile TODO.mdx → TODO.md
+todo.mdx build          # Compile → TODO.md
 todo.mdx sync           # Bi-directional sync beads ↔ .todo/*.md
 todo.mdx watch          # Watch mode for live sync
 todo.mdx init           # Initialize TODO.mdx in project
@@ -66,7 +66,7 @@ bd sync                 # Sync with git remote
 
 1. **beads → .todo/*.md**: Issues from `.beads/issues.jsonl` are rendered as individual markdown files
 2. **.todo/*.md → beads**: Edits to markdown files are synced back to beads via `bd update`
-3. **TODO.mdx → TODO.md**: Template is hydrated with issue data to generate summary view
+3. **.beads/TODO.mdx → TODO.md**: Template is hydrated with issue data to generate summary view
 
 ## Project Structure
 
@@ -84,7 +84,7 @@ todo.mdx/
 │   └── cli.ts          # CLI commands
 ├── .beads/             # Issue tracking database
 ├── .todo/              # Generated issue markdown files
-├── TODO.mdx            # Template for TODO.md
+├── .beads/TODO.mdx     # Template for TODO.md
 ├── TODO.md             # Compiled output
 ├── package.json
 ├── tsconfig.json

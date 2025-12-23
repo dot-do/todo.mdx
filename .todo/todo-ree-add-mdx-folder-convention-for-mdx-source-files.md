@@ -5,6 +5,10 @@ state: closed
 priority: 1
 type: feature
 labels: []
+createdAt: "2025-12-20T17:50:23.760Z"
+updatedAt: "2025-12-20T17:51:45.865Z"
+closedAt: "2025-12-20T17:51:45.865Z"
+source: "beads"
 ---
 
 # Add .mdx/ folder convention for MDX source files
@@ -40,4 +44,5 @@ Packages to update:
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

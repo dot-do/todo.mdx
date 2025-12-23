@@ -1,10 +1,14 @@
 ---
 id: todo-mf4
 title: "Integrate shadcn-kanban-board for issue management"
-state: open
+state: closed
 priority: 1
 type: feature
-labels: [dashboard, kanban, shadcn]
+labels: ["dashboard", "kanban", "shadcn"]
+createdAt: "2025-12-20T20:13:26.271Z"
+updatedAt: "2025-12-20T20:25:52.183Z"
+closedAt: "2025-12-20T20:25:52.183Z"
+source: "beads"
 ---
 
 # Integrate shadcn-kanban-board for issue management
@@ -29,7 +33,13 @@ Add Kanban board visualization to dashboard for managing issues.
 **Alternative:** react-dnd-kit-tailwind-shadcn-ui if more customization needed
 - GitHub: https://github.com/Georgegriff/react-dnd-kit-tailwind-shadcn-ui
 
+### Related Issues
+
+**Depends on:**
+- **todo-78w**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

@@ -1,10 +1,14 @@
 ---
 id: todo-gbt
 title: "Implement GitHub webhook signature verification"
-state: open
+state: closed
 priority: 0
 type: bug
-labels: [critical, security, worker]
+labels: ["critical", "security", "worker"]
+createdAt: "2025-12-20T20:02:19.664Z"
+updatedAt: "2025-12-20T23:07:12.986Z"
+closedAt: "2025-12-20T23:07:12.986Z"
+source: "beads"
 ---
 
 # Implement GitHub webhook signature verification
@@ -14,4 +18,5 @@ Missing HMAC-SHA256 verification for GitHub webhooks in src/index.ts:208. Anyone
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

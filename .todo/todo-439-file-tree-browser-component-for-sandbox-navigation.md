@@ -4,7 +4,11 @@ title: "File tree browser component for sandbox navigation"
 state: closed
 priority: 2
 type: feature
-labels: [file-tree, sandbox, ui]
+labels: ["file-tree", "sandbox", "ui"]
+createdAt: "2025-12-20T19:52:43.044Z"
+updatedAt: "2025-12-20T20:08:49.531Z"
+closedAt: "2025-12-20T20:08:49.531Z"
+source: "beads"
 ---
 
 # File tree browser component for sandbox navigation
@@ -212,10 +216,14 @@ ws.onmessage = (e) => {
 
 ### Related Issues
 
+**Depends on:**
+- **todo-42f**
+
 **Blocks:**
-- **todo-01p**: Web IDE layout: file tree + Monaco + terminal
+- **todo-01p**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

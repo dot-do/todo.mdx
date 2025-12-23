@@ -1,10 +1,14 @@
 ---
 id: todo-ui7
 title: "Add authentication to admin API endpoints"
-state: open
+state: closed
 priority: 0
 type: bug
-labels: [critical, security, worker]
+labels: ["critical", "security", "worker"]
+createdAt: "2025-12-20T20:02:19.819Z"
+updatedAt: "2025-12-20T23:07:13.208Z"
+closedAt: "2025-12-20T23:07:13.208Z"
+source: "beads"
 ---
 
 # Add authentication to admin API endpoints
@@ -14,4 +18,5 @@ Unauthenticated admin endpoints at src/index.ts:576-594 expose GitHub installati
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

@@ -1,10 +1,14 @@
 ---
 id: todo-9px
 title: "Disable GraphQL playground in production"
-state: open
+state: closed
 priority: 2
 type: bug
-labels: [apps, security]
+labels: ["apps", "security"]
+createdAt: "2025-12-20T20:03:28.459Z"
+updatedAt: "2025-12-23T10:08:49.116Z"
+closedAt: "2025-12-23T10:08:49.116Z"
+source: "beads"
 ---
 
 # Disable GraphQL playground in production
@@ -14,4 +18,5 @@ GraphQL Playground accessible without environment checks at apps/admin/src/app/(
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025

@@ -1,10 +1,14 @@
 ---
 id: todo-3la
 title: "Add logging for access control failures"
-state: open
+state: closed
 priority: 2
 type: task
-labels: [apps, security]
+labels: ["apps", "security"]
+createdAt: "2025-12-20T20:03:28.657Z"
+updatedAt: "2025-12-23T10:08:49.114Z"
+closedAt: "2025-12-23T10:08:49.114Z"
+source: "beads"
 ---
 
 # Add logging for access control failures
@@ -14,4 +18,5 @@ Failed access attempts return false silently across all collections with access 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025

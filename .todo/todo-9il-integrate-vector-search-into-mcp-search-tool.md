@@ -4,7 +4,11 @@ title: "Integrate vector search into MCP `search` tool"
 state: closed
 priority: 2
 type: feature
-labels: [mcp, search, vectorize]
+labels: ["mcp", "search", "vectorize"]
+createdAt: "2025-12-20T18:52:16.232Z"
+updatedAt: "2025-12-20T19:05:35.383Z"
+closedAt: "2025-12-20T19:05:35.383Z"
+source: "beads"
 ---
 
 # Integrate vector search into MCP `search` tool
@@ -70,7 +74,13 @@ this.server.tool(
 - Consider hybrid: vector search + keyword boost
 - Add relevance score to results
 
+### Related Issues
+
+**Depends on:**
+- **todo-4j2**
+
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/20/2025
+- **Closed:** 12/20/2025

@@ -1,10 +1,14 @@
 ---
 id: todo-075
 title: "Documentation & Developer Guides"
-state: open
+state: closed
 priority: 1
 type: epic
-labels: [docs, dx]
+labels: ["docs", "dx"]
+createdAt: "2025-12-20T20:03:34.792Z"
+updatedAt: "2025-12-23T10:08:49.106Z"
+closedAt: "2025-12-23T10:08:49.106Z"
+source: "beads"
 ---
 
 # Documentation & Developer Guides
@@ -14,15 +18,16 @@ Comprehensive documentation for all packages, API references, and getting-starte
 ### Related Issues
 
 **Blocks:**
-- **todo-1jj**: docs: GitHub App setup guide
-- **todo-2hz**: docs: Getting Started guide
-- **todo-2n7**: docs: Deployment guide
-- **todo-4qe**: docs: API reference
-- **todo-6us**: docs: MCP server integration guide
-- **todo-fdw**: docs: Architecture deep-dive
-- **todo-jvx**: docs: Package README completeness audit
+- **todo-1jj**
+- **todo-2hz**
+- **todo-2n7**
+- **todo-4qe**
+- **todo-6us**
+- **todo-fdw**
+- **todo-jvx**
 
 ### Timeline
 
 - **Created:** 12/20/2025
-
+- **Updated:** 12/23/2025
+- **Closed:** 12/23/2025
