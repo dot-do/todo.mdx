@@ -37,3 +37,14 @@ export {
   parseIssueBody,
   type ParsedConventions,
 } from './parser'
+
+export {
+  convertBeadsToGitHub,
+  type BeadsIssue,
+  type ConvertToGitHubOptions,
+} from './beads-to-github'
+
+export {
+  convertGitHubToBeads,
+  type ConvertOptions,
+} from './github-to-beads'
