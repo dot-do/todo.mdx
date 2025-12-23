@@ -1,4 +1,4 @@
-# TODO.mdx
+# todo.mdx
 
 **Bi-directional sync between beads issue tracker and markdown files.**
 
@@ -19,7 +19,7 @@ pnpm add todo.mdx
 ## Quick Start
 
 ```bash
-# Initialize TODO.mdx in your project
+# Initialize todo.mdx in your project
 todo.mdx init
 
 # Compile issues to TODO.md
@@ -51,7 +51,7 @@ Each issue becomes a `.todo/{id}-{slug}.md` file:
 ---
 id: todo-abc
 title: Add user authentication
-status: open
+state: open
 type: feature
 priority: 1
 ---
@@ -98,18 +98,18 @@ Edit the markdown file directly - changes sync back to beads.
 ## CLI Commands
 
 ```bash
-todo.mdx build                    # Compile to TODO.md
+todo.mdx build                        # Compile to TODO.md
 todo.mdx build --output docs/TODO.md  # Custom output path
 
-todo.mdx sync                     # Bi-directional sync
-todo.mdx sync --dry-run           # Preview changes
+todo.mdx sync                         # Bi-directional sync
+todo.mdx sync --dry-run               # Preview changes
 todo.mdx sync --direction beads-to-files  # One-way sync
 
-todo.mdx watch                    # Watch mode for live sync
+todo.mdx watch                        # Watch mode for live sync
 
-todo.mdx init                     # Initialize in project
-todo.mdx --help                   # Show help
-todo.mdx --version                # Show version
+todo.mdx init                         # Initialize in project
+todo.mdx --help                       # Show help
+todo.mdx --version                    # Show version
 ```
 
 ## Programmatic API
@@ -173,7 +173,7 @@ interface TodoConfig {
 ---
 id: todo-abc
 title: Issue title
-status: open | in_progress | closed
+state: open | in_progress | closed
 type: task | bug | feature | epic
 priority: 0-4 (0=critical, 4=backlog)
 assignee: username
@@ -184,6 +184,13 @@ blocks: [todo-def]
 
 Markdown description content...
 ```
+
+## Documentation
+
+- [Getting Started](./docs/getting-started.md)
+- [CLI Reference](./docs/cli.md)
+- [API Reference](./docs/api.md)
+- [Configuration](./docs/configuration.md)
 
 ## Architecture
 
@@ -215,6 +222,22 @@ Markdown description content...
 - **beads-workflows** - Read/write issues from `.beads/issues.jsonl`
 - **@mdxld/markdown** - Bi-directional object/markdown conversion
 - **chokidar** - File watching for live sync
+
+## Development
+
+```bash
+# Install dependencies
+pnpm install
+
+# Run tests
+pnpm test
+
+# Build
+pnpm build
+
+# Type check
+pnpm typecheck
+```
 
 ## License
 

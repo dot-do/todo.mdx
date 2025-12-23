@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 
 // Mock the modules used by CLI
-vi.mock('../compiler.js', () => ({
+vi.mock('../src/compiler.js', () => ({
   compile: vi.fn().mockResolvedValue({
     output: '# TODO\n\nMocked output',
     files: [],
@@ -14,7 +14,7 @@ vi.mock('../compiler.js', () => ({
   }),
 }))
 
-vi.mock('../sync.js', () => ({
+vi.mock('../src/sync.js', () => ({
   sync: vi.fn().mockResolvedValue({
     created: [],
     updated: [],
@@ -24,7 +24,7 @@ vi.mock('../sync.js', () => ({
   }),
 }))
 
-vi.mock('../watcher.js', () => ({
+vi.mock('../src/watcher.js', () => ({
   watch: vi.fn().mockResolvedValue(undefined),
 }))
 

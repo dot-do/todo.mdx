@@ -2,8 +2,8 @@
  * Tests for sync.ts - bi-directional sync between beads and .todo/*.md files
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { sync, detectChanges } from '../sync.js'
-import type { TodoIssue, SyncResult, SyncConflict } from '../types.js'
+import { sync, detectChanges } from '../src/sync.js'
+import type { TodoIssue, SyncResult, SyncConflict } from '../src/types.js'
 
 // Mock beads-workflows functions
 vi.mock('beads-workflows', () => ({
@@ -15,23 +15,23 @@ vi.mock('beads-workflows', () => ({
 }))
 
 // Mock file system operations
-vi.mock('../beads.js', () => ({
+vi.mock('../src/beads.js', () => ({
   loadBeadsIssues: vi.fn(),
   hasBeadsDirectory: vi.fn(),
 }))
 
-vi.mock('../parser.js', () => ({
+vi.mock('../src/parser.js', () => ({
   loadTodoFiles: vi.fn(),
 }))
 
-vi.mock('../generator.js', () => ({
+vi.mock('../src/generator.js', () => ({
   writeTodoFiles: vi.fn(),
 }))
 
 import { createIssue, updateIssue, closeIssue } from 'beads-workflows'
-import { loadBeadsIssues } from '../beads.js'
-import { loadTodoFiles } from '../parser.js'
-import { writeTodoFiles } from '../generator.js'
+import { loadBeadsIssues } from '../src/beads.js'
+import { loadTodoFiles } from '../src/parser.js'
+import { writeTodoFiles } from '../src/generator.js'
 
 describe('detectChanges', () => {
   it('should detect new issues in files that need to be created in beads', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { loadBeadsIssues, hasBeadsDirectory } from '../beads'
+import { loadBeadsIssues, hasBeadsDirectory } from '../src/beads.js'
 
 describe('beads integration', () => {
   describe('loadBeadsIssues', () => {

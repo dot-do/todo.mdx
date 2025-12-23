@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { compile, compileToString } from '../compiler.js'
-import type { TodoIssue } from '../types.js'
+import { compile, compileToString } from '../src/compiler.js'
+import type { TodoIssue } from '../src/types.js'
 
 // Mock beads and parser modules
-vi.mock('../beads.js', () => ({
+vi.mock('../src/beads.js', () => ({
   loadBeadsIssues: vi.fn().mockResolvedValue([]),
   hasBeadsDirectory: vi.fn().mockResolvedValue(false),
 }))
 
-vi.mock('../parser.js', () => ({
+vi.mock('../src/parser.js', () => ({
   loadTodoFiles: vi.fn().mockResolvedValue([]),
   parseTodoFile: vi.fn(),
 }))
@@ -385,8 +385,8 @@ describe('compile', () => {
   })
 
   it('should load and merge issues from beads and files', async () => {
-    const { loadBeadsIssues } = await import('../beads.js')
-    const { loadTodoFiles } = await import('../parser.js')
+    const { loadBeadsIssues } = await import('../src/beads.js')
+    const { loadTodoFiles } = await import('../src/parser.js')
 
     vi.mocked(loadBeadsIssues).mockResolvedValueOnce([
       {
@@ -419,8 +419,8 @@ describe('compile', () => {
   })
 
   it('should prefer beads data when merging duplicates', async () => {
-    const { loadBeadsIssues } = await import('../beads.js')
-    const { loadTodoFiles } = await import('../parser.js')
+    const { loadBeadsIssues } = await import('../src/beads.js')
+    const { loadTodoFiles } = await import('../src/parser.js')
 
     vi.mocked(loadBeadsIssues).mockResolvedValueOnce([
       {
@@ -453,8 +453,8 @@ describe('compile', () => {
   })
 
   it('should handle missing beads directory gracefully', async () => {
-    const { loadBeadsIssues } = await import('../beads.js')
-    const { loadTodoFiles } = await import('../parser.js')
+    const { loadBeadsIssues } = await import('../src/beads.js')
+    const { loadTodoFiles } = await import('../src/parser.js')
 
     vi.mocked(loadBeadsIssues).mockResolvedValueOnce([])
 
@@ -476,8 +476,8 @@ describe('compile', () => {
   })
 
   it('should return CompileResult with output, files, and issues', async () => {
-    const { loadBeadsIssues } = await import('../beads.js')
-    const { loadTodoFiles } = await import('../parser.js')
+    const { loadBeadsIssues } = await import('../src/beads.js')
+    const { loadTodoFiles } = await import('../src/parser.js')
 
     vi.mocked(loadBeadsIssues).mockResolvedValueOnce([])
     vi.mocked(loadTodoFiles).mockResolvedValueOnce([])

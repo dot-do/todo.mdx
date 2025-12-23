@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseTodoFile } from '../parser.js'
+import { parseTodoFile } from '../src/parser.js'
 
 describe('parseTodoFile', () => {
   it('should parse basic frontmatter and content', () => {

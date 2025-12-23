@@ -2,8 +2,8 @@
  * Tests for generator.ts
  */
 import { describe, it, expect } from 'vitest'
-import { generateTodoFile } from './generator.js'
-import type { TodoIssue } from './types.js'
+import { generateTodoFile } from '../src/generator.js'
+import type { TodoIssue } from '../src/types.js'
 
 describe('generateTodoFile', () => {
   it('generates basic todo file with minimal fields', () => {

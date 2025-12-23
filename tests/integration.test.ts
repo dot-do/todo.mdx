@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { loadTodoFiles, parseTodoFile } from '../parser.js'
+import { loadTodoFiles, parseTodoFile } from '../src/parser.js'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 

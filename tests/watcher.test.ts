@@ -2,8 +2,8 @@
  * Tests for watcher.ts - file watching and auto-sync
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { watch } from '../watcher.js'
-import type { WatchEvent, SyncResult } from '../types.js'
+import { watch } from '../src/watcher.js'
+import type { WatchEvent, SyncResult } from '../src/types.js'
 
 // Mock chokidar
 vi.mock('chokidar', () => ({
@@ -13,7 +13,7 @@ vi.mock('chokidar', () => ({
 }))
 
 // Mock sync function
-vi.mock('../sync.js', () => ({
+vi.mock('../src/sync.js', () => ({
   sync: vi.fn(),
 }))
 
@@ -23,7 +23,7 @@ vi.mock('beads-workflows', () => ({
 }))
 
 import { findBeadsDir } from 'beads-workflows'
-import { sync } from '../sync.js'
+import { sync } from '../src/sync.js'
 import chokidar from 'chokidar'
 
 // Mock FSWatcher
