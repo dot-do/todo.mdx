@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest'
-import { parseTodoFile } from '../src/parser.js'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { parseTodoFile, loadTodoFiles } from '../src/parser.js'
+import { mkdir, writeFile, rm } from 'fs/promises'
+import { join } from 'path'
+import { tmpdir } from 'os'
 
 describe('parseTodoFile - edge cases', () => {
   it('should throw error for empty frontmatter (no ID)', () => {
@@ -190,5 +193,277 @@ ${markdown}
 `
     const result = parseTodoFile(content)
     expect(result.issue.description).toBe(markdown)
+  })
+
+  // Edge case: Missing title should use fallback value
+  it('should use "Untitled" fallback when title is missing', () => {
+    const content = `---
+id: test-123
+priority: 3
+---
+
+Some description content
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.id).toBe('test-123')
+    expect(result.issue.title).toBe('Untitled')
+    expect(result.issue.description).toBe('Some description content')
+  })
+
+  // Edge case: Malformed YAML should provide helpful error messages
+  it('should handle malformed YAML with unclosed brackets', () => {
+    const content = `---
+id: test
+title: Test
+labels: [tag1, tag2
+---
+
+Content
+`
+    // The parser should still work - JSON.parse will fail but fallback to comma-separated
+    const result = parseTodoFile(content)
+    expect(result.issue.id).toBe('test')
+    // The malformed array should be handled gracefully
+  })
+
+  it('should handle malformed YAML with invalid key-value pairs', () => {
+    const content = `---
+id: test
+title: Test
+invalid line without colon
+priority: 3
+---
+
+Content
+`
+    // Markdown.extractMeta should skip invalid lines
+    const result = parseTodoFile(content)
+    expect(result.issue.id).toBe('test')
+    expect(result.issue.priority).toBe(3)
+  })
+
+  // Edge case: Unicode characters in titles and descriptions
+  it('should handle Japanese characters in title', () => {
+    const content = `---
+id: test
+title: タスク管理システム
+---
+
+日本語の説明文
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.title).toBe('タスク管理システム')
+    expect(result.issue.description).toBe('日本語の説明文')
+  })
+
+  it('should handle emoji in title and description', () => {
+    const content = `---
+id: test
+title: "🚀 Launch feature 🎉"
+---
+
+Add support for emoji 😊 🎨 ✨
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.title).toBe('🚀 Launch feature 🎉')
+    expect(result.issue.description).toContain('😊 🎨 ✨')
+  })
+
+  it('should handle accented characters in title', () => {
+    const content = `---
+id: test
+title: "Améliorer la qualité du café"
+assignee: "François"
+---
+
+Résumé: café très important
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.title).toBe('Améliorer la qualité du café')
+    expect(result.issue.assignee).toBe('François')
+    expect(result.issue.description).toContain('Résumé')
+  })
+
+  // Edge case: Special characters in ID
+  it('should accept IDs with underscores and hyphens', () => {
+    const content = `---
+id: test_123-abc
+title: Test
+---
+
+Content
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.id).toBe('test_123-abc')
+  })
+
+  it('should accept IDs with dots', () => {
+    const content = `---
+id: test.123.abc
+title: Test
+---
+
+Content
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.id).toBe('test.123.abc')
+  })
+
+  it('should reject IDs with only whitespace', () => {
+    const content = `---
+id: "   "
+title: Test
+---
+
+Content
+`
+    expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
+  })
+
+  // Edge case: Very long titles
+  it('should handle very long titles without truncation', () => {
+    const longTitle = 'A'.repeat(1000)
+    const content = `---
+id: test
+title: "${longTitle}"
+---
+
+Content
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.title).toBe(longTitle)
+    expect(result.issue.title.length).toBe(1000)
+  })
+
+  it('should handle very long titles with spaces', () => {
+    const longTitle = 'Lorem ipsum dolor sit amet '.repeat(50)
+    const content = `---
+id: test
+title: "${longTitle}"
+---
+
+Content
+`
+    const result = parseTodoFile(content)
+    expect(result.issue.title).toBe(longTitle)
+    expect(result.issue.title.length).toBeGreaterThan(1000)
+  })
+})
+
+describe('loadTodoFiles - duplicate ID handling', () => {
+  let testDir: string
+
+  beforeEach(async () => {
+    // Create a temporary directory for test files
+    testDir = join(tmpdir(), `todo-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    await mkdir(testDir, { recursive: true })
+  })
+
+  afterEach(async () => {
+    // Clean up test directory
+    try {
+      await rm(testDir, { recursive: true, force: true })
+    } catch (err) {
+      // Ignore cleanup errors
+    }
+  })
+
+  it('should load multiple files with different IDs', async () => {
+    await writeFile(join(testDir, 'issue1.md'), `---
+id: test-1
+title: First Issue
+---
+
+First content`)
+
+    await writeFile(join(testDir, 'issue2.md'), `---
+id: test-2
+title: Second Issue
+---
+
+Second content`)
+
+    const issues = await loadTodoFiles(testDir)
+    expect(issues).toHaveLength(2)
+    expect(issues.map(i => i.id).sort()).toEqual(['test-1', 'test-2'])
+  })
+
+  it('should load all files even when IDs are duplicated', async () => {
+    await writeFile(join(testDir, 'issue1.md'), `---
+id: duplicate-id
+title: First Issue
+---
+
+First content`)
+
+    await writeFile(join(testDir, 'issue2.md'), `---
+id: duplicate-id
+title: Second Issue
+---
+
+Second content`)
+
+    const issues = await loadTodoFiles(testDir)
+    // Both files should be loaded, even with duplicate IDs
+    expect(issues).toHaveLength(2)
+    expect(issues.every(i => i.id === 'duplicate-id')).toBe(true)
+
+    // They should have different titles
+    const titles = issues.map(i => i.title).sort()
+    expect(titles).toEqual(['First Issue', 'Second Issue'])
+  })
+
+  it('should skip files with parsing errors but load valid files', async () => {
+    await writeFile(join(testDir, 'valid.md'), `---
+id: valid-1
+title: Valid Issue
+---
+
+Valid content`)
+
+    await writeFile(join(testDir, 'invalid.md'), `---
+title: No ID Issue
+---
+
+This should fail`)
+
+    await writeFile(join(testDir, 'also-valid.md'), `---
+id: valid-2
+title: Another Valid Issue
+---
+
+Also valid`)
+
+    const issues = await loadTodoFiles(testDir)
+    // Only the valid files should be loaded
+    expect(issues).toHaveLength(2)
+    expect(issues.map(i => i.id).sort()).toEqual(['valid-1', 'valid-2'])
+  })
+
+  it('should handle empty directory', async () => {
+    const issues = await loadTodoFiles(testDir)
+    expect(issues).toEqual([])
+  })
+
+  it('should return empty array for non-existent directory', async () => {
+    const nonExistentDir = join(testDir, 'does-not-exist')
+    const issues = await loadTodoFiles(nonExistentDir)
+    expect(issues).toEqual([])
+  })
+
+  it('should only load .md files and ignore other files', async () => {
+    await writeFile(join(testDir, 'issue.md'), `---
+id: test-1
+title: Markdown Issue
+---
+
+Content`)
+
+    await writeFile(join(testDir, 'readme.txt'), 'Not a markdown file')
+    await writeFile(join(testDir, 'config.json'), '{}')
+
+    const issues = await loadTodoFiles(testDir)
+    expect(issues).toHaveLength(1)
+    expect(issues[0].id).toBe('test-1')
   })
 })
