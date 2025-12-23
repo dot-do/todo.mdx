@@ -1,5 +1,12 @@
 # TODO
 
+## Open
+
+### Tasks
+
+- [ ] [#todo-w5cb] Remove redundant Timeline section from generated .todo/*.md files - *task, P1*
+- [ ] [#todo-y47g] Convert dependency references to actual markdown links in .todo/*.md files - *task, P1*
+
 ## Recently Completed
 
 - [x] [#todo-wu4t] Add CLI integration tests - *closed 2025-12-23*
