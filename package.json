@@ -1,6 +1,6 @@
 {
   "name": "todo.mdx",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bi-directional sync between TODO.mdx, .todo/*.md files, and beads",
   "type": "module",
   "main": "./dist/index.js",

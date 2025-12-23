@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- Initial release of todo.mdx - bi-directional sync between beads issue tracker and markdown files.
+
+  Features:
+
+  - Sync issues from `.beads/issues.jsonl` to `.todo/*.md` files
+  - Compile issues to `TODO.md` summary
+  - CLI commands: `build`, `sync`, `watch`, `init`
+  - Programmatic API for custom integrations
+  - Watch mode for live sync
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
@@ -10,12 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Core Features
+
 - **Bi-directional sync** between beads issue tracker (`.beads/issues.jsonl`) and markdown files (`.todo/*.md`)
 - **Conflict resolution strategies**: `beads-wins`, `file-wins`, and `newest-wins` for handling concurrent edits
 - **File watching** with automatic sync on changes using debounced file system monitoring
 - **Issue compilation** from multiple sources into a single `TODO.md` summary view
 
 #### CLI Commands
+
 - `todo.mdx build` - Compile issues from beads and `.todo/*.md` files into `TODO.md`
   - `--output <path>` - Custom output path option
 - `todo.mdx sync` - Bi-directional sync between beads and markdown files
@@ -27,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `todo.mdx --version` - Show version
 
 #### Programmatic API
+
 - `compile(options?)` - Compile issues to TODO.md content with full configuration
 - `compileToString(issues, options?)` - Pure function to compile issues to markdown
 - `sync(options?)` - Bi-directional sync with conflict detection and resolution
@@ -40,6 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `hasBeadsDirectory(dir?)` - Check if beads is initialized
 
 #### Type Exports
+
 - `TodoIssue` - Core issue type with full metadata
 - `TodoConfig` - Configuration options interface
 - `SyncResult` - Sync operation result with created/updated/deleted counts
@@ -50,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Re-exported beads-workflows types: `Issue`, `IssueStatus`, `IssueType`, `Priority`
 
 #### Configuration Options
+
 - `todoDir` - Directory for `.todo/*.md` files (default: `.todo`)
 - `beads` - Enable/disable beads integration (default: `true`)
 - `beadsDir` - Path to `.beads` directory (auto-detected)
@@ -60,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `direction` - Sync direction control for one-way or bi-directional sync
 
 #### Documentation
+
 - Comprehensive README with quick start and examples
 - Getting Started guide with installation and basic workflows
 - CLI Reference with all commands and options
@@ -69,6 +89,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 #### Security
+
 - **Path traversal protection** in file generator - Added `sanitizeId()` to remove dangerous path characters from issue IDs
 - **Path safety validation** - Added `validatePathSafety()` to ensure generated file paths stay within target directory
 - **Output path validation** in CLI - Added `validateOutputPath()` to prevent path traversal in custom output paths
@@ -86,12 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Dependencies
 
 #### Runtime
+
 - `beads-workflows@^0.1.1` - Issue tracker integration for reading/writing `.beads/issues.jsonl`
 - `@mdxld/markdown@^1.9.0` - Bi-directional object/markdown conversion
 - `@mdxld/extract@^1.9.1` - Structured data extraction from rendered content
 - `chokidar@^4.0.0` - File system watching for live sync
 
 #### Development
+
 - `typescript@^5.7.0` - TypeScript compiler with strict mode
 - `tsup@^8.0.0` - Build tool for TypeScript libraries
 - `vitest@^2.0.0` - Unit testing framework
