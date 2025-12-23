@@ -108,15 +108,11 @@ Content
     }
   })
 
-  it('should handle missing frontmatter', () => {
+  it('should throw error for missing frontmatter (no ID)', () => {
     const content = 'Just some content without frontmatter'
 
-    const result = parseTodoFile(content)
-
-    expect(result.issue.id).toBe('')
-    expect(result.issue.title).toBe('Untitled')
-    expect(result.issue.status).toBe('open')
-    expect(result.issue.description).toBe(content)
+    // Should throw because there's no ID in frontmatter
+    expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
   })
 
   it('should parse dependency arrays', () => {
@@ -191,5 +187,88 @@ Create the full IDE layout combining file tree, Monaco editor, and terminal.
     expect(result.issue.priority).toBe(2)
     expect(result.issue.type).toBe('feature')
     expect(result.issue.labels).toEqual(['ide', 'layout', 'ui'])
+  })
+
+  // Validation tests for todo-eja1: Priority range validation
+  describe('priority validation (todo-eja1)', () => {
+    it('should clamp priority < 0 to 0', () => {
+      const content = `---
+id: todo-test
+title: Test
+priority: -5
+---
+Content
+`
+      const result = parseTodoFile(content)
+      expect(result.issue.priority).toBe(0)
+    })
+
+    it('should clamp priority > 4 to 4', () => {
+      const content = `---
+id: todo-test
+title: Test
+priority: 10
+---
+Content
+`
+      const result = parseTodoFile(content)
+      expect(result.issue.priority).toBe(4)
+    })
+
+    it('should floor non-integer priority to nearest integer', () => {
+      const content = `---
+id: todo-test
+title: Test
+priority: 2.7
+---
+Content
+`
+      const result = parseTodoFile(content)
+      expect(result.issue.priority).toBe(2)
+    })
+
+    it('should floor and clamp non-integer priority outside range', () => {
+      const content = `---
+id: todo-test
+title: Test
+priority: 4.9
+---
+Content
+`
+      const result = parseTodoFile(content)
+      expect(result.issue.priority).toBe(4)
+    })
+  })
+
+  // Validation tests for todo-ndl7: Reject empty issue IDs
+  describe('ID validation (todo-ndl7)', () => {
+    it('should throw error for empty string ID', () => {
+      const content = `---
+id: ""
+title: Test
+---
+Content
+`
+      expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
+    })
+
+    it('should throw error for whitespace-only ID', () => {
+      const content = `---
+id: "   "
+title: Test
+---
+Content
+`
+      expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
+    })
+
+    it('should throw error for missing ID in frontmatter', () => {
+      const content = `---
+title: Test
+---
+Content
+`
+      expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
+    })
   })
 })

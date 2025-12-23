@@ -6,7 +6,7 @@
 
 import { parseArgs } from 'node:util'
 import { promises as fs } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { compile } from './compiler.js'
 import { sync } from './sync.js'
 import type { SyncOptions } from './sync.js'
@@ -60,16 +60,40 @@ function error(message: string): never {
 }
 
 /**
+ * Validate output path to prevent path traversal attacks
+ * Ensures the resolved path is within the current working directory
+ */
+function validateOutputPath(outputPath: string): string {
+  const cwd = process.cwd()
+  const resolvedPath = resolve(cwd, outputPath)
+  const resolvedCwd = resolve(cwd)
+
+  // Check if resolved path is within the project directory
+  // Must start with cwd + path separator or be exactly the cwd
+  if (!resolvedPath.startsWith(resolvedCwd + sep) && resolvedPath !== resolvedCwd) {
+    error(
+      `Output path must be within the project directory. ` +
+      `Path '${outputPath}' resolves to '${resolvedPath}' which is outside '${resolvedCwd}'`
+    )
+  }
+
+  return resolvedPath
+}
+
+/**
  * Build command: compile to TODO.md
  */
 async function buildCommand(args: { values: Record<string, unknown> }): Promise<void> {
   const outputPath = (args.values.output as string) || 'TODO.md'
 
+  // Validate output path to prevent path traversal
+  const validatedPath = validateOutputPath(outputPath)
+
   try {
     log('→', 'Compiling TODO.md...')
     const result = await compile()
 
-    await fs.writeFile(outputPath, result.output, 'utf-8')
+    await fs.writeFile(validatedPath, result.output, 'utf-8')
 
     log('✓', `Compiled ${result.issues.length} issues to ${outputPath}`)
     log('✓', `  - In Progress: ${result.issues.filter(i => i.status === 'in_progress').length}`)

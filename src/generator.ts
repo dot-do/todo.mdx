@@ -2,8 +2,23 @@
  * Generator for .todo/*.md files from TodoIssue objects
  */
 import { promises as fs } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { TodoIssue } from './types.js'
+
+/**
+ * Sanitize issue ID to prevent path traversal attacks
+ * Removes/replaces dangerous path characters: /, \, .., :, <, >, |, ?, *, \0
+ */
+function sanitizeId(id: string): string {
+  return id
+    .replace(/\0/g, '') // Remove null bytes
+    .replace(/\.\./g, '') // Remove parent directory references first
+    .replace(/\\/g, '') // Remove backslashes
+    .replace(/\//g, '-') // Replace forward slashes with hyphens
+    .replace(/[:<>|?*]/g, '') // Remove Windows-invalid characters
+    .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
+    .trim()
+}
 
 /**
  * Slugify a string for use in filenames
@@ -23,8 +38,9 @@ function slugify(text: string): string {
  * Pattern: {id}-{title-slug}.md
  */
 function generateFilename(issue: TodoIssue): string {
+  const safeId = sanitizeId(issue.id)
   const slug = slugify(issue.title)
-  return `${issue.id}-${slug}.md`
+  return `${safeId}-${slug}.md`
 }
 
 /**
@@ -195,6 +211,30 @@ export function generateTodoFile(issue: TodoIssue): string {
 }
 
 /**
+ * Validate that a file path is within the target directory
+ * @param filepath - The file path to validate
+ * @param targetDir - The target directory
+ * @throws Error if path escapes the target directory
+ */
+function validatePathSafety(filepath: string, targetDir: string): void {
+  const resolvedPath = resolve(filepath)
+  const resolvedTarget = resolve(targetDir)
+
+  // Check if the resolved path starts with the target directory
+  // Add path separator to prevent false positives (e.g., /foo vs /foobar)
+  const isWithinTarget =
+    resolvedPath === resolvedTarget ||
+    resolvedPath.startsWith(resolvedTarget + '/') ||
+    resolvedPath.startsWith(resolvedTarget + '\\')
+
+  if (!isWithinTarget) {
+    throw new Error(
+      `Security: Attempted path traversal detected. File path "${filepath}" resolves outside target directory "${targetDir}"`
+    )
+  }
+}
+
+/**
  * Write TodoIssue objects to .todo/*.md files
  * @param issues - Array of issues to write
  * @param todoDir - Path to .todo directory (default: '.todo')
@@ -212,8 +252,11 @@ export async function writeTodoFiles(
   for (const issue of issues) {
     const filename = generateFilename(issue)
     const filepath = join(todoDir, filename)
-    const content = generateTodoFile(issue)
 
+    // Security: Validate that the resolved path is within the target directory
+    validatePathSafety(filepath, todoDir)
+
+    const content = generateTodoFile(issue)
     await fs.writeFile(filepath, content, 'utf-8')
     writtenPaths.push(filepath)
   }

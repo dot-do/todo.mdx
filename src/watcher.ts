@@ -61,6 +61,7 @@ interface WatcherState {
   debounceTimer?: NodeJS.Timeout
   isReady: boolean
   isSyncing: boolean
+  pendingEvent?: WatchEvent
 }
 
 /**
@@ -94,18 +95,29 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
   }
 
   /**
-   * Trigger a sync with debouncing
+   * Trigger a sync with debouncing and race condition prevention
+   *
+   * Race condition handling:
+   * - Multiple rapid changes are debounced (only last one fires)
+   * - Changes during sync are queued and processed after completion
+   * - Overlapping debounce windows are properly handled
    */
   const triggerSync = (event: WatchEvent) => {
-    // Clear existing timer
+    // Clear existing timer to reset debounce window
     if (state.debounceTimer) {
       clearTimeout(state.debounceTimer)
     }
 
     // Set new timer
     state.debounceTimer = setTimeout(async () => {
-      // Skip if already syncing or not ready
-      if (state.isSyncing || !state.isReady) {
+      // If already syncing, queue this event for later (prevents lost changes)
+      if (state.isSyncing) {
+        state.pendingEvent = event
+        return
+      }
+
+      // Skip if not ready
+      if (!state.isReady) {
         return
       }
 
@@ -128,6 +140,13 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
         console.error('Sync failed:', error)
       } finally {
         state.isSyncing = false
+
+        // Process any pending event that arrived during sync
+        if (state.pendingEvent) {
+          const pending = state.pendingEvent
+          state.pendingEvent = undefined
+          triggerSync(pending)
+        }
       }
     }, debounceMs)
   }
@@ -209,6 +228,9 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
       if (state.debounceTimer) {
         clearTimeout(state.debounceTimer)
       }
+
+      // Clear any pending events
+      state.pendingEvent = undefined
 
       // Close both watchers
       await Promise.all([

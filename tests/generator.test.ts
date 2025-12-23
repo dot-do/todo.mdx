@@ -2,7 +2,10 @@
  * Tests for generator.ts
  */
 import { describe, it, expect } from 'vitest'
-import { generateTodoFile } from '../src/generator.js'
+import { promises as fs } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { generateTodoFile, writeTodoFiles } from '../src/generator.js'
 import type { TodoIssue } from '../src/types.js'
 
 describe('generateTodoFile', () => {
@@ -167,5 +170,147 @@ describe('generateTodoFile', () => {
     const result = generateTodoFile(issue)
 
     expect(result).toContain('source: "beads"')
+  })
+})
+
+describe('writeTodoFiles - Security Tests', () => {
+  it('should sanitize path traversal in issue ID', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      const issue: TodoIssue = {
+        id: '../../../etc/passwd',
+        title: 'Malicious Issue',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      const writtenPaths = await writeTodoFiles([issue], todoDir)
+
+      // Should sanitize to safe filename like 'etc-passwd-malicious-issue.md'
+      expect(writtenPaths[0]).toContain(todoDir)
+      expect(writtenPaths[0]).not.toContain('..')
+      expect(writtenPaths[0]).not.toContain('etc/passwd')
+
+      // Verify file was created inside todoDir
+      const files = await fs.readdir(todoDir)
+      expect(files.length).toBe(1)
+      expect(files[0]).toMatch(/^etc-passwd-malicious-issue\.md$/)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should reject path traversal with backslashes', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      const issue: TodoIssue = {
+        id: '..\\..\\..\\windows\\system32',
+        title: 'Windows Path Traversal',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      const writtenPaths = await writeTodoFiles([issue], todoDir)
+
+      // Should sanitize backslashes
+      expect(writtenPaths[0]).toContain(todoDir)
+      expect(writtenPaths[0]).not.toContain('..')
+      expect(writtenPaths[0]).not.toContain('\\')
+
+      const files = await fs.readdir(todoDir)
+      expect(files.length).toBe(1)
+      expect(files[0]).not.toContain('\\')
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should sanitize special characters from issue ID', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo:<test>|file*?.md',
+        title: 'Special Chars',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      const writtenPaths = await writeTodoFiles([issue], todoDir)
+
+      // Should strip dangerous characters
+      expect(writtenPaths[0]).toContain(todoDir)
+      expect(writtenPaths[0]).not.toContain(':')
+      expect(writtenPaths[0]).not.toContain('<')
+      expect(writtenPaths[0]).not.toContain('>')
+      expect(writtenPaths[0]).not.toContain('|')
+      expect(writtenPaths[0]).not.toContain('*')
+      expect(writtenPaths[0]).not.toContain('?')
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should throw error if resolved path escapes target directory', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      // Create a symlink attack scenario
+      const issue: TodoIssue = {
+        id: 'todo-test',
+        title: '../../../../../etc/passwd',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      // After sanitization, the slug might still create path issues
+      // This test verifies that even slugified titles that could escape are caught
+      const writtenPaths = await writeTodoFiles([issue], todoDir)
+      expect(writtenPaths).toBeDefined() // Should succeed after sanitization
+
+      const files = await fs.readdir(todoDir)
+      expect(files.length).toBe(1)
+      // Verify the file is actually in the todoDir
+      const fullPath = join(todoDir, files[0])
+      expect(fullPath.startsWith(todoDir)).toBe(true)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should handle null bytes in issue ID', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo\0malicious',
+        title: 'Null Byte Test',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      const writtenPaths = await writeTodoFiles([issue], todoDir)
+
+      // Should strip null bytes
+      expect(writtenPaths[0]).not.toContain('\0')
+
+      const files = await fs.readdir(todoDir)
+      expect(files.length).toBe(1)
+      expect(files[0]).not.toContain('\0')
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
   })
 })

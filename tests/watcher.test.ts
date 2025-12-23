@@ -505,4 +505,265 @@ describe('watch', () => {
     await watcher.close()
     vi.useRealTimers()
   })
+
+  // Race condition tests
+  describe('race condition handling', () => {
+    it('should queue changes that arrive during sync', async () => {
+      vi.useFakeTimers()
+
+      // Make sync take some time
+      let syncResolve: () => void
+      const syncPromise = new Promise<SyncResult>((resolve) => {
+        syncResolve = () =>
+          resolve({
+            created: [],
+            updated: [],
+            deleted: [],
+            filesWritten: [],
+            conflicts: [],
+          })
+      })
+      vi.mocked(sync).mockImplementationOnce(() => syncPromise)
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger first change
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Sync should have been called once
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      // While sync is running, trigger more changes
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Mock second sync
+      vi.mocked(sync).mockResolvedValueOnce({
+        created: [],
+        updated: [],
+        deleted: [],
+        filesWritten: [],
+        conflicts: [],
+      })
+
+      // Resolve first sync
+      syncResolve!()
+      await syncPromise
+
+      // Wait a bit for the queued sync to trigger
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // The change that arrived during sync should trigger another sync
+      expect(sync).toHaveBeenCalledTimes(2)
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should only process last change when multiple rapid changes occur', async () => {
+      vi.useFakeTimers()
+
+      const events: WatchEvent[] = []
+      const onChange = (event: WatchEvent) => {
+        events.push(event)
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 300,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger multiple rapid changes with different paths
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(50)
+
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(50)
+
+      todoWatcher.emit('change', '/test/.todo/task-3.md')
+      vi.advanceTimersByTime(50)
+
+      todoWatcher.emit('change', '/test/.todo/task-4.md')
+
+      // None should have fired yet (only 150ms passed)
+      expect(sync).not.toHaveBeenCalled()
+      expect(events).toHaveLength(0)
+
+      // Advance past debounce (need 300ms from last event)
+      vi.advanceTimersByTime(350)
+      await vi.runAllTimersAsync()
+
+      // Sync should have been called exactly once
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      // Only the LAST event should have been emitted
+      expect(events).toHaveLength(1)
+      expect(events[0]).toEqual({
+        type: 'file-change',
+        path: '/test/.todo/task-4.md',
+      })
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should not lose changes that arrive just after debounce fires', async () => {
+      vi.useFakeTimers()
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+      })
+
+      const watcher = await watcherPromise
+
+      // First change
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      // Second change arrives immediately
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Should trigger second sync
+      expect(sync).toHaveBeenCalledTimes(2)
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should handle overlapping debounce windows correctly', async () => {
+      vi.useFakeTimers()
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 200,
+      })
+
+      const watcher = await watcherPromise
+
+      // First change
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+
+      // Wait 150ms (not enough to trigger)
+      vi.advanceTimersByTime(150)
+      expect(sync).not.toHaveBeenCalled()
+
+      // Second change resets the timer
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+
+      // Wait another 150ms (total 300ms from first, but only 150ms from second)
+      vi.advanceTimersByTime(150)
+      expect(sync).not.toHaveBeenCalled()
+
+      // Wait the remaining 50ms to complete debounce from second change
+      vi.advanceTimersByTime(100)
+      await vi.runAllTimersAsync()
+
+      // Should have called sync exactly once with the last change
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should serialize multiple overlapping sync operations', async () => {
+      vi.useFakeTimers()
+
+      let firstSyncResolve: () => void
+      let secondSyncResolve: () => void
+
+      const firstSyncPromise = new Promise<SyncResult>((resolve) => {
+        firstSyncResolve = () =>
+          resolve({
+            created: [],
+            updated: [],
+            deleted: [],
+            filesWritten: [],
+            conflicts: [],
+          })
+      })
+
+      const secondSyncPromise = new Promise<SyncResult>((resolve) => {
+        secondSyncResolve = () =>
+          resolve({
+            created: [],
+            updated: [],
+            deleted: [],
+            filesWritten: [],
+            conflicts: [],
+          })
+      })
+
+      let callCount = 0
+      vi.mocked(sync).mockImplementation(() => {
+        callCount++
+        if (callCount === 1) return firstSyncPromise
+        if (callCount === 2) return secondSyncPromise
+        return Promise.resolve({
+          created: [],
+          updated: [],
+          deleted: [],
+          filesWritten: [],
+          conflicts: [],
+        })
+      })
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+      })
+
+      const watcher = await watcherPromise
+
+      // First change
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      // Second change while first is still syncing
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Should still be 1 (second is queued)
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      // Resolve first sync
+      firstSyncResolve!()
+      await firstSyncPromise
+
+      // Wait for queued sync to trigger
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Now second sync should have started
+      expect(sync).toHaveBeenCalledTimes(2)
+
+      // Resolve second sync
+      secondSyncResolve!()
+      await secondSyncPromise
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+  })
 })

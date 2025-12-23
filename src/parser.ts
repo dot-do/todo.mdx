@@ -38,8 +38,8 @@ function parseFrontmatter(content: string): { frontmatter: Record<string, unknow
     if (value === 'true') value = true
     else if (value === 'false') value = false
     else if (value === 'null') value = null
-    else if (/^\d+$/.test(value as string)) value = parseInt(value as string, 10)
-    else if (/^\d+\.\d+$/.test(value as string)) value = parseFloat(value as string)
+    else if (/^-?\d+$/.test(value as string)) value = parseInt(value as string, 10)
+    else if (/^-?\d+\.\d+$/.test(value as string)) value = parseFloat(value as string)
     else if ((value as string).startsWith('"') && (value as string).endsWith('"')) {
       value = (value as string).slice(1, -1)
     } else if ((value as string).startsWith("'") && (value as string).endsWith("'")) {
@@ -96,12 +96,36 @@ function normalizeType(type: unknown): 'task' | 'bug' | 'feature' | 'epic' {
 
 /**
  * Normalize priority (0-4)
+ * Clamps values to the valid range and floors non-integers
  */
 function normalizePriority(priority: unknown): 0 | 1 | 2 | 3 | 4 {
-  if (typeof priority === 'number' && priority >= 0 && priority <= 4) {
-    return priority as 0 | 1 | 2 | 3 | 4
+  if (typeof priority === 'number' && !Number.isNaN(priority)) {
+    // Floor non-integers and clamp to 0-4 range
+    const clamped = Math.max(0, Math.min(4, Math.floor(priority)))
+    return clamped as 0 | 1 | 2 | 3 | 4
   }
   return 2 // default to medium priority
+}
+
+/**
+ * Validate issue ID
+ * Throws if ID is empty, whitespace-only, null, or undefined
+ */
+function validateId(id: unknown): string {
+  if (id === null || id === undefined || id === '') {
+    throw new Error('ID cannot be empty or undefined')
+  }
+
+  if (typeof id !== 'string') {
+    throw new Error('ID must be a string')
+  }
+
+  const trimmed = id.trim()
+  if (trimmed === '') {
+    throw new Error('ID cannot be empty or whitespace-only')
+  }
+
+  return id
 }
 
 /**
@@ -112,9 +136,12 @@ function normalizePriority(priority: unknown): 0 | 1 | 2 | 3 | 4 {
 export function parseTodoFile(content: string): ParsedTodoFile {
   const { frontmatter, body } = parseFrontmatter(content)
 
+  // Validate and extract ID
+  const id = validateId(frontmatter.id)
+
   // Extract issue metadata from frontmatter
   const issue: TodoIssue = {
-    id: (frontmatter.id as string) || '',
+    id,
     title: (frontmatter.title as string) || 'Untitled',
     description: body || undefined,
     status: mapStateToStatus(frontmatter.state || frontmatter.status),

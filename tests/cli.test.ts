@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 // Mock the modules used by CLI
 vi.mock('../src/compiler.js', () => ({
@@ -261,6 +261,92 @@ describe('CLI - Command Validation', () => {
     expect(result.positionals).toContain('sync')
     expect(result.values['dry-run']).toBe(true)
     expect(result.values.direction).toBe('beads-to-files')
+  })
+})
+
+describe('CLI - Path Validation (Security)', () => {
+  // Helper function to test path validation logic (mirrors the implementation)
+  const validateOutputPath = (outputPath: string, cwd: string): string => {
+    const resolvedPath = resolve(cwd, outputPath)
+    const resolvedCwd = resolve(cwd)
+
+    // Check if resolved path is within the project directory
+    // Must start with cwd + path separator or be exactly the cwd
+    if (!resolvedPath.startsWith(resolvedCwd + sep) && resolvedPath !== resolvedCwd) {
+      throw new Error(
+        `Output path must be within the project directory. ` +
+        `Path '${outputPath}' resolves to '${resolvedPath}' which is outside '${resolvedCwd}'`
+      )
+    }
+
+    return resolvedPath
+  }
+
+  it('should reject path traversal with .. in --output', () => {
+    const cwd = process.cwd()
+    const maliciousPath = '../../etc/passwd'
+
+    // This should throw because it escapes the project directory
+    expect(() => {
+      validateOutputPath(maliciousPath, cwd)
+    }).toThrow(/Output path must be within the project directory/)
+  })
+
+  it('should reject absolute path outside project directory', () => {
+    const cwd = process.cwd()
+    const maliciousPath = '/etc/passwd'
+
+    // This should throw because it's an absolute path outside project
+    expect(() => {
+      validateOutputPath(maliciousPath, cwd)
+    }).toThrow(/Output path must be within the project directory/)
+  })
+
+  it('should allow valid subdirectory within project', () => {
+    const cwd = process.cwd()
+    const validPath = 'docs/TODO.md'
+
+    // This should NOT throw - it's within the project
+    expect(() => {
+      validateOutputPath(validPath, cwd)
+    }).not.toThrow()
+  })
+
+  it('should allow path in current directory', () => {
+    const cwd = process.cwd()
+    const validPath = 'TODO.md'
+
+    // This should NOT throw - it's in the project root
+    expect(() => {
+      validateOutputPath(validPath, cwd)
+    }).not.toThrow()
+  })
+
+  it('should reject path with .. that escapes project', () => {
+    const cwd = process.cwd()
+    const suspiciousPath = 'docs/../../etc/passwd'
+
+    // After resolution, this escapes the project directory
+    expect(() => {
+      validateOutputPath(suspiciousPath, cwd)
+    }).toThrow(/Output path must be within the project directory/)
+  })
+
+  it('should include helpful error message with actual paths', () => {
+    const cwd = process.cwd()
+    const maliciousPath = '../../etc/passwd'
+
+    try {
+      validateOutputPath(maliciousPath, cwd)
+      // Should not reach here
+      expect(true).toBe(false)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      expect(message).toContain('Output path must be within the project directory')
+      expect(message).toContain(maliciousPath)
+      expect(message).toContain('resolves to')
+      expect(message).toContain('outside')
+    }
   })
 })
 

@@ -2,24 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { parseTodoFile } from '../src/parser.js'
 
 describe('parseTodoFile - edge cases', () => {
-  it('should handle empty frontmatter', () => {
+  it('should throw error for empty frontmatter (no ID)', () => {
     const content = `---
 ---
 
 Content only
 `
-    const result = parseTodoFile(content)
-    expect(result.issue.id).toBe('')
-    expect(result.issue.title).toBe('Untitled')
-    expect(result.issue.status).toBe('open')
-    expect(result.issue.priority).toBe(2)
+    // Should throw because ID is required
+    expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
   })
 
-  it('should handle content without frontmatter', () => {
+  it('should throw error for content without frontmatter (no ID)', () => {
     const content = 'Just plain markdown content'
-    const result = parseTodoFile(content)
-    expect(result.issue.description).toBe(content)
-    expect(result.frontmatter).toEqual({})
+    // Should throw because ID is required
+    expect(() => parseTodoFile(content)).toThrow(/ID cannot be empty/)
   })
 
   it('should handle multiline title with quotes', () => {
@@ -135,20 +131,26 @@ Content
     expect(result.issue.assignee).toBe('user@example.com')
   })
 
-  it('should ignore invalid priority values', () => {
-    const testCases = [-1, 5, 10, 'high', NaN]
+  it('should clamp out-of-range priority values and default non-numeric', () => {
+    const testCases = [
+      { value: -1, expected: 0 },  // Clamped to 0
+      { value: 5, expected: 4 },   // Clamped to 4
+      { value: 10, expected: 4 },  // Clamped to 4
+      { value: 'high', expected: 2 }, // Default to 2
+      { value: NaN, expected: 2 }  // Default to 2
+    ]
 
-    for (const priority of testCases) {
+    for (const { value, expected } of testCases) {
       const content = `---
 id: test
 title: Test
-priority: ${priority}
+priority: ${value}
 ---
 
 Content
 `
       const result = parseTodoFile(content)
-      expect(result.issue.priority).toBe(2) // Should default to 2
+      expect(result.issue.priority).toBe(expected)
     }
   })
 
