@@ -304,7 +304,8 @@ describe('Sync Edge Cases', () => {
         expect.arrayContaining([
           expect.objectContaining({ id: 'task-1', title: 'File deleted but in beads' }),
         ]),
-        '.todo'
+        '.todo',
+        expect.any(Object)
       )
       expect(result.filesWritten).toHaveLength(1)
     })
@@ -568,7 +569,8 @@ describe('Sync Edge Cases', () => {
             dependsOn: ['task-missing'],
           }),
         ]),
-        '.todo'
+        '.todo',
+        expect.any(Object)
       )
       expect(result.filesWritten).toHaveLength(1)
     })

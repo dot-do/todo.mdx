@@ -326,7 +326,8 @@ describe('sync', () => {
       expect.arrayContaining([
         expect.objectContaining({ id: 'task-1', title: 'New beads task' }),
       ]),
-      '.todo'
+      '.todo',
+      expect.any(Object)
     )
     expect(result.filesWritten).toHaveLength(1)
   })
@@ -438,7 +439,8 @@ describe('sync', () => {
       expect.arrayContaining([
         expect.objectContaining({ title: 'Beads version', status: 'in_progress' }),
       ]),
-      '.todo'
+      '.todo',
+      expect.any(Object)
     )
     expect(result.conflicts).toHaveLength(1)
     expect(result.conflicts[0].resolution).toBe('beads-wins')
@@ -649,7 +651,8 @@ describe('sync', () => {
           source: 'beads',
         }),
       ]),
-      '.todo'
+      '.todo',
+      expect.any(Object)
     )
   })
 })

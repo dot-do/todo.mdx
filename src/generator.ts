@@ -3,45 +3,39 @@
  * Output format compatible with @mdxld/markdown fromMarkdown() for round-trip parsing
  */
 import { promises as fs } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { join, resolve, dirname } from 'node:path'
 import type { TodoIssue } from './types.js'
+import { applyPattern } from './patterns.js'
 
-/**
- * Sanitize issue ID to prevent path traversal attacks
- * Removes/replaces dangerous path characters: /, \, .., :, <, >, |, ?, *, \0
- */
-function sanitizeId(id: string): string {
-  return id
-    .replace(/\0/g, '') // Remove null bytes
-    .replace(/\.\./g, '') // Remove parent directory references first
-    .replace(/\\/g, '') // Remove backslashes
-    .replace(/\//g, '-') // Replace forward slashes with hyphens
-    .replace(/[:<>|?*]/g, '') // Remove Windows-invalid characters
-    .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
-    .trim()
+/** Default filename pattern: date + title with spaces preserved */
+export const DEFAULT_PATTERN = '[yyyy-mm-dd] [Title].md'
+
+export interface GeneratorOptions {
+  /** Filename pattern (default: '[yyyy-mm-dd] [Title].md') */
+  pattern?: string
+  /** Subdirectory for closed issues (default: 'closed') */
+  closedSubdir?: string
+  /** Whether to organize closed issues into subdirectory (default: true) */
+  separateClosed?: boolean
 }
 
 /**
- * Slugify a string for use in filenames
- * Converts to lowercase, replaces spaces with hyphens, removes special chars
+ * Generate filename from issue using pattern system
+ * Closed issues go into closedSubdir if separateClosed is true
  */
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, '') // Remove special characters
-    .replace(/[\s_]+/g, '-') // Replace spaces and underscores with hyphens
-    .replace(/^-+|-+$/g, '') // Remove leading/trailing hyphens
-}
+function generateFilename(issue: TodoIssue, options: GeneratorOptions = {}): string {
+  const pattern = options.pattern || DEFAULT_PATTERN
+  const closedSubdir = options.closedSubdir || 'closed'
+  const separateClosed = options.separateClosed !== false // default true
 
-/**
- * Generate filename from issue ID and title
- * Pattern: {id}-{title-slug}.md
- */
-function generateFilename(issue: TodoIssue): string {
-  const safeId = sanitizeId(issue.id)
-  const slug = slugify(issue.title)
-  return `${safeId}-${slug}.md`
+  const filename = applyPattern(pattern, issue)
+
+  // Put closed issues in subfolder
+  if (separateClosed && issue.status === 'closed') {
+    return join(closedSubdir, filename)
+  }
+
+  return filename
 }
 
 /**
@@ -228,20 +222,35 @@ function validatePathSafety(filepath: string, targetDir: string): void {
  * Write TodoIssue objects to .todo/*.md files
  * @param issues - Array of issues to write
  * @param todoDir - Path to .todo directory (default: '.todo')
+ * @param options - Generator options for pattern and closed subfolder
  * @returns Array of written file paths (absolute paths)
  */
 export async function writeTodoFiles(
   issues: TodoIssue[],
-  todoDir: string = '.todo'
+  todoDir: string = '.todo',
+  options: GeneratorOptions = {}
 ): Promise<string[]> {
   // Create .todo directory if it doesn't exist
   await fs.mkdir(todoDir, { recursive: true })
 
+  // Create closed subdirectory if needed
+  const closedSubdir = options.closedSubdir || 'closed'
+  const separateClosed = options.separateClosed !== false
+  if (separateClosed) {
+    await fs.mkdir(join(todoDir, closedSubdir), { recursive: true })
+  }
+
   const writtenPaths: string[] = []
 
   for (const issue of issues) {
-    const filename = generateFilename(issue)
+    const filename = generateFilename(issue, options)
     const filepath = join(todoDir, filename)
+
+    // Ensure subdirectory exists (for patterns with directories like [type]/...)
+    const fileDir = dirname(filepath)
+    if (fileDir !== todoDir) {
+      await fs.mkdir(fileDir, { recursive: true })
+    }
 
     // Security: Validate that the resolved path is within the target directory
     validatePathSafety(filepath, todoDir)

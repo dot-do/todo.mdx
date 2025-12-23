@@ -26,7 +26,8 @@ export { loadBeadsIssues, hasBeadsDirectory } from './beads.js'
 export { parseTodoFile, loadTodoFiles } from './parser.js'
 
 // Generator
-export { generateTodoFile, writeTodoFiles } from './generator.js'
+export { generateTodoFile, writeTodoFiles, DEFAULT_PATTERN } from './generator.js'
+export type { GeneratorOptions } from './generator.js'
 
 // Compiler
 export { compile, compileToString } from './compiler.js'

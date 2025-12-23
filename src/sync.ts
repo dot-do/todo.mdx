@@ -51,7 +51,8 @@ import type { CreateOptions, UpdateOptions } from 'beads-workflows'
 import { diff, applyExtract } from '@mdxld/markdown'
 import { loadBeadsIssues } from './beads.js'
 import { loadTodoFiles } from './parser.js'
-import { writeTodoFiles } from './generator.js'
+import { writeTodoFiles, DEFAULT_PATTERN } from './generator.js'
+import type { GeneratorOptions } from './generator.js'
 import type { TodoConfig, TodoIssue, SyncResult, SyncConflict } from './types.js'
 
 /**
@@ -62,6 +63,12 @@ export interface SyncOptions extends TodoConfig {
   dryRun?: boolean
   /** Sync direction */
   direction?: 'beads-to-files' | 'files-to-beads' | 'bidirectional'
+  /** Filename pattern for generated files (default: '[yyyy-mm-dd] [Title].md') */
+  pattern?: string
+  /** Subdirectory for closed issues (default: 'closed') */
+  closedSubdir?: string
+  /** Whether to separate closed issues into subdirectory (default: true) */
+  separateClosed?: boolean
 }
 
 /**
@@ -249,7 +256,17 @@ export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
     dryRun = false,
     direction = 'bidirectional',
     conflictStrategy = 'newest-wins',
+    pattern,
+    closedSubdir,
+    separateClosed,
   } = options
+
+  // Build generator options
+  const generatorOptions: GeneratorOptions = {
+    pattern,
+    closedSubdir,
+    separateClosed,
+  }
 
   const result: SyncResult = {
     created: [],
@@ -347,7 +364,7 @@ export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
   // Write changes to files
   if (toFiles.length > 0) {
     try {
-      const writtenPaths = await writeTodoFiles(toFiles, todoDir)
+      const writtenPaths = await writeTodoFiles(toFiles, todoDir, generatorOptions)
       result.filesWritten.push(...writtenPaths)
     } catch (error) {
       console.warn('Failed to write todo files:', error)

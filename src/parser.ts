@@ -128,12 +128,16 @@ function validateId(id: unknown): string {
  */
 export function parseTodoFile(content: string): ParsedTodoFile {
   // Use Markdown.extractMeta() to extract frontmatter as strings
-  const metaStrings = Markdown.extractMeta(content)
+  const extractMeta = Markdown.extractMeta
+  if (!extractMeta) {
+    throw new Error('Markdown.extractMeta is not available - check @mdxld/markdown version')
+  }
+  const metaStrings = extractMeta(content) as Record<string, string>
 
   // Parse values from strings to proper types
   const frontmatter: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(metaStrings)) {
-    frontmatter[key] = parseYamlValue(value)
+    frontmatter[key] = parseYamlValue(String(value))
   }
 
   // Extract body content (everything after frontmatter)

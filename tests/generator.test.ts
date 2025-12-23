@@ -337,10 +337,11 @@ describe('writeTodoFiles - Security Tests', () => {
       expect(writtenPaths[0]).not.toContain('..')
       expect(writtenPaths[0]).not.toContain('etc/passwd')
 
-      // Verify file was created inside todoDir
-      const files = await fs.readdir(todoDir)
+      // Verify file was created inside todoDir (new pattern: [yyyy-mm-dd] [Title].md)
+      const entries = await fs.readdir(todoDir, { withFileTypes: true })
+      const files = entries.filter(e => e.isFile()).map(e => e.name)
       expect(files.length).toBe(1)
-      expect(files[0]).toMatch(/^etc-passwd-malicious-issue\.md$/)
+      expect(files[0]).toMatch(/Malicious Issue\.md$/i)
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true })
     }
@@ -366,7 +367,8 @@ describe('writeTodoFiles - Security Tests', () => {
       expect(writtenPaths[0]).not.toContain('..')
       expect(writtenPaths[0]).not.toContain('\\')
 
-      const files = await fs.readdir(todoDir)
+      const entries = await fs.readdir(todoDir, { withFileTypes: true })
+      const files = entries.filter(e => e.isFile()).map(e => e.name)
       expect(files.length).toBe(1)
       expect(files[0]).not.toContain('\\')
     } finally {
@@ -421,7 +423,8 @@ describe('writeTodoFiles - Security Tests', () => {
       const writtenPaths = await writeTodoFiles([issue], todoDir)
       expect(writtenPaths).toBeDefined() // Should succeed after sanitization
 
-      const files = await fs.readdir(todoDir)
+      const entries = await fs.readdir(todoDir, { withFileTypes: true })
+      const files = entries.filter(e => e.isFile()).map(e => e.name)
       expect(files.length).toBe(1)
       // Verify the file is actually in the todoDir
       const fullPath = join(todoDir, files[0])
@@ -449,7 +452,8 @@ describe('writeTodoFiles - Security Tests', () => {
       // Should strip null bytes
       expect(writtenPaths[0]).not.toContain('\0')
 
-      const files = await fs.readdir(todoDir)
+      const entries = await fs.readdir(todoDir, { withFileTypes: true })
+      const files = entries.filter(e => e.isFile()).map(e => e.name)
       expect(files.length).toBe(1)
       expect(files[0]).not.toContain('\0')
     } finally {
