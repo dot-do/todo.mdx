@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { spawn } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
+import { createRequire } from 'node:module'
+
+const require = createRequire(import.meta.url)
+const pkg = require('../package.json')
+const VERSION = pkg.version
 
 // Mock the modules used by CLI
 vi.mock('../src/compiler.js', () => ({
@@ -355,7 +360,7 @@ describe('CLI - Integration Tests', () => {
   // Run 'pnpm build' before running these tests
   it('should show version', async () => {
     const result = await execCli(['--version'])
-    expect(result.stdout).toContain('0.1.0')
+    expect(result.stdout).toContain(VERSION)
     expect(result.exitCode).toBe(0)
   })
 
@@ -463,7 +468,7 @@ describe('CLI - Integration Tests', () => {
 
   it('should handle version command', async () => {
     const result = await execCli(['version'])
-    expect(result.stdout).toContain('0.1.0')
+    expect(result.stdout).toContain(VERSION)
     expect(result.exitCode).toBe(0)
   })
 
@@ -475,7 +480,7 @@ describe('CLI - Integration Tests', () => {
 
   it('should handle -v flag', async () => {
     const result = await execCli(['-v'])
-    expect(result.stdout).toContain('0.1.0')
+    expect(result.stdout).toContain(VERSION)
     expect(result.exitCode).toBe(0)
   })
 })

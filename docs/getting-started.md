@@ -36,7 +36,7 @@ bd create --title="Fix login bug" --type=bug --priority=0
 todo.mdx sync
 ```
 
-This creates `.todo/{id}-{slug}.md` files for each issue.
+This creates `.todo/[yyyy-mm-dd] [Title].md` files for each issue. Closed issues are organized in `.todo/closed/` subdirectory.
 
 ### 4. Build TODO.md
 
@@ -64,8 +64,10 @@ your-project/
 │   ├── issues.jsonl      # Beads issue database
 │   └── TODO.mdx          # Template (optional)
 ├── .todo/
-│   ├── todo-abc-add-user-auth.md
-│   └── todo-def-fix-login-bug.md
+│   ├── [2025-12-24] Add user authentication.md
+│   ├── [2025-12-24] Fix login bug.md
+│   └── closed/
+│       └── [2025-12-23] Initial setup.md
 └── TODO.md               # Compiled summary
 ```
 

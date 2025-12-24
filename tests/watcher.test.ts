@@ -56,7 +56,7 @@ describe('watch', () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
 
     // Setup mock watchers
     beadsWatcher = new MockFSWatcher()
@@ -308,7 +308,7 @@ describe('watch', () => {
 
     // Sync should have been called and error logged
     expect(sync).toHaveBeenCalledTimes(1)
-    expect(consoleErrorSpy).toHaveBeenCalledWith('Sync failed:', expect.any(Error))
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Watcher callback failed:', expect.any(Error))
 
     // Watcher should still be functional
     vi.mocked(sync).mockResolvedValueOnce({
@@ -504,6 +504,353 @@ describe('watch', () => {
 
     await watcher.close()
     vi.useRealTimers()
+  })
+
+  // Error handling tests
+  describe('error handling', () => {
+    it('should reset isSyncing and allow subsequent syncs when onChange throws', async () => {
+      vi.useFakeTimers()
+
+      let onChangeCallCount = 0
+      const onChange = (event: WatchEvent) => {
+        onChangeCallCount++
+        if (onChangeCallCount === 1) {
+          throw new Error('onChange callback error')
+        }
+        // Second call should succeed
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // First change - onChange will throw
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Error should have been logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed'),
+        expect.any(Error)
+      )
+
+      // Reset sync mock for next call
+      vi.mocked(sync).mockResolvedValueOnce({
+        created: [],
+        updated: [],
+        deleted: [],
+        filesWritten: [],
+        conflicts: [],
+      })
+
+      // Second change - should still work (isSyncing should have been reset)
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // onChange should have been called twice (proving isSyncing was reset)
+      expect(onChangeCallCount).toBe(2)
+
+      // sync should have been called for the second change
+      // (First sync may or may not have been called depending on where error happened)
+      expect(sync).toHaveBeenCalled()
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should process pending events after onChange throws', async () => {
+      vi.useFakeTimers()
+
+      let onChangeCallCount = 0
+      const onChange = (event: WatchEvent) => {
+        onChangeCallCount++
+        if (onChangeCallCount === 1) {
+          throw new Error('onChange callback error')
+        }
+      }
+
+      // Make sync take some time so we can queue events
+      let syncResolve: () => void
+      const syncPromise = new Promise<SyncResult>((resolve) => {
+        syncResolve = () =>
+          resolve({
+            created: [],
+            updated: [],
+            deleted: [],
+            filesWritten: [],
+            conflicts: [],
+          })
+      })
+
+      // First call will throw in onChange, but we need sync to be mocked
+      vi.mocked(sync).mockImplementation(() => {
+        // Return immediately for simplicity
+        return Promise.resolve({
+          created: [],
+          updated: [],
+          deleted: [],
+          filesWritten: [],
+          conflicts: [],
+        })
+      })
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // First change - onChange will throw
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Error should have been logged
+      expect(consoleErrorSpy).toHaveBeenCalled()
+
+      // The finally block should still run, including processing pending events
+      // Trigger another change
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // onChange should have been called twice
+      expect(onChangeCallCount).toBe(2)
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should not call sync if onChange throws before sync', async () => {
+      vi.useFakeTimers()
+
+      const onChange = (_event: WatchEvent) => {
+        throw new Error('onChange callback error')
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger change - onChange will throw before sync is called
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Error should have been logged
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Watcher callback failed:',
+        expect.objectContaining({ message: 'onChange callback error' })
+      )
+
+      // sync should NOT have been called because onChange threw first
+      expect(sync).not.toHaveBeenCalled()
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should catch and log errors from async onChange callbacks', async () => {
+      vi.useFakeTimers()
+
+      let asyncOnChangeCallCount = 0
+      const asyncOnChange = async (_event: WatchEvent) => {
+        asyncOnChangeCallCount++
+        // Simulate async work then throw
+        await Promise.resolve()
+        throw new Error('Async onChange callback error')
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange: asyncOnChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger change - async onChange will reject
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // The async callback should have been called
+      expect(asyncOnChangeCallCount).toBe(1)
+
+      // Error from async callback should have been logged (not crash the process)
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed'),
+        expect.objectContaining({ message: 'Async onChange callback error' })
+      )
+
+      // Watcher should remain functional after async callback error
+      vi.mocked(sync).mockClear()
+      consoleErrorSpy.mockClear()
+
+      // Second async callback succeeds
+      const asyncOnChangeSuccess = async (_event: WatchEvent) => {
+        asyncOnChangeCallCount++
+        await Promise.resolve()
+      }
+
+      // Note: We can't easily replace onChange mid-test, so we test the watcher still processes
+      // by triggering another change. If it crashes on first error, this would fail.
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // The callback should have been called again (proving watcher is still functional)
+      expect(asyncOnChangeCallCount).toBe(2)
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should handle async onChange that returns rejected promise', async () => {
+      vi.useFakeTimers()
+
+      let asyncOnChangeCallCount = 0
+      // This is an async function that rejects - the returned promise should be caught
+      const asyncOnChange = async (_event: WatchEvent): Promise<void> => {
+        asyncOnChangeCallCount++
+        await Promise.resolve() // Some async work
+        throw new Error('Async rejection error')
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange: asyncOnChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger change - async onChange will return a rejected promise
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // The callback should have been called
+      expect(asyncOnChangeCallCount).toBe(1)
+
+      // The rejection should be caught and logged, NOT cause unhandled rejection
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('failed'),
+        expect.objectContaining({ message: 'Async rejection error' })
+      )
+
+      // Watcher should remain functional
+      vi.mocked(sync).mockResolvedValueOnce({
+        created: [],
+        updated: [],
+        deleted: [],
+        filesWritten: [],
+        conflicts: [],
+      })
+
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Should have been called again, proving watcher is still working
+      expect(asyncOnChangeCallCount).toBe(2)
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should call custom onError callback instead of console.error', async () => {
+      vi.useFakeTimers()
+
+      const errors: { error: unknown; event: WatchEvent }[] = []
+      const onError = (error: unknown, event: WatchEvent) => {
+        errors.push({ error, event })
+      }
+
+      const onChange = (_event: WatchEvent) => {
+        throw new Error('Custom error handling test')
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+        onError,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger change - onChange will throw
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // onError should have been called
+      expect(errors).toHaveLength(1)
+      expect(errors[0].error).toBeInstanceOf(Error)
+      expect((errors[0].error as Error).message).toBe('Custom error handling test')
+      expect(errors[0].event).toEqual({
+        type: 'file-change',
+        path: '/test/.todo/task-1.md',
+      })
+
+      // console.error should NOT have been called (custom handler takes over)
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('failed'),
+        expect.any(Error)
+      )
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should call onError for sync errors when provided', async () => {
+      vi.useFakeTimers()
+
+      const errors: { error: unknown; event: WatchEvent }[] = []
+      const onError = (error: unknown, event: WatchEvent) => {
+        errors.push({ error, event })
+      }
+
+      // Make sync throw an error - set this BEFORE creating watcher
+      // so that the first call during the debounce callback rejects
+      vi.mocked(sync).mockRejectedValue(new Error('Sync error'))
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onError,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger change
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // onError should have been called with sync error
+      expect(errors).toHaveLength(1)
+      expect((errors[0].error as Error).message).toBe('Sync error')
+
+      // console.error should NOT have been called
+      expect(consoleErrorSpy).not.toHaveBeenCalled()
+
+      await watcher.close()
+      vi.useRealTimers()
+    })
   })
 
   // Race condition tests
@@ -763,6 +1110,222 @@ describe('watch', () => {
       await secondSyncPromise
 
       await watcher.close()
+      vi.useRealTimers()
+    })
+
+    it('should not process events that fire during shutdown (race condition)', async () => {
+      vi.useFakeTimers()
+
+      const events: WatchEvent[] = []
+      const onChange = (event: WatchEvent) => {
+        events.push(event)
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger a change and wait for it to be processed
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      expect(sync).toHaveBeenCalledTimes(1)
+      expect(events).toHaveLength(1)
+
+      // Reset mocks to track new calls
+      vi.mocked(sync).mockClear()
+      events.length = 0
+
+      // Trigger a change but don't let it complete debounce yet
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(50) // Only 50ms into 100ms debounce
+
+      // Start closing - this should immediately prevent any further processing
+      const closePromise = watcher.close()
+
+      // Advance timer past debounce - the callback would fire but shouldn't process
+      vi.advanceTimersByTime(100)
+      await vi.runAllTimersAsync()
+
+      await closePromise
+
+      // The event should NOT have been processed because we started closing
+      // The bug: if isReady is set to false at the END of close(), the debounced
+      // callback could fire during the shutdown window and still process
+      expect(sync).not.toHaveBeenCalled()
+      expect(events).toHaveLength(0)
+
+      vi.useRealTimers()
+    })
+
+    it('should not process pending events during shutdown', async () => {
+      vi.useFakeTimers()
+
+      // Make sync take some time so we can queue a pending event
+      let syncResolve: () => void
+      const syncPromise = new Promise<SyncResult>((resolve) => {
+        syncResolve = () =>
+          resolve({
+            created: [],
+            updated: [],
+            deleted: [],
+            filesWritten: [],
+            conflicts: [],
+          })
+      })
+      vi.mocked(sync).mockImplementationOnce(() => syncPromise)
+
+      const events: WatchEvent[] = []
+      const onChange = (event: WatchEvent) => {
+        events.push(event)
+      }
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger first change and start sync
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      expect(sync).toHaveBeenCalledTimes(1)
+
+      // While first sync is running, trigger another change (this will be queued as pendingEvent)
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Reset to track new sync calls
+      vi.mocked(sync).mockClear()
+
+      // Start closing while sync is still running and there's a pending event
+      const closePromise = watcher.close()
+
+      // Resolve the first sync - normally this would trigger the pending event
+      syncResolve!()
+      await syncPromise
+
+      // Advance timers to allow any pending callbacks
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      await closePromise
+
+      // The pending event should NOT have triggered a sync because we started closing
+      expect(sync).not.toHaveBeenCalled()
+
+      vi.useRealTimers()
+    })
+
+    it('should prevent new timer created during close() from processing', async () => {
+      vi.useFakeTimers()
+
+      // This test demonstrates the race condition when a sync's finally block
+      // creates a NEW timer DURING the close() operation:
+      // 1. A sync is running with pendingEvent set
+      // 2. close() is called and clears the current timer
+      // 3. The sync completes, its finally block triggers pendingEvent
+      // 4. triggerSync creates a NEW timer
+      // 5. Without the fix, this new timer could fire before isReady is set false
+
+      const events: WatchEvent[] = []
+      const onChange = (event: WatchEvent) => {
+        events.push(event)
+      }
+
+      // Make first sync wait until we explicitly resolve it
+      let firstSyncResolve: () => void
+      const firstSyncPromise = new Promise<SyncResult>((resolve) => {
+        firstSyncResolve = () =>
+          resolve({
+            created: [],
+            updated: [],
+            deleted: [],
+            filesWritten: [],
+            conflicts: [],
+          })
+      })
+
+      let syncCallCount = 0
+      vi.mocked(sync).mockImplementation(() => {
+        syncCallCount++
+        if (syncCallCount === 1) {
+          return firstSyncPromise
+        }
+        return Promise.resolve({
+          created: [],
+          updated: [],
+          deleted: [],
+          filesWritten: [],
+          conflicts: [],
+        })
+      })
+
+      // Make watcher close take time
+      let watcherCloseResolve: () => void
+      const watcherClosePromise = new Promise<void>((resolve) => {
+        watcherCloseResolve = () => resolve()
+      })
+      beadsWatcher.close = () => watcherClosePromise
+
+      const watcherPromise = watch({
+        todoDir: '.todo',
+        debounceMs: 100,
+        onChange,
+      })
+
+      const watcher = await watcherPromise
+
+      // Trigger first change and start sync
+      todoWatcher.emit('change', '/test/.todo/task-1.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      expect(sync).toHaveBeenCalledTimes(1)
+      expect(events).toHaveLength(1)
+
+      // While first sync is running, trigger another change (sets pendingEvent)
+      todoWatcher.emit('change', '/test/.todo/task-2.md')
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Reset tracking
+      events.length = 0
+      vi.mocked(sync).mockClear()
+
+      // Start close() - this clears the timer and sets isReady=false (with fix)
+      const closePromise = watcher.close()
+
+      // Now resolve the sync - its finally block will call triggerSync(pending)
+      // This creates a NEW debounce timer
+      firstSyncResolve!()
+
+      // Let the microtasks run so the finally block executes
+      await Promise.resolve()
+
+      // Advance time to let the new timer fire
+      vi.advanceTimersByTime(150)
+      await vi.runAllTimersAsync()
+
+      // Complete the watcher close
+      watcherCloseResolve!()
+      await closePromise
+
+      // The pending event should NOT have been processed
+      // because isReady was set to false at the START of close()
+      expect(sync).not.toHaveBeenCalled()
+      expect(events).toHaveLength(0)
+
       vi.useRealTimers()
     })
   })

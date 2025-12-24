@@ -316,6 +316,184 @@ describe('generateTodoFile - @mdxld/markdown compatibility', () => {
   })
 })
 
+describe('writeTodoFiles - Security: Validation Before Directory Creation', () => {
+  it('should validate paths BEFORE creating directories to prevent path traversal', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+    const escapedDir = join(tmpDir, 'escaped')
+
+    try {
+      // Create a malicious issue that attempts to create directories outside todoDir
+      // Using a custom pattern that could allow subdirectories
+      const issue: TodoIssue = {
+        id: 'todo-malicious',
+        title: '../escaped/malicious-file',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      // This should either:
+      // 1. Sanitize the path and succeed within todoDir, OR
+      // 2. Throw a path traversal error BEFORE creating any escaped directories
+      try {
+        await writeTodoFiles([issue], todoDir)
+      } catch (error) {
+        // If it throws, that's acceptable - the important thing is no escaped directory was created
+      }
+
+      // The key test: no directory should have been created outside todoDir
+      // If validation happens AFTER mkdir, this would fail
+      const escapedDirExists = await fs.access(escapedDir).then(() => true).catch(() => false)
+      expect(escapedDirExists).toBe(false)
+
+      // Verify todoDir structure is intact
+      const todoDirExists = await fs.access(todoDir).then(() => true).catch(() => false)
+      expect(todoDirExists).toBe(true)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should validate directory path before mkdir when using [type]/[title].md pattern', async () => {
+    // This test specifically targets the vulnerability where fileDir != todoDir
+    // triggers mkdir BEFORE validatePathSafety
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+    const escapedPath = join(tmpDir, 'malicious')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo-test',
+        title: 'Normal Title',
+        status: 'open',
+        priority: 2,
+        // Use a type that could be manipulated for path traversal
+        type: '../malicious' as any,
+      }
+
+      // With pattern [type]/[title].md, this would try to create ../malicious/ dir
+      try {
+        await writeTodoFiles([issue], todoDir, { pattern: '[type]/[title].md' })
+      } catch (error) {
+        // Expected to throw - but BEFORE creating directories
+      }
+
+      // No malicious directory should exist
+      const maliciousDirExists = await fs.access(escapedPath).then(() => true).catch(() => false)
+      expect(maliciousDirExists).toBe(false)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('CRITICAL: should NOT create ANY directory outside todoDir even if path resolves outside', async () => {
+    // This is the CRITICAL test that exposes the vulnerability
+    // The bug: mkdir(fileDir) happens BEFORE validatePathSafety(filepath, todoDir)
+    // So even though validation will eventually fail, the directory is already created
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+    const attackDir = join(tmpDir, 'pwned')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo-test',
+        title: 'innocent',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      // Use a pattern that injects path traversal via closedSubdir option
+      // Since closed issues go to closedSubdir, we can inject '../pwned' there
+      issue.status = 'closed'
+
+      try {
+        await writeTodoFiles([issue], todoDir, {
+          closedSubdir: '../pwned',
+          separateClosed: true
+        })
+      } catch (error) {
+        // Should throw - but the question is: did it create the directory first?
+      }
+
+      // THE VULNERABILITY: If mkdir happens before validation,
+      // the 'pwned' directory will exist even though the operation failed
+      const attackDirExists = await fs.access(attackDir).then(() => true).catch(() => false)
+      expect(attackDirExists).toBe(false) // This should PASS if fix is correct
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('writeTodoFiles - Security: Path Traversal via closedSubdir', () => {
+  it('should reject closedSubdir containing path traversal sequences', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+    const attackPath = join(tmpDir, 'etc', 'passwd')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo-closed',
+        title: 'Closed Issue',
+        status: 'closed',
+        priority: 2,
+        type: 'task',
+      }
+
+      // Attack via closedSubdir option with path traversal
+      try {
+        await writeTodoFiles([issue], todoDir, {
+          closedSubdir: '../../../etc/passwd',
+          separateClosed: true
+        })
+        // Should NOT reach here
+        expect.fail('Should have thrown a path traversal error')
+      } catch (error: any) {
+        expect(error.message).toContain('path traversal')
+      }
+
+      // Verify no directories were created outside todoDir
+      const etcExists = await fs.access(join(tmpDir, 'etc')).then(() => true).catch(() => false)
+      expect(etcExists).toBe(false)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should reject pattern that creates directories outside todoDir', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo-test',
+        title: 'Test',
+        status: 'open',
+        priority: 2,
+        type: 'task',
+      }
+
+      // Attack via pattern option
+      try {
+        await writeTodoFiles([issue], todoDir, {
+          pattern: '../attack/[title].md'
+        })
+        expect.fail('Should have thrown a path traversal error')
+      } catch (error: any) {
+        expect(error.message).toContain('path traversal')
+      }
+
+      // Verify attack directory was not created
+      const attackExists = await fs.access(join(tmpDir, 'attack')).then(() => true).catch(() => false)
+      expect(attackExists).toBe(false)
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('writeTodoFiles - Security Tests', () => {
   it('should sanitize path traversal in issue ID', async () => {
     const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
@@ -456,6 +634,66 @@ describe('writeTodoFiles - Security Tests', () => {
       const files = entries.filter(e => e.isFile()).map(e => e.name)
       expect(files.length).toBe(1)
       expect(files[0]).not.toContain('\0')
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should reject absolute path in closedSubdir', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo-closed',
+        title: 'Closed Issue',
+        status: 'closed',
+        priority: 2,
+        type: 'task',
+      }
+
+      // Attack with absolute path - should be rejected
+      try {
+        await writeTodoFiles([issue], todoDir, {
+          closedSubdir: '/tmp/attack',
+          separateClosed: true
+        })
+        expect.fail('Should have thrown a path traversal error')
+      } catch (error: any) {
+        expect(error.message).toContain('path traversal')
+      }
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+  })
+
+  it('should reject symlink-like names with ..', async () => {
+    const tmpDir = await fs.mkdtemp(join(tmpdir(), 'todo-test-'))
+    const todoDir = join(tmpDir, '.todo')
+    const escapedDir = join(tmpDir, 'attack')
+
+    try {
+      const issue: TodoIssue = {
+        id: 'todo-test',
+        title: 'Normal',
+        status: 'closed',
+        priority: 2,
+        type: 'task',
+      }
+
+      // Attack with a closed subdir that uses ..
+      try {
+        await writeTodoFiles([issue], todoDir, {
+          closedSubdir: 'legit/../attack',
+          separateClosed: true
+        })
+      } catch (error) {
+        // May throw or sanitize - either is acceptable
+      }
+
+      // Key check: no directory should exist outside todoDir
+      const attackDirExists = await fs.access(escapedDir).then(() => true).catch(() => false)
+      expect(attackDirExists).toBe(false)
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true })
     }

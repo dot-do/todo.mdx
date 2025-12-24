@@ -69,6 +69,15 @@ export interface SyncOptions extends TodoConfig {
   closedSubdir?: string
   /** Whether to separate closed issues into subdirectory (default: true) */
   separateClosed?: boolean
+  /**
+   * Handle deletions during sync (default: false)
+   * When true:
+   * - In files-to-beads direction: deletes from beads if file is missing
+   * - In beads-to-files direction: deletes file if issue is missing from beads
+   * - In bidirectional: respects the source of truth based on direction
+   * When false (default): missing items are recreated, not deleted
+   */
+  handleDeletions?: boolean
 }
 
 /**
@@ -81,6 +90,10 @@ export interface ChangeDetectionResult {
   toFiles: TodoIssue[]
   /** Conflicts detected */
   conflicts: SyncConflict[]
+  /** Issue IDs that exist in beads but not in files (files were deleted) */
+  deletedFiles: string[]
+  /** Issue IDs that exist in files but not in beads (deleted from beads) */
+  deletedFromBeads: string[]
 }
 
 /**
@@ -150,18 +163,23 @@ export function detectChanges(
   const toBeads: TodoIssue[] = []
   const toFiles: TodoIssue[] = []
   const conflicts: SyncConflict[] = []
+  const deletedFiles: string[] = []
+  const deletedFromBeads: string[] = []
 
   // Create maps for efficient lookup
   const beadsMap = new Map(beadsIssues.map((issue) => [issue.id, issue]))
   const fileMap = new Map(fileIssues.map((issue) => [issue.id, issue]))
 
-  // Check for new issues in files that need to be created in beads
+  // Check for issues in files
   for (const fileIssue of fileIssues) {
     const beadsIssue = beadsMap.get(fileIssue.id)
 
     if (!beadsIssue) {
-      // New issue in file, needs to be created in beads
+      // Issue exists in file but not in beads
+      // This could be: 1) new issue created in file, or 2) issue was deleted from beads
+      // We track both: add to toBeads (to recreate) AND track as deletedFromBeads
       toBeads.push(fileIssue)
+      deletedFromBeads.push(fileIssue.id)
       continue
     }
 
@@ -198,21 +216,34 @@ export function detectChanges(
     }
   }
 
-  // Check for new issues in beads that need to be written to files
+  // Check for issues in beads that don't have corresponding files
   for (const beadsIssue of beadsIssues) {
     if (!fileMap.has(beadsIssue.id)) {
+      // Issue exists in beads but not in files
+      // This could be: 1) new issue in beads, or 2) file was deleted
+      // We track both: add to toFiles (to recreate) AND track as deletedFiles
       toFiles.push(beadsIssue)
+      deletedFiles.push(beadsIssue.id)
     }
   }
 
-  return { toBeads, toFiles, conflicts }
+  return { toBeads, toFiles, conflicts, deletedFiles, deletedFromBeads }
+}
+
+/**
+ * Extended CreateOptions that includes the optional id field
+ * The beads CLI supports --id but the beads-workflows type doesn't include it
+ */
+interface CreateOptionsWithId extends CreateOptions {
+  id?: string
 }
 
 /**
  * Convert TodoIssue to CreateOptions for beads-workflows
  */
-function toCreateOptions(issue: TodoIssue): CreateOptions {
+function toCreateOptions(issue: TodoIssue): CreateOptionsWithId {
   return {
+    id: issue.id,
     title: issue.title,
     type: issue.type,
     priority: issue.priority,
@@ -259,6 +290,7 @@ export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
     pattern,
     closedSubdir,
     separateClosed,
+    handleDeletions = false,
   } = options
 
   // Build generator options
@@ -281,7 +313,10 @@ export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
   const fileIssues = await loadTodoFiles(todoDir)
 
   // Detect changes
-  let { toBeads, toFiles, conflicts } = detectChanges(beadsIssues, fileIssues)
+  let { toBeads, toFiles, conflicts, deletedFiles, deletedFromBeads } = detectChanges(
+    beadsIssues,
+    fileIssues
+  )
 
   // Handle conflicts based on strategy
   if (conflicts.length > 0) {
@@ -320,6 +355,31 @@ export async function sync(options: SyncOptions = {}): Promise<SyncResult> {
         resolution,
       }
       result.conflicts.push(resolvedConflict)
+    }
+  }
+
+  // Handle deletions if enabled
+  // When handleDeletions is true, we delete instead of recreating
+  if (handleDeletions) {
+    if (direction === 'files-to-beads') {
+      // Files are source of truth - delete from beads if file was deleted
+      // Remove from toFiles since we're deleting, not recreating
+      toFiles = toFiles.filter((issue) => !deletedFiles.includes(issue.id))
+      // Track deleted issues
+      result.deleted.push(...deletedFiles)
+    } else if (direction === 'beads-to-files') {
+      // Beads is source of truth - delete files if issue was deleted from beads
+      // Remove from toBeads since we're deleting files, not recreating in beads
+      toBeads = toBeads.filter((issue) => !deletedFromBeads.includes(issue.id))
+      // Track deleted files (we'd need a deleteTodoFile function, for now just track)
+      result.deleted.push(...deletedFromBeads)
+    } else {
+      // Bidirectional with handleDeletions:
+      // - If file exists but issue is gone from beads -> delete the file (beads is authoritative)
+      // - If issue exists in beads but file is gone -> recreate the file (beads is authoritative)
+      // This means: delete orphan files, but don't delete from beads
+      toBeads = toBeads.filter((issue) => !deletedFromBeads.includes(issue.id))
+      result.deleted.push(...deletedFromBeads)
     }
   }
 

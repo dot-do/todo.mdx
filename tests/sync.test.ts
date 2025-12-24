@@ -905,3 +905,49 @@ describe('sync with applyExtract()', () => {
   })
 })
 
+describe('sync issue ID preservation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(loadBeadsIssues).mockResolvedValue([])
+    vi.mocked(loadTodoFiles).mockResolvedValue([])
+    vi.mocked(writeTodoFiles).mockResolvedValue([])
+    vi.mocked(createIssue).mockResolvedValue({ success: true })
+    vi.mocked(updateIssue).mockResolvedValue({ success: true })
+    vi.mocked(closeIssue).mockResolvedValue({ success: true })
+  })
+
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should pass the issue ID when creating a new issue in beads from a file', async () => {
+    const fileIssues: TodoIssue[] = [
+      {
+        id: 'my-custom-id-123',
+        title: 'Task with custom ID',
+        description: 'This task has a specific ID that should be preserved',
+        status: 'open',
+        type: 'task',
+        priority: 2,
+        source: 'file',
+        updatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    ]
+
+    vi.mocked(loadBeadsIssues).mockResolvedValue([])
+    vi.mocked(loadTodoFiles).mockResolvedValue(fileIssues)
+
+    const result = await sync({ todoDir: '.todo' })
+
+    // The ID should be passed to createIssue
+    expect(createIssue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'my-custom-id-123',
+        title: 'Task with custom ID',
+      }),
+      expect.any(Object)
+    )
+    expect(result.created).toContain('my-custom-id-123')
+  })
+})
+

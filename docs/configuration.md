@@ -87,6 +87,47 @@ Debounce delay for file watcher.
 await watch({ debounceMs: 500 })
 ```
 
+### `pattern`
+
+Filename pattern for generated `.todo/*.md` files.
+
+- **Type:** `string`
+- **Default:** `[yyyy-mm-dd] [Title].md`
+
+Supported placeholders:
+- `[yyyy-mm-dd]` - Creation date (e.g., 2025-12-24)
+- `[Title]` - Issue title with spaces preserved
+- `[id]` - Issue ID
+- `[type]` - Issue type
+- `[priority]` - Priority number
+
+```typescript
+await sync({ pattern: '[id]-[title].md' })
+await sync({ pattern: '[type]/[yyyy-mm-dd] [Title].md' })
+```
+
+### `separateClosed`
+
+Whether to organize closed issues into a subdirectory.
+
+- **Type:** `boolean`
+- **Default:** `true`
+
+```typescript
+await sync({ separateClosed: false })  // Keep all issues in same directory
+```
+
+### `closedSubdir`
+
+Subdirectory name for closed issues when `separateClosed` is true.
+
+- **Type:** `string`
+- **Default:** `closed`
+
+```typescript
+await sync({ closedSubdir: 'archive' })
+```
+
 ## File Format
 
 ### `.todo/*.md` Format

@@ -40,8 +40,10 @@ import { resolve } from 'node:path'
 export interface WatchOptions extends TodoConfig {
   /** Debounce delay in milliseconds (default: 300) */
   debounceMs?: number
-  /** Callback for file change events */
-  onChange?: (event: WatchEvent) => void
+  /** Callback for file change events (can be async) */
+  onChange?: (event: WatchEvent) => void | Promise<void>
+  /** Callback for error handling (called when onChange or sync throws) */
+  onError?: (error: unknown, event: WatchEvent) => void
 }
 
 /**
@@ -76,6 +78,7 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
     todoDir = '.todo',
     debounceMs = 300,
     onChange,
+    onError,
     conflictStrategy = 'newest-wins',
   } = options
 
@@ -124,9 +127,9 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
       try {
         state.isSyncing = true
 
-        // Emit change event
+        // Emit change event (await in case callback is async)
         if (onChange) {
-          onChange(event)
+          await Promise.resolve(onChange(event))
         }
 
         // Perform sync
@@ -136,8 +139,12 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
           conflictStrategy,
         })
       } catch (error) {
-        // Log error but don't crash
-        console.error('Sync failed:', error)
+        // Handle error with custom callback or default to console.error
+        if (onError) {
+          onError(error, event)
+        } else {
+          console.error('Watcher callback failed:', error)
+        }
       } finally {
         state.isSyncing = false
 
@@ -224,6 +231,14 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
   // Return watcher interface
   return {
     async close() {
+      // IMPORTANT: Set isReady to false FIRST to prevent any pending or queued
+      // callbacks from processing. This prevents a race condition where:
+      // 1. A debounced callback fires and is queued in the event loop
+      // 2. close() is called but only sets isReady=false at the end
+      // 3. The callback runs while close() is awaiting watcher.close()
+      // 4. The callback sees isReady=true and processes the event
+      state.isReady = false
+
       // Clear any pending debounce timer
       if (state.debounceTimer) {
         clearTimeout(state.debounceTimer)
@@ -237,8 +252,6 @@ export async function watch(options: WatchOptions = {}): Promise<Watcher> {
         state.beadsWatcher?.close(),
         state.todoWatcher?.close(),
       ])
-
-      state.isReady = false
     },
   }
 }

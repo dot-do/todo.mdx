@@ -230,30 +230,38 @@ export async function writeTodoFiles(
   todoDir: string = '.todo',
   options: GeneratorOptions = {}
 ): Promise<string[]> {
-  // Create .todo directory if it doesn't exist
-  await fs.mkdir(todoDir, { recursive: true })
+  // Resolve todoDir to absolute path for consistent validation
+  const resolvedTodoDir = resolve(todoDir)
 
-  // Create closed subdirectory if needed
+  // Create .todo directory if it doesn't exist
+  await fs.mkdir(resolvedTodoDir, { recursive: true })
+
+  // Create closed subdirectory if needed - but validate FIRST
   const closedSubdir = options.closedSubdir || 'closed'
   const separateClosed = options.separateClosed !== false
   if (separateClosed) {
-    await fs.mkdir(join(todoDir, closedSubdir), { recursive: true })
+    const closedPath = join(resolvedTodoDir, closedSubdir)
+    // Security: Validate closed subdirectory BEFORE creating
+    validatePathSafety(closedPath, resolvedTodoDir)
+    await fs.mkdir(closedPath, { recursive: true })
   }
 
   const writtenPaths: string[] = []
 
   for (const issue of issues) {
     const filename = generateFilename(issue, options)
-    const filepath = join(todoDir, filename)
+    const filepath = join(resolvedTodoDir, filename)
+
+    // Security: Validate BEFORE creating any directories or files
+    validatePathSafety(filepath, resolvedTodoDir)
 
     // Ensure subdirectory exists (for patterns with directories like [type]/...)
     const fileDir = dirname(filepath)
-    if (fileDir !== todoDir) {
+    if (fileDir !== resolvedTodoDir) {
+      // Security: Validate subdirectory path BEFORE creating
+      validatePathSafety(fileDir, resolvedTodoDir)
       await fs.mkdir(fileDir, { recursive: true })
     }
-
-    // Security: Validate that the resolved path is within the target directory
-    validatePathSafety(filepath, todoDir)
 
     const content = generateTodoFile(issue)
     await fs.writeFile(filepath, content, 'utf-8')

@@ -10,8 +10,11 @@ import { join, resolve, sep } from 'node:path'
 import { compile } from './compiler.js'
 import { sync } from './sync.js'
 import type { SyncOptions } from './sync.js'
+import { createRequire } from 'node:module'
 
-const VERSION = '0.1.0'
+const require = createRequire(import.meta.url)
+const pkg = require('../package.json')
+const VERSION = pkg.version
 
 const HELP_TEXT = `
 todo.mdx - Bi-directional sync between TODO.mdx, .todo/*.md files, and beads
