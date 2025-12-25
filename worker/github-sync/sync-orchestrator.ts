@@ -459,11 +459,11 @@ export function createSyncOrchestrator(
                     owner: installation.owner,
                     repo: installation.repo,
                   })
-                  await beadsOps.updateIssue(beadsIssue.id!, convertedBeads)
+                  const updatedBeads = await beadsOps.updateIssue(beadsIssue.id!, convertedBeads)
 
                   await mappingOps.updateMapping(mapping.$id, {
                     lastSyncedAt: new Date().toISOString(),
-                    beadsUpdatedAt: beadsIssue.updatedAt,
+                    beadsUpdatedAt: updatedBeads.updatedAt,
                     githubUpdatedAt: ghIssue.updated_at,
                   })
                 } else {

@@ -1176,6 +1176,79 @@ describe('SyncOrchestrator', () => {
       expect(result.conflicts[0].resolution).toBe('github')
     })
 
+    it('should use NEW beadsUpdatedAt timestamp when GitHub wins conflict resolution', async () => {
+      // This test verifies the fix for issue todo-bqc2: Race condition in beadsUpdatedAt timestamp
+      // When GitHub wins, the mapping should be updated with the NEW beads timestamp (from updateIssue result),
+      // not the OLD beadsIssue.updatedAt that existed before the update.
+
+      const oldBeadsTimestamp = '2025-01-02T00:00:00Z'
+      const newBeadsTimestamp = '2025-01-04T00:00:00Z' // The timestamp after updateIssue
+      const githubTimestamp = '2025-01-03T00:00:00Z'
+
+      const beadsIssue: BeadsIssue = {
+        id: 'beads-1',
+        title: 'Beads Title',
+        description: 'Beads description',
+        type: 'bug',
+        status: 'open',
+        priority: 2,
+        labels: [],
+        dependsOn: [],
+        blocks: [],
+        externalRef: 'github.com/test-owner/test-repo/issues/100',
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: oldBeadsTimestamp, // OLD timestamp
+      }
+
+      const ghIssue: GitHubIssue = {
+        number: 100,
+        title: 'GitHub Title',
+        body: 'GitHub description',
+        state: 'open',
+        labels: [],
+        assignee: null,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: githubTimestamp,
+        closed_at: null,
+        html_url: 'https://github.com/test-owner/test-repo/issues/100',
+      }
+
+      const mapping: IssueMapping = {
+        $type: 'IssueMapping',
+        $id: 'mapping-1',
+        installationId: 'inst-1',
+        beadsId: 'beads-1',
+        githubNumber: 100,
+        githubUrl: 'https://github.com/test-owner/test-repo/issues/100',
+        lastSyncedAt: '2025-01-01T00:00:00Z',
+        beadsUpdatedAt: '2025-01-01T00:00:00Z',
+        githubUpdatedAt: '2025-01-01T00:00:00Z',
+      }
+
+      mockBeadsOps.listIssues.mockResolvedValue([beadsIssue])
+      mockGitHubClient.listIssues.mockResolvedValue([ghIssue])
+      mockMappingOps.getMappingByGitHub.mockResolvedValue(mapping)
+      mockMappingOps.getMapping.mockResolvedValue(mapping)
+
+      // Mock updateIssue to return an issue with a NEW timestamp
+      mockBeadsOps.updateIssue.mockResolvedValue({
+        id: 'beads-1',
+        title: 'GitHub Title',
+        updatedAt: newBeadsTimestamp, // NEW timestamp from update
+      })
+
+      await orchestrator.sync({ strategy: 'github-wins' })
+
+      // The mapping should be updated with the NEW beads timestamp, not the OLD one
+      expect(mockMappingOps.updateMapping).toHaveBeenCalledWith(
+        'mapping-1',
+        expect.objectContaining({
+          beadsUpdatedAt: newBeadsTimestamp, // Should use NEW timestamp
+          githubUpdatedAt: githubTimestamp,
+        })
+      )
+    })
+
     it('should record conflicts in result', async () => {
       const beadsIssue: BeadsIssue = {
         id: 'beads-1',

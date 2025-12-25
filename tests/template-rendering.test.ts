@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { renderTemplate } from '../src/templates.js'
+import { renderTemplate, resolveTemplate } from '../src/templates.js'
 import type { TodoIssue } from '../src/types.js'
 
 describe('renderTemplate', () => {
@@ -138,5 +138,105 @@ Note: Use {brackets} for literal braces.`
   it('should handle template with no interpolations', () => {
     const result = renderTemplate('Just plain text', { issue: sampleIssue })
     expect(result).toBe('Just plain text')
+  })
+})
+
+describe('built-in templates with renderTemplate', () => {
+  const sampleIssue: TodoIssue = {
+    id: 'todo-456',
+    title: 'Test Issue Title',
+    description: 'This is a test description',
+    status: 'open',
+    type: 'task',
+    priority: 1,
+    assignee: 'alice',
+    labels: ['enhancement', 'docs'],
+    createdAt: '2025-12-24T00:00:00Z',
+    updatedAt: '2025-12-24T01:00:00Z',
+    dependsOn: ['todo-123'],
+    blocks: ['todo-789'],
+  }
+
+  it('should render minimal preset without Handlebars syntax remaining', async () => {
+    const template = await resolveTemplate('issue', { preset: 'minimal' })
+    const result = renderTemplate(template, { issue: sampleIssue })
+
+    // Should interpolate the title
+    expect(result).toContain('Test Issue Title')
+    // Should NOT contain Handlebars syntax
+    expect(result).not.toMatch(/\{\{#if/)
+    expect(result).not.toMatch(/\{\{#each/)
+    expect(result).not.toMatch(/\{\{#unless/)
+    expect(result).not.toMatch(/\{\{\/if/)
+    expect(result).not.toMatch(/\{\{\/each/)
+    // Should not have unrendered Handlebars variables like {{issue.title}}
+    expect(result).not.toMatch(/\{\{issue\./)
+  })
+
+  it('should render detailed preset without Handlebars syntax remaining', async () => {
+    const template = await resolveTemplate('issue', { preset: 'detailed' })
+    const result = renderTemplate(template, { issue: sampleIssue })
+
+    // Should interpolate fields
+    expect(result).toContain('Test Issue Title')
+    expect(result).toContain('todo-456')
+    expect(result).toContain('open')
+    // Should NOT contain Handlebars syntax
+    expect(result).not.toMatch(/\{\{#if/)
+    expect(result).not.toMatch(/\{\{#each/)
+    expect(result).not.toMatch(/\{\{issue\./)
+  })
+
+  it('should render github preset without Handlebars syntax remaining', async () => {
+    const template = await resolveTemplate('issue', { preset: 'github' })
+    const result = renderTemplate(template, { issue: sampleIssue })
+
+    // Should interpolate fields
+    expect(result).toContain('Test Issue Title')
+    // Should NOT contain Handlebars syntax
+    expect(result).not.toMatch(/\{\{#if/)
+    expect(result).not.toMatch(/\{\{#each/)
+    expect(result).not.toMatch(/\{\{issue\./)
+  })
+
+  it('should render linear preset without Handlebars syntax remaining', async () => {
+    const template = await resolveTemplate('issue', { preset: 'linear' })
+    const result = renderTemplate(template, { issue: sampleIssue })
+
+    // Should interpolate fields
+    expect(result).toContain('Test Issue Title')
+    // Should NOT contain Handlebars syntax
+    expect(result).not.toMatch(/\{\{#if/)
+    expect(result).not.toMatch(/\{\{#each/)
+    expect(result).not.toMatch(/\{\{issue\./)
+    // Should not have unrendered helper expressions
+    expect(result).not.toMatch(/\{\{#/)
+    expect(result).not.toMatch(/\(eq /)
+  })
+
+  it('should properly render arrays as comma-separated values', async () => {
+    const template = await resolveTemplate('issue', { preset: 'detailed' })
+    const result = renderTemplate(template, { issue: sampleIssue })
+
+    // Labels should be rendered as comma-separated
+    expect(result).toContain('enhancement, docs')
+  })
+
+  it('should handle missing optional fields gracefully', async () => {
+    const issueWithMissingFields: TodoIssue = {
+      id: 'todo-minimal',
+      title: 'Minimal Issue',
+      status: 'open',
+      type: 'task',
+      priority: 2,
+    }
+
+    const template = await resolveTemplate('issue', { preset: 'detailed' })
+    const result = renderTemplate(template, { issue: issueWithMissingFields })
+
+    // Should still render without errors
+    expect(result).toContain('Minimal Issue')
+    // Should not render "undefined" as a string
+    expect(result).not.toContain('undefined')
   })
 })

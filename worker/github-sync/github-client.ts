@@ -88,12 +88,12 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     },
 
     async listIssues(owner: string, repo: string, options?: { state?: 'open' | 'closed' | 'all', per_page?: number }): Promise<GitHubIssue[]> {
-      const response = await octokit.rest.issues.listForRepo({
+      return await octokit.paginate(octokit.rest.issues.listForRepo, {
         owner,
         repo,
+        per_page: 100,
         ...filterUndefined(options || {}),
-      })
-      return response.data as GitHubIssue[]
+      }) as GitHubIssue[]
     },
 
     async addLabels(owner: string, repo: string, number: number, labels: string[]): Promise<void> {

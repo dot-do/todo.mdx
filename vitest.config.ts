@@ -3,7 +3,7 @@ import { resolve } from 'path'
 
 export default defineConfig({
   test: {
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'worker/**/*.test.ts'],
     globals: true,
     coverage: {
       provider: 'v8',

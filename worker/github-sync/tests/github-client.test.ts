@@ -18,6 +18,7 @@ describe('GitHubClient', () => {
           removeLabel: vi.fn(),
         },
       },
+      paginate: vi.fn(),
     }
 
     // Create client with mock Octokit
@@ -188,7 +189,7 @@ describe('GitHubClient', () => {
   })
 
   describe('listIssues', () => {
-    it('should call octokit.rest.issues.listForRepo with default options', async () => {
+    it('should use octokit.paginate with default options', async () => {
       const mockResponse: GitHubIssue[] = [
         {
           number: 1,
@@ -216,48 +217,110 @@ describe('GitHubClient', () => {
         },
       ]
 
-      mockOctokit.rest.issues.listForRepo.mockResolvedValue({ data: mockResponse })
+      mockOctokit.paginate.mockResolvedValue(mockResponse)
 
       const result = await client.listIssues('owner', 'repo')
 
-      expect(mockOctokit.rest.issues.listForRepo).toHaveBeenCalledWith({
-        owner: 'owner',
-        repo: 'repo',
-      })
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.rest.issues.listForRepo,
+        {
+          owner: 'owner',
+          repo: 'repo',
+          per_page: 100,
+        }
+      )
       expect(result).toEqual(mockResponse)
     })
 
     it('should handle state and pagination options', async () => {
       const mockResponse: GitHubIssue[] = []
 
-      mockOctokit.rest.issues.listForRepo.mockResolvedValue({ data: mockResponse })
+      mockOctokit.paginate.mockResolvedValue(mockResponse)
 
       const result = await client.listIssues('owner', 'repo', {
         state: 'closed',
         per_page: 50,
       })
 
-      expect(mockOctokit.rest.issues.listForRepo).toHaveBeenCalledWith({
-        owner: 'owner',
-        repo: 'repo',
-        state: 'closed',
-        per_page: 50,
-      })
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.rest.issues.listForRepo,
+        {
+          owner: 'owner',
+          repo: 'repo',
+          per_page: 50,
+          state: 'closed',
+        }
+      )
       expect(result).toEqual(mockResponse)
     })
 
     it('should handle "all" state option', async () => {
       const mockResponse: GitHubIssue[] = []
 
-      mockOctokit.rest.issues.listForRepo.mockResolvedValue({ data: mockResponse })
+      mockOctokit.paginate.mockResolvedValue(mockResponse)
 
       await client.listIssues('owner', 'repo', { state: 'all' })
 
-      expect(mockOctokit.rest.issues.listForRepo).toHaveBeenCalledWith({
-        owner: 'owner',
-        repo: 'repo',
-        state: 'all',
-      })
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.rest.issues.listForRepo,
+        {
+          owner: 'owner',
+          repo: 'repo',
+          per_page: 100,
+          state: 'all',
+        }
+      )
+    })
+
+    it('should use octokit.paginate to fetch all pages of issues', async () => {
+      // Mock paginated response - simulating 150 issues across 2 pages
+      const page1Issues: GitHubIssue[] = Array.from({ length: 100 }, (_, i) => ({
+        number: i + 1,
+        title: `Issue ${i + 1}`,
+        body: `Body ${i + 1}`,
+        state: 'open' as const,
+        labels: [],
+        assignee: null,
+        created_at: '2023-01-01T00:00:00Z',
+        updated_at: '2023-01-01T00:00:00Z',
+        closed_at: null,
+        html_url: `https://github.com/owner/repo/issues/${i + 1}`,
+      }))
+
+      const page2Issues: GitHubIssue[] = Array.from({ length: 50 }, (_, i) => ({
+        number: i + 101,
+        title: `Issue ${i + 101}`,
+        body: `Body ${i + 101}`,
+        state: 'open' as const,
+        labels: [],
+        assignee: null,
+        created_at: '2023-01-02T00:00:00Z',
+        updated_at: '2023-01-02T00:00:00Z',
+        closed_at: null,
+        html_url: `https://github.com/owner/repo/issues/${i + 101}`,
+      }))
+
+      const allIssues = [...page1Issues, ...page2Issues]
+
+      // Mock octokit.paginate to return all 150 issues
+      mockOctokit.paginate.mockResolvedValue(allIssues)
+
+      const result = await client.listIssues('owner', 'repo', { state: 'all' })
+
+      // Should use paginate, not listForRepo directly
+      expect(mockOctokit.paginate).toHaveBeenCalledWith(
+        mockOctokit.rest.issues.listForRepo,
+        expect.objectContaining({
+          owner: 'owner',
+          repo: 'repo',
+          per_page: 100,
+          state: 'all',
+        })
+      )
+
+      // Should return all 150 issues
+      expect(result).toHaveLength(150)
+      expect(result).toEqual(allIssues)
     })
   })
 

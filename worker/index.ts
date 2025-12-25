@@ -98,30 +98,55 @@ async function handleWebhookEvent(event: WebhookEvent, env: Env): Promise<void> 
 async function handleInstallationCreated(payload: any, store: ReturnType<typeof db>): Promise<void> {
   const installationId = payload.installation.id
   const account = payload.installation.account
+  const repositories = payload.repositories || []
 
-  // Store installation in db.td
-  await store.Installation.create({
-    installationId,
-    accountLogin: account.login,
-    accountId: account.id,
-    accountType: account.type,
-  })
+  // GitHub App installations are at the account level, but we track per-repo
+  // For each repository in the installation, create an Installation record
+  // Note: accessToken and tokenExpiresAt need to be obtained via GitHub App API
+  // and will be populated when first needed for sync operations
+  for (const repo of repositories) {
+    const [owner, repoName] = repo.full_name.split('/')
+    await store.Installation.create({
+      githubInstallationId: installationId,
+      owner,
+      repo: repoName,
+      accessToken: '', // Will be populated when token is obtained
+      tokenExpiresAt: new Date(0).toISOString(), // Expired, will trigger refresh
+    })
+    console.log(`Installation created for ${owner}/${repoName}`)
+  }
 
-  console.log(`Installation created for ${account.login}`)
+  // If no repositories provided (e.g., all repos access), create account-level record
+  if (repositories.length === 0) {
+    await store.Installation.create({
+      githubInstallationId: installationId,
+      owner: account.login,
+      repo: '*', // Indicates all repos access
+      accessToken: '',
+      tokenExpiresAt: new Date(0).toISOString(),
+    })
+    console.log(`Installation created for ${account.login} (all repos)`)
+  }
 }
 
 async function handleInstallationDeleted(payload: any, store: ReturnType<typeof db>): Promise<void> {
+  const installationId = payload.installation.id
   const account = payload.installation.account
 
-  // Find and delete installation
+  // Find and delete all installations for this GitHub installation ID
   const installations = await store.Installation.list()
-  const installation = installations.find((i: any) => i.accountLogin === account.login)
+  const matchingInstallations = installations.filter(
+    (i: Installation) => i.githubInstallationId === installationId
+  )
 
-  if (installation) {
+  for (const installation of matchingInstallations) {
     await store.Installation.delete(installation.$id)
+    console.log(`Installation deleted for ${installation.owner}/${installation.repo}`)
   }
 
-  console.log(`Installation deleted for ${account.login}`)
+  if (matchingInstallations.length === 0) {
+    console.log(`No installations found for GitHub installation ${installationId} (${account.login})`)
+  }
 }
 
 async function handleIssueEvent(action: string, payload: any, store: ReturnType<typeof db>): Promise<void> {

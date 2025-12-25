@@ -117,219 +117,138 @@ export function renderTemplate(
 
 /**
  * Built-in minimal issue template
+ * Uses {path} slot syntax for interpolation
  */
 const BUILTIN_ISSUE_MINIMAL = `---
-id: {{issue.id}}
-title: "{{issue.title}}"
-state: {{issue.status}}
-priority: {{issue.priority}}
-type: {{issue.type}}
-labels: {{#if issue.labels}}[{{#each issue.labels}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{else}}[]{{/if}}
-{{#if issue.assignee}}assignee: "{{issue.assignee}}"{{/if}}
-{{#if issue.createdAt}}createdAt: "{{issue.createdAt}}"{{/if}}
-{{#if issue.updatedAt}}updatedAt: "{{issue.updatedAt}}"{{/if}}
-{{#if issue.closedAt}}closedAt: "{{issue.closedAt}}"{{/if}}
-{{#if issue.parent}}parent: "{{issue.parent}}"{{/if}}
-{{#if issue.source}}source: "{{issue.source}}"{{/if}}
-{{#if issue.dependsOn}}dependsOn: [{{#each issue.dependsOn}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}
-{{#if issue.blocks}}blocks: [{{#each issue.blocks}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}
-{{#if issue.children}}children: [{{#each issue.children}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}
+$pattern: "[id]-[title].md"
 ---
+# {issue.title}
 
-# {{issue.title}}
-
-{{#if issue.description}}
-{{issue.description}}
-{{/if}}
-
-{{#if issue.dependsOn}}
-### Related Issues
-
-**Depends on:**
-{{#each issue.dependsOn}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
-
-{{#if issue.blocks}}
-**Blocks:**
-{{#each issue.blocks}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
-
-{{#if issue.children}}
-**Children:**
-{{#each issue.children}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
+{issue.description}
 `
 
 /**
  * Built-in detailed issue template
+ * Uses {path} slot syntax for interpolation
  */
 const BUILTIN_ISSUE_DETAILED = `---
-id: {{issue.id}}
-title: "{{issue.title}}"
-state: {{issue.status}}
-priority: {{issue.priority}}
-type: {{issue.type}}
-labels: {{#if issue.labels}}[{{#each issue.labels}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{else}}[]{{/if}}
-{{#if issue.assignee}}assignee: "{{issue.assignee}}"{{/if}}
-{{#if issue.createdAt}}createdAt: "{{issue.createdAt}}"{{/if}}
-{{#if issue.updatedAt}}updatedAt: "{{issue.updatedAt}}"{{/if}}
-{{#if issue.closedAt}}closedAt: "{{issue.closedAt}}"{{/if}}
-{{#if issue.parent}}parent: "{{issue.parent}}"{{/if}}
-{{#if issue.source}}source: "{{issue.source}}"{{/if}}
+$pattern: "[id]-[title].md"
+id: {issue.id}
+title: {issue.title}
+state: {issue.status}
+priority: {issue.priority}
+type: {issue.type}
+labels: {issue.labels}
+assignee: {issue.assignee}
+createdAt: {issue.createdAt}
+updatedAt: {issue.updatedAt}
+closedAt: {issue.closedAt}
+parent: {issue.parent}
+source: {issue.source}
+dependsOn: {issue.dependsOn}
+blocks: {issue.blocks}
+children: {issue.children}
 ---
+# {issue.title}
 
-# {{issue.title}}
-
-**Status:** {{issue.status}} | **Priority:** {{issue.priority}} | **Type:** {{issue.type}}
-
-{{#if issue.assignee}}
-**Assignee:** {{issue.assignee}}
-{{/if}}
-
-{{#if issue.labels}}
-**Labels:** {{#each issue.labels}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}
-{{/if}}
-
-## Description
-
-{{#if issue.description}}
-{{issue.description}}
-{{else}}
-No description provided.
-{{/if}}
+{issue.description}
 
 ## Metadata
 
-- **Created:** {{#if issue.createdAt}}{{issue.createdAt}}{{else}}N/A{{/if}}
-- **Updated:** {{#if issue.updatedAt}}{{issue.updatedAt}}{{else}}N/A{{/if}}
-{{#if issue.closedAt}}
-- **Closed:** {{issue.closedAt}}
-{{/if}}
+- **ID:** {issue.id}
+- **Status:** {issue.status}
+- **Priority:** {issue.priority}
+- **Type:** {issue.type}
+- **Assignee:** {issue.assignee}
+- **Labels:** {issue.labels}
 
-{{#if issue.dependsOn}}
-## Dependencies
+## Timeline
 
-This issue depends on:
-{{#each issue.dependsOn}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
+- **Created:** {issue.createdAt}
+- **Updated:** {issue.updatedAt}
+- **Closed:** {issue.closedAt}
 
-{{#if issue.blocks}}
-## Blocking
+## Related Issues
 
-This issue blocks:
-{{#each issue.blocks}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
+**Depends on:**
+{issue.dependsOn}
 
-{{#if issue.children}}
-## Subtasks
+**Blocks:**
+{issue.blocks}
 
-{{#each issue.children}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
+**Children:**
+{issue.children}
 `
 
 /**
  * Built-in GitHub-style issue template
+ * Uses {path} slot syntax for interpolation
  */
 const BUILTIN_ISSUE_GITHUB = `---
-id: {{issue.id}}
-title: "{{issue.title}}"
-state: {{issue.status}}
-priority: {{issue.priority}}
-type: {{issue.type}}
-labels: {{#if issue.labels}}[{{#each issue.labels}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{else}}[]{{/if}}
-{{#if issue.assignee}}assignee: "{{issue.assignee}}"{{/if}}
+$pattern: "[id]-[title].md"
+---
+# {issue.title}
+
+{issue.description}
+
 ---
 
-# {{issue.title}}
+## Labels
 
-{{#if issue.labels}}
-{{#each issue.labels}}
-![{{this}}](https://img.shields.io/badge/{{this}}-blue)
-{{/each}}
-{{/if}}
+{issue.labels}
 
-## Description
+## Metadata
 
-{{#if issue.description}}
-{{issue.description}}
-{{else}}
-_No description provided._
-{{/if}}
+- **Status:** \`{issue.status}\`
+- **Priority:** \`{issue.priority}\`
+- **Type:** \`{issue.type}\`
+- **Assignee:** @{issue.assignee}
 
-{{#if issue.dependsOn}}
-## Dependencies
+## Related Issues
 
-This issue depends on:
-{{#each issue.dependsOn}}
-- [ ] {{this}}
-{{/each}}
-{{/if}}
-
-{{#if issue.assignee}}
-## Assignee
-
-@{{issue.assignee}}
-{{/if}}
+**Depends on:** {issue.dependsOn}
+**Blocks:** {issue.blocks}
 
 ---
-{{#if issue.createdAt}}
-_Created: {{issue.createdAt}}_
-{{/if}}
-{{#if issue.updatedAt}}
-_Last updated: {{issue.updatedAt}}_
-{{/if}}
+
+## Comments
+
+<!-- Discussion and activity go here -->
 `
 
 /**
  * Built-in Linear-style issue template
+ * Uses {path} slot syntax for interpolation
  */
 const BUILTIN_ISSUE_LINEAR = `---
-id: {{issue.id}}
-title: "{{issue.title}}"
-state: {{issue.status}}
-priority: {{issue.priority}}
-type: {{issue.type}}
-{{#if issue.assignee}}assignee: "{{issue.assignee}}"{{/if}}
-{{#if issue.labels}}labels: [{{#each issue.labels}}"{{this}}"{{#unless @last}}, {{/unless}}{{/each}}]{{/if}}
+$pattern: "[id]-[title].md"
 ---
+# {issue.title}
 
-# [{{issue.id}}] {{issue.title}}
+{issue.description}
 
-{{#if issue.description}}
-{{issue.description}}
-{{/if}}
+## Details
 
----
+- **Project:** {issue.project}
+- **Cycle:** {issue.cycle}
+- **Team:** {issue.team}
+- **Status:** {issue.status}
+- **Priority:** {issue.priority}
+- **Assignee:** {issue.assignee}
+- **Labels:** {issue.labels}
 
-**Priority:** {{#if (eq issue.priority 0)}}Urgent{{else if (eq issue.priority 1)}}High{{else if (eq issue.priority 2)}}Medium{{else if (eq issue.priority 3)}}Low{{else}}None{{/if}}
-**Status:** {{issue.status}}
-{{#if issue.assignee}}**Assignee:** {{issue.assignee}}{{/if}}
+## Timeline
 
-{{#if issue.dependsOn}}
-### Blocked by
-{{#each issue.dependsOn}}
-- {{this}}
-{{/each}}
-{{/if}}
+- **Created:** {issue.createdAt}
+- **Updated:** {issue.updatedAt}
+- **Closed:** {issue.closedAt}
 
-{{#if issue.blocks}}
-### Blocking
-{{#each issue.blocks}}
-- {{this}}
-{{/each}}
-{{/if}}
+## Related
+
+**Depends on:** {issue.dependsOn}
+**Blocks:** {issue.blocks}
+**Parent:** {issue.parent}
+**Children:** {issue.children}
 `
 
 /**
