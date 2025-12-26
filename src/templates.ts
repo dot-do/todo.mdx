@@ -3,10 +3,22 @@
  * Uses @mdxld/extract for parsing template slots
  */
 
-import { parseTemplateSlots } from '@mdxld/extract'
+import {
+  parseTemplateSlots,
+  extract,
+  diff,
+  applyExtract,
+  type ExtractResult,
+  type ExtractDiff,
+  type ComponentExtractor,
+} from '@mdxld/extract'
 import { promises as fs } from 'node:fs'
 import { join } from 'node:path'
 import type { TodoIssue } from './types.js'
+import * as issueComponents from './components/issues.js'
+
+// Re-export components for use in templates
+export { issueComponents as components }
 
 /**
  * Configuration for template resolution
@@ -61,21 +73,26 @@ function formatValue(value: unknown): string {
 }
 
 /**
- * Render a template string with slot interpolation
+ * Render template using @mdxld/markdown-style render() function
+ *
+ * This function provides an @mdxld/markdown-compatible render() interface.
+ * Since render() doesn't exist in @mdxld/markdown v1.9.0, we implement it
+ * using @mdxld/extract's parseTemplateSlots.
  *
  * Supports:
- * - Simple interpolation: {issue.title} → "My Title"
- * - Nested paths: {issue.assignee.name}
- * - Arrays: {issue.labels} → "bug, urgent"
+ * - Simple interpolation: {data.field} → "value"
+ * - Nested paths: {data.nested.field}
+ * - Arrays: {data.items} → "item1, item2" (auto-formatted)
  * - Escaped braces: {{notASlot}} → {notASlot}
+ * - Components can be passed in data.components
  *
  * @param template - Template string with {path} slots
- * @param context - Context object with issue data
+ * @param data - Data object containing all context (including components)
  * @returns Rendered template string
  */
-export function renderTemplate(
+export function render(
   template: string,
-  context: TemplateContext
+  data: Record<string, unknown>
 ): string {
   // Handle escaped double braces first - convert to placeholder
   const DOUBLE_BRACE_PLACEHOLDER = '\u0000DOUBLE_BRACE\u0000'
@@ -95,7 +112,19 @@ export function renderTemplate(
 
   // Replace each slot with its resolved value
   for (const slot of sortedSlots) {
-    const value = resolvePath(slot.path, context)
+    // Resolve path against data context
+    const parts = slot.path.split('.')
+    let value: any = data
+
+    for (const part of parts) {
+      if (value === null || value === undefined) {
+        value = undefined
+        break
+      }
+      value = value[part]
+    }
+
+    // Format the value
     const formatted = formatValue(value)
 
     // Replace the slot in the template
@@ -115,16 +144,59 @@ export function renderTemplate(
   return processed
 }
 
+
+/**
+ * Render a template string with slot interpolation
+ *
+ * Supports:
+ * - Simple interpolation: {issue.title} → "My Title"
+ * - Nested paths: {issue.assignee.name}
+ * - Arrays: {issue.labels} → "bug, urgent"
+ * - Escaped braces: {{notASlot}} → {notASlot}
+ *
+ * @param template - Template string with {path} slots
+ * @param context - Context object with issue data
+ * @returns Rendered template string
+ */
+export function renderTemplate(
+  template: string,
+  context: TemplateContext
+): string {
+  // Use render() from @mdxld/markdown (implemented above)
+  return render(template, {
+    ...context,
+    components: issueComponents,
+  })
+}
+
 /**
  * Built-in minimal issue template
- * Uses {path} slot syntax for interpolation
+ * Uses {path} slot syntax for interpolation and MDX component syntax
  */
 const BUILTIN_ISSUE_MINIMAL = `---
 $pattern: "[id]-[title].md"
 ---
 # {issue.title}
 
+**Status:** {issue.status} | **Priority:** {issue.priority} | **Type:** {issue.type}
+
+**Assignee:** @{issue.assignee}
+
+## Description
+
 {issue.description}
+
+## Labels
+
+<Issue.Labels />
+
+## Dependencies
+
+<Issue.Dependencies />
+
+## Blocks
+
+<Issue.Dependents />
 `
 
 /**
@@ -253,57 +325,71 @@ $pattern: "[id]-[title].md"
 
 /**
  * Built-in minimal TODO template
+ * Uses {path} slot syntax for interpolation and MDX component syntax
  */
 const BUILTIN_TODO_MINIMAL = `# TODO
 
-{{#each issues}}
-## [{{this.id}}] {{this.title}}
+**Generated:** {timestamp}
 
-**Status:** {{this.status}} | **Priority:** {{this.priority}} | **Type:** {{this.type}}
+## Summary
 
-{{#if this.description}}
-{{this.description}}
-{{/if}}
+- **Total:** {stats.total}
+- **Open:** {stats.open}
+- **In Progress:** {stats.inProgress}
+- **Blocked:** {stats.blocked}
 
-{{/each}}
+## Blocked Issues
+
+<Issues.Blocked columns={['id', 'title', 'blockedBy']} />
+
+## Ready to Work
+
+<Issues.Ready limit={10} columns={['id', 'title', 'priority']} />
+
+## All Open Issues
+
+<Issues status="open" columns={['id', 'title', 'priority', 'type']} />
+
+## Recently Closed
+
+<Issues.Closed limit={5} columns={['id', 'title', 'closedAt']} />
 `
 
 /**
  * Built-in detailed TODO template
+ * Uses {path} slot syntax for interpolation and MDX component syntax
  */
 const BUILTIN_TODO_DETAILED = `# TODO
 
-Generated: {{timestamp}}
+**Generated:** {timestamp}
 
 ## Summary
 
-- Total Issues: {{issues.length}}
-- Open: {{openCount}}
-- In Progress: {{inProgressCount}}
-- Closed: {{closedCount}}
+- **Total:** {stats.total}
+- **Open:** {stats.open}
+- **In Progress:** {stats.inProgress}
+- **Blocked:** {stats.blocked}
+- **Ready:** {stats.ready}
 
-{{#each issues}}
----
+## Blocked Issues
 
-## [{{this.id}}] {{this.title}}
+<Issues.Blocked columns={['id', 'title', 'priority', 'blockedBy']} />
 
-**Status:** {{this.status}} | **Priority:** {{this.priority}} | **Type:** {{this.type}}
-{{#if this.assignee}}**Assignee:** {{this.assignee}}{{/if}}
+## In Progress
 
-{{#if this.description}}
-### Description
+<Issues status="in_progress" columns={['id', 'title', 'assignee', 'priority']} />
 
-{{this.description}}
-{{/if}}
+## Ready to Work
 
-{{#if this.dependsOn}}
-### Dependencies
-{{#each this.dependsOn}}
-- [{{this}}](./{{this}}.md)
-{{/each}}
-{{/if}}
+<Issues.Ready limit={10} columns={['id', 'title', 'priority', 'type']} />
 
-{{/each}}
+## All Open Issues
+
+<Issues status="open" columns={['id', 'title', 'priority', 'type', 'labels']} />
+
+## Recently Closed
+
+<Issues.Closed limit={10} columns={['id', 'title', 'closedAt']} />
 `
 
 /**
@@ -403,3 +489,65 @@ export async function resolveTemplate(
   // 3. Return built-in template
   return getBuiltinTemplate(type, preset)
 }
+
+/**
+ * Extract structured data from rendered markdown using an MDX template
+ *
+ * This enables bi-directional sync: markdown files can be edited, and changes
+ * are extracted back to the original structured data (issue props).
+ *
+ * @example
+ * ```ts
+ * const template = `# {issue.title}\n\n{issue.description}`
+ * const rendered = `# Updated Title\n\nNew description`
+ * const result = extractFromMarkdown(template, rendered)
+ * // result.data = { issue: { title: 'Updated Title', description: 'New description' } }
+ * ```
+ *
+ * @param template - MDX template with {path} slots
+ * @param renderedMarkdown - Rendered markdown (possibly edited)
+ * @param components - Optional component extractors for custom components
+ * @returns ExtractResult with extracted data, confidence score, and metadata
+ */
+export function extractFromMarkdown<T = Record<string, unknown>>(
+  template: string,
+  renderedMarkdown: string,
+  components?: Record<string, ComponentExtractor>
+): ExtractResult<T> {
+  return extract<T>({
+    template,
+    rendered: renderedMarkdown,
+    components: components || {},
+  })
+}
+
+/**
+ * Re-export diff for computing changes between original and extracted data
+ *
+ * @example
+ * ```ts
+ * const original = { issue: { title: 'Hello', status: 'open' } }
+ * const extracted = { issue: { title: 'Updated', status: 'open' } }
+ * const changes = diff(original, extracted)
+ * // changes.modified = { 'issue.title': { from: 'Hello', to: 'Updated' } }
+ * ```
+ */
+export { diff }
+
+/**
+ * Re-export applyExtract for applying extracted changes to original data
+ *
+ * @example
+ * ```ts
+ * const original = { issue: { title: 'Hello', description: 'Original', status: 'open' } }
+ * const extracted = { issue: { title: 'Updated' } }
+ * const merged = applyExtract(original, extracted)
+ * // merged = { issue: { title: 'Updated', description: 'Original', status: 'open' } }
+ * ```
+ */
+export { applyExtract }
+
+/**
+ * Re-export types for use in consuming code
+ */
+export type { ExtractResult, ExtractDiff, ComponentExtractor }

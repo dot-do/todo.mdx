@@ -16,8 +16,13 @@ export type {
   WatchEvent,
 } from './types.js'
 
-// Re-export beads-workflows types
-export type { Issue, IssueStatus, IssueType, Priority } from 'beads-workflows'
+// Re-export beads-workflows types (renamed to avoid conflict with components)
+export type {
+  Issue as BeadsIssue,
+  IssueStatus,
+  IssueType,
+  Priority,
+} from 'beads-workflows'
 
 // Beads integration
 export { loadBeadsIssues, hasBeadsDirectory } from './beads.js'
@@ -42,5 +47,32 @@ export { watch } from './watcher.js'
 export type { WatchOptions, Watcher } from './watcher.js'
 
 // Templates
-export { renderTemplate, resolveTemplate } from './templates.js'
-export type { TemplateContext, TemplateConfig } from './templates.js'
+export {
+  render,
+  renderTemplate,
+  resolveTemplate,
+  extractFromMarkdown,
+  diff,
+  applyExtract,
+} from './templates.js'
+export type {
+  TemplateContext,
+  TemplateConfig,
+  ExtractResult,
+  ExtractDiff,
+  ComponentExtractor,
+} from './templates.js'
+
+// Components
+export {
+  Issues,
+  Issue,
+  IssueLabels,
+  IssueDependencies,
+  createIssueExtractors,
+} from './components/issues.js'
+export type {
+  IssuesProps,
+  IssueLabelsProps,
+  IssueDependenciesProps,
+} from './components/issues.js'

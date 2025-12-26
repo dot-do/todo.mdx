@@ -46,7 +46,7 @@ export interface TodoIssue {
   id: string
   title: string
   description?: string
-  status: 'open' | 'in_progress' | 'closed'
+  status: 'open' | 'in_progress' | 'blocked' | 'closed'
   type: 'task' | 'bug' | 'feature' | 'epic'
   priority: 0 | 1 | 2 | 3 | 4
   assignee?: string

@@ -1,0 +1,39 @@
+---
+$pattern: "[id]-[title].md"
+id: {issue.id}
+title: {issue.title}
+state: {issue.status}
+priority: {issue.priority}
+type: {issue.type}
+labels: {issue.labels}
+assignee: {issue.assignee}
+createdAt: {issue.createdAt}
+updatedAt: {issue.updatedAt}
+closedAt: {issue.closedAt}
+parent: {issue.parent}
+source: {issue.source}
+dependsOn: {issue.dependsOn}
+blocks: {issue.blocks}
+children: {issue.children}
+---
+# {issue.title}
+
+**Status:** {issue.status} | **Priority:** {issue.priority} | **Type:** {issue.type}
+
+**Assignee:** @{issue.assignee}
+
+## Description
+
+{issue.description}
+
+## Labels
+
+<Issue.Labels />
+
+## Dependencies
+
+<Issue.Dependencies />
+
+## Blocks
+
+<Issue.Dependents />

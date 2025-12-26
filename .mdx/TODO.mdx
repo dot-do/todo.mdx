@@ -1,0 +1,26 @@
+# TODO
+
+**Generated:** {timestamp}
+
+## Summary
+
+- **Total:** {stats.total}
+- **Open:** {stats.open}
+- **In Progress:** {stats.inProgress}
+- **Blocked:** {stats.blocked}
+
+## Blocked Issues
+
+<Issues.Blocked columns={['id', 'title', 'blockedBy']} />
+
+## Ready to Work
+
+<Issues.Ready limit={10} columns={['id', 'title', 'priority']} />
+
+## All Open Issues
+
+<Issues status="open" columns={['id', 'title', 'priority', 'type']} />
+
+## Recently Closed
+
+<Issues.Closed limit={5} columns={['id', 'title', 'closedAt']} />

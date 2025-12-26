@@ -1,19 +1,10 @@
 # TODO
 
-## In Progress
-
-- [ ] [#todo-g354] Templates use handlebars syntax but renderTemplate uses different slot system - *bug, P1 #architecture #code-review #src #templates*
-- [ ] [#todo-vjpw] CLI init command writes to .beads/TODO.mdx without checking if .beads exists - *bug, P2 #cli #code-review #error-handling #src*
-- [ ] [#todo-rl4l] Infinite loop potential in handleCollision function - *bug, P2 #code-review #patterns #src*
-- [ ] [#todo-wz8f] Missing error handling for invalid date strings in parser - *bug, P2 #code-review #parser #src #validation*
-- [ ] [#todo-a0ao] Parser validateId returns untrimmed ID but validates trimmed version - *bug, P2 #code-review #parser #src #validation*
-- [ ] [#todo-ljby] Security: constantTimeCompare leaks length information - *bug, P2 #code-review #security #worker*
-
 ## Open
 
 ### Bugs
 
-- [ ] [#todo-dp5x] CLI uses mock beadsOps that don't persist data - *bug, P1 #code-review #incomplete #worker*
+- [ ] [#todo-g354] Rewrite template system to use MDX components with @mdxld/markdown and @mdxld/extract - *bug, P1 #architecture #code-review #src #templates*
 - [ ] [#todo-67ch] .github/README.md references non-existent documentation file - *bug, P2 #code-review #docs*
 - [ ] [#todo-5jeo] .github/README.md webhook URLs mismatch app-manifest.json - *bug, P2 #code-review #docs*
 - [ ] [#todo-2ys6] Bug: generateId uses Math.random() which is not cryptographically secure - *bug, P2 #code-review #security #worker*
@@ -25,6 +16,10 @@
 
 ### Tasks
 
+- [ ] [#todo-es3r] Add extractFromMarkdown using @mdxld/extract - *task, P1 #mdx #sync #templates*
+- [ ] [#todo-4y3r] Create default MDX templates with component syntax - *task, P1 #mdx #templates*
+- [ ] [#todo-vong] Create roundTripComponent definitions for MDX issue components - *task, P1 #components #mdx #templates*
+- [ ] [#todo-b8iz] Rewrite renderTemplate to use @mdxld/markdown render() - *task, P1 #mdx #templates*
 - [ ] [#todo-ciiu] README.md uses different webhook URL than app-manifest.json - *task, P2 #code-review #docs*
 - [ ] [#todo-nahq] Test improvement: Missing error path tests in github-client.test.ts - *task, P2 #code-review #test-coverage #tests*
 - [ ] [#todo-jmd8] Test improvement: sync.test.ts mocks hide implementation bugs - *task, P2 #code-review #test-coverage #tests*
@@ -47,13 +42,13 @@
 
 ## Recently Completed
 
-- [x] [#todo-2tj0] Missing error handling: GitHub API pagination not implemented - *closed 2025-12-24*
-- [x] [#todo-bqc2] Race condition: beadsUpdatedAt not updated correctly after conflict resolution - *closed 2025-12-24*
-- [x] [#todo-v18a] Type mismatch: Installation entity interfaces differ between entities.ts and index.ts - *closed 2025-12-24*
+- [x] [#todo-2tj0] Missing error handling: GitHub API pagination not implemented - *closed 2025-12-25*
+- [x] [#todo-ljby] Security: constantTimeCompare leaks length information - *closed 2025-12-25*
+- [x] [#todo-bqc2] Race condition: beadsUpdatedAt not updated correctly after conflict resolution - *closed 2025-12-25*
+- [x] [#todo-rl4l] Infinite loop potential in handleCollision function - *closed 2025-12-25*
+- [x] [#todo-v18a] Type mismatch: Installation entity interfaces differ between entities.ts and index.ts - *closed 2025-12-25*
+- [x] [#todo-vjpw] CLI init command writes to .beads/TODO.mdx without checking if .beads exists - *closed 2025-12-25*
+- [x] [#todo-dp5x] CLI uses mock beadsOps that don't persist data - *closed 2025-12-25*
+- [x] [#todo-a0ao] Parser validateId returns untrimmed ID but validates trimmed version - *closed 2025-12-25*
+- [x] [#todo-wz8f] Missing error handling for invalid date strings in parser - *closed 2025-12-25*
 - [x] [#todo-0raa] Race condition: watcher can process events during shutdown - *closed 2025-12-24*
-- [x] [#todo-wq9p] Deploy worker to todo.mdx.workers.dev - *closed 2025-12-24*
-- [x] [#todo-hd4v] Path traversal vulnerability in generator despite validation - *closed 2025-12-24*
-- [x] [#todo-203p] sync.ts creates issues without using provided ID - *closed 2025-12-24*
-- [x] [#todo-1vuu] Sync detectChanges doesn't handle deleted issues - *closed 2025-12-24*
-- [x] [#todo-3lkg] Uncaught errors in watcher debounce callback can crash process - *closed 2025-12-24*
-- [x] [#todo-gpm0] Test anti-pattern: beads.test.ts tests against live project data - *closed 2025-12-24*

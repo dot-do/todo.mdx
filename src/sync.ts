@@ -266,7 +266,8 @@ function toUpdateOptions(issue: TodoIssue, originalIssue?: TodoIssue): UpdateOpt
 
   return {
     title: mergedIssue.title,
-    status: mergedIssue.status,
+    // Map 'blocked' to 'open' since beads doesn't support blocked status
+    status: mergedIssue.status === 'blocked' ? 'open' : mergedIssue.status,
     priority: mergedIssue.priority,
     description: mergedIssue.description,
     assignee: mergedIssue.assignee,
